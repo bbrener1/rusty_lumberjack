@@ -108,8 +108,8 @@ def fit(targets,location, **kwargs):
 
     while cp.poll() is None:
         sys.stdout.flush()
+        sys.stdout.write("Constructing trees: %s" % str(len(glob.glob(location + "/tmp.*.compact"))) + "\r")
         # print(os.listdir(location))
-        print("Constructing trees: %s" % str(len(glob.glob(location + "/tmp.*.compact"))))
         sleep(1)
 
     # print(cp.stdout)
