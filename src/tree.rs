@@ -31,6 +31,7 @@ pub struct Tree {
     dropout: DropMode,
     weights: Option<Vec<f64>>,
     size_limit: usize,
+    depth_limit: usize,
     pub report_address: String,
 }
 
@@ -51,6 +52,7 @@ impl<'a> Tree {
             dropout: parameters.dropout,
             weights: weights,
             size_limit: parameters.leaf_size_cutoff,
+            depth_limit: parameters.depth_cutoff,
             report_address: report_address
         }
     }
@@ -117,7 +119,7 @@ impl<'a> Tree {
         }
     }
 
-    pub fn reload(location: &str,feature_pool: mpsc::Sender<SplitMessage>, size_limit: usize , report_address: String) -> Result<Tree,Error> {
+    pub fn reload(location: &str,feature_pool: mpsc::Sender<SplitMessage>, size_limit: usize, depth_limit: usize , report_address: String) -> Result<Tree,Error> {
 
         println!("Reloading!");
 
@@ -141,6 +143,7 @@ impl<'a> Tree {
             root: root,
             weights: None,
             size_limit: size_limit,
+            depth_limit: depth_limit,
             report_address: report_address
         })
 
@@ -148,7 +151,7 @@ impl<'a> Tree {
 
 
     pub fn grow_branches(&mut self) {
-        grow_branches(&mut self.root, self.size_limit,&self.report_address,0);
+        grow_branches(&mut self.root, self.size_limit, self.depth_limit ,&self.report_address,0);
         self.root.root_absolute_gains();
     }
 
@@ -167,6 +170,7 @@ impl<'a> Tree {
             dropout: self.dropout,
             weights: self.weights.clone(),
             size_limit: self.size_limit,
+            depth_limit: self.depth_limit,
             report_address: address_string,
         }
 
@@ -192,6 +196,7 @@ impl<'a> Tree {
             dropout: self.dropout,
             weights: self.weights.clone(),
             size_limit: self.size_limit,
+            depth_limit: self.depth_limit,
             report_address: address_string,
         }
 
@@ -296,11 +301,11 @@ impl<'a> Tree {
 }
 
 
-pub fn grow_branches(target:&mut Node, size_limit:usize,report_address:&str,level:usize) {
-    if target.samples().len() > size_limit {
+pub fn grow_branches(target:&mut Node, size_limit:usize,depth_limit:usize,report_address:&str,level:usize) {
+    if target.samples().len() > size_limit && level < depth_limit {
         if target.feature_parallel_derive().is_some() {
             for child in target.children.iter_mut() {
-                grow_branches(child, size_limit,report_address, level+1);
+                grow_branches(child, size_limit, depth_limit, report_address, level+1);
             }
         }
     }

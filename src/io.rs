@@ -81,8 +81,9 @@ pub fn construct(mut args: Parameters) {
     let output_array = args.output_array.take().unwrap();
 
     let mut loc_args = args.clone();
-    loc_args.input_feature_names = vec![];
-    loc_args.output_feature_names = vec![];
+    // loc_args.input_feature_names = vec![];
+    // loc_args.output_feature_names = vec![];
+    // loc_args.sample_names = vec![];
     println!("Parsed parameters (Otherwise /function/ default)");
     println!("{:?}", loc_args);
 
@@ -291,6 +292,8 @@ impl Parameters {
                     arg_struct.input_array = single_array.clone();
                     arg_struct.output_count_array_file = single_count_array_file;
                     arg_struct.output_array = single_array;
+                    eprintln!("LOADING OUTPUT ARRAY");
+                    eprintln!("{:?}",arg_struct.output_array);
                 },
                 "-ic" | "-input_counts" => {
                     arg_struct.input_array = Some(read_counts(&args.next().expect("Error parsing input count location!")));
@@ -401,7 +404,7 @@ impl Parameters {
         }
         if arg_struct.output_feature_header_file.is_none() {
             let dimensions = mtx_dim(arg_struct.output_array.as_ref().unwrap());
-            arg_struct.input_feature_names = (0..dimensions.0).map(|x| x.to_string()).collect()
+            arg_struct.output_feature_names = (0..dimensions.0).map(|x| x.to_string()).collect()
         }
         if arg_struct.sample_header_file.is_none() {
             let dimensions = mtx_dim(arg_struct.input_array.as_ref().unwrap());

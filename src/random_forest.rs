@@ -180,13 +180,13 @@ impl Forest {
                 let mut tree_locations: Vec<String> = io::BufReader::new(&tree_file).lines().map(|x| x.expect("Tree location error!")).collect();
                 trees = Vec::with_capacity(tree_locations.len());
                 for loc in tree_locations {
-                    trees.push(Tree::reload(&loc,split_thread_pool.clone(),1,"".to_string())?);
+                    trees.push(Tree::reload(&loc,split_thread_pool.clone(),1,1,"".to_string())?);
                 }
             }
             TreeBackups::Vector(tree_locations) => {
                 trees = Vec::with_capacity(tree_locations.len());
                 for loc in tree_locations {
-                    trees.push(Tree::reload(&loc,split_thread_pool.clone(),1,"".to_string())?);
+                    trees.push(Tree::reload(&loc,split_thread_pool.clone(),1,1,"".to_string())?);
                 }
             }
             TreeBackups::Trees(backup_trees) => {

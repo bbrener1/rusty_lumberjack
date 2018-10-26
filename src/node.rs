@@ -32,6 +32,7 @@ pub struct Node {
 
     pub parent_id: String,
     pub id: String,
+    pub depth: usize,
     pub children: Vec<Node>,
 
     feature: Option<String>,
@@ -69,6 +70,7 @@ impl Node {
 
             id: "RT".to_string(),
             parent_id: "RT".to_string(),
+            depth: 0,
             children: Vec::new(),
 
             feature: None,
@@ -239,6 +241,7 @@ impl Node {
 
                 parent_id: self.id.clone(),
                 id: new_id.to_string(),
+                depth: self.depth + 1,
                 children: Vec::new(),
 
                 feature: None,
@@ -276,6 +279,7 @@ impl Node {
 
             parent_id: self.id.clone(),
             id: new_id.to_string(),
+            depth: self.depth + 1,
             children: Vec::new(),
 
             feature: None,
@@ -419,6 +423,7 @@ impl Node {
 
             parent_id: self.parent_id,
             id: self.id,
+            depth: self.depth,
             children: children,
 
             feature: self.feature,
@@ -719,6 +724,7 @@ impl NodeWrapper {
 
             parent_id: self.parent_id,
             id: self.id,
+            depth: self.depth,
             children: children,
 
             feature: self.feature,
@@ -744,7 +750,7 @@ pub struct NodeWrapper {
 
     pub parent_id: String,
     pub id: String,
-    // pub children: Vec<String>,
+    pub depth: usize,
     pub children: Vec<NodeWrapper>,
 
     pub feature: Option<String>,

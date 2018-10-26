@@ -1,4 +1,7 @@
+#!/usr/bin/env python
+
 import numpy as np
+import glob
 import sys
 import os
 import tempfile as tmp
@@ -7,90 +10,110 @@ import io
 import argparse
 from time import sleep
 import subprocess as sp
+# path_to_rust = (Path(__file__).parent / "target/release/lumberjack_1").resolve()
+# path_to_tree_reader = Path(__file__).resolve()
+# sys.path.append(path_to_tree_reader)
 import tree_reader as tr
 
 import numpy as np
 # import matplotlib.pyplot as plt
 
 def main():
+    # print("Tree reader?")
+    # print(path_to_tree_reader)
     print("Running main")
+    print("Trying to load")
+    print(sys.argv[1])
     counts = np.loadtxt(sys.argv[1])
-    generate(counts)
+    print("Loaded counts")
+    print(counts)
+    fit_return = context(counts,trees=100)
+    print(fit_return)
 
-def generate(targets,header=None, **args):
+def context(targets,header=None,**args):
 
-# ,feature_sub=None,distance=None,sample_sub=None,scaling=None,merge_distance=None,refining=False,error_dump=None,convergence_factor=None,smoothing=None,locality=None)
+    targets = targets.T
+
+    print("Setting context")
+
+    tmp_dir = tmp.TemporaryDirectory()
+    output = tmp_dir.name + "/tmp"
+
+    np.savetxt(output + ".truth",targets)
 
     features = targets.shape[1]
 
-    # np.array(targets)
-    tmp_dir = tmp.TemporaryDirectory()
-    output = tmp_dir.name + "/tmp."
-
-    np.savetxt(output + "truth",targets)
-
     if header is None:
-        np.savetxt(output + "header", np.arange(features))
+        np.savetxt(output + ".header", np.arange(features))
 
-    targets = "\n".join(["\t".join([str(y) for y in x]) for x in targets]) + "\n"
+    print("CHECK TRUTH")
+    print(tmp_dir.name)
+    print(os.listdir(tmp_dir.name))
 
-    # print(targets)
+    print("Generating trees")
 
-    # table_pipe = io.StringIO(targets)
-    #
-    # table_pipe.seek(0)
+    fit(targets,output,**args)
 
-    path_to_rust = (Path(__file__).parent / "target/release/lumberjack_1").resolve()
+    print("CHECK OUTPUT")
+    print(os.listdir(tmp_dir.name))
 
-    print("Running " + str(path_to_rust))
-
-    arg_list = [path_to_rust,"generate","-stdin","-o",output ,"-auto"]
-
-    for arg,val in args.iteritems():
-        arg_list.append("-" + str(arg))
-        if type(val) is not bool:
-            arg_list.append(str(val))
-
-    # arg_list = [str(path_to_rust),"generate"]
-    # arg_list.extend(["-stdin"])
-    # arg_list.extend(["-o",output])
-    # if sample_sub is not None:
-    #     arg_list.extend(["-ss",str(sample_sub)])
-    # if feature_sub is not None:
-    #     arg_list.extend(["-fs",str(feature_sub)])
-    # if scaling is not None:
-    #     arg_list.extend(["-sf",str(scaling)])
-    # if merge_distance is not None:
-    #     arg_list.extend(["-m",str(merge_distance)])
-    # if error_dump is not None:
-    #     arg_list.extend(["-error",str(error_dump)])
-    # if convergence_factor is not None:
-    #     arg_list.extend(["-convergence",str(convergence_factor)])
-    # if locality is not None:
-    #     arg_list.extend(["-l",str(locality)])
-    # if smoothing is not None:
-    #     arg_list.extend(["-smoothing",str(smoothing)])
-    # if distance is not None:
-    #     arg_list.extend(["-d",str(distance)])
-    # if refining:
-    #     arg_list.extend(["-refining"])
-
-    print("Command: " + " ".join(arg_list))
-
-    cp = sp.run(arg_list,input=targets,stdout=sp.PIPE,stderr=sp.PIPE,universal_newlines=True)
-
-    for stdout_line in iter(sp.stdout.readline, ""):
-        yield stdout_line
-    sp.stdout.close()
-
-    print(sp.stderr)
-
-    let forest = forest.load(output,prefix="/tmp.*.compact",header="/tmp.header",truth="/tmp.truth")
+    forest = tr.Forest.load(output,prefix="/tmp.*.compact",header=".header",truth=".truth")
 
     tmp_dir.cleanup()
 
-    return(list(map(lambda x: int(x),cp.stdout.split())))
+    return forest
 
+
+def fit(targets,location, **args):
+
+    targets = "\n".join(["\t".join([str(y) for y in x]) for x in targets]) + "\n"
+
+    path_to_rust = (Path(__file__).parent / "../target/release/lumberjack_1").resolve()
+
+    print("Running " + str(path_to_rust))
+
+    arg_list = [str(path_to_rust),"generate","-stdin","-o",location ,"-auto"]
+
+    print("Command: " + " ".join(arg_list))
+
+    # cp = sp.run(arg_list,input=targets,stdout=sp.PIPE,stderr=sp.PIPE,universal_newlines=True)
+
+    cp = sp.Popen(arg_list,stdin=sp.PIPE,stdout=sp.PIPE,stderr=sp.PIPE,universal_newlines=True)
+    try:
+        cp.communicate(input=targets,timeout=1)
+    except:
+        print("Communicated input")
+    #
+    # with sp.Popen(arg_list,stdin=sp.PIPE,stdout=sp.PIPE,stderr=sp.PIPE,universal_newlines=True) as cp:
+    #     try:
+    #         cp.communicate(input=targets,timeout=1)
+    #     except:
+    #         pass
+    #     while True:
+    #         print("Trying to readline")
+    #         # sleep(1)
+    #         rc = cp.poll()
+    #         if rc is not None:
+    #             print(cp.stdout.read())
+    #             print(cp.stderr.read())
+    #             break
+    #         output = cp.stdout.readline()
+    #         print("Read line")
+    #         print(output)
+
+
+    while cp.poll() is None:
+        sys.stdout.flush()
+        # print(os.listdir(location))
+        print("Constructing trees: %s" % str(len(glob.glob(location + "/tmp.*.compact"))))
+        sleep(1)
+
+    # print(cp.stdout)
+
+    print(cp.stderr)
 
 if __name__ == "__main__":
     main()
+
+
+# ,feature_sub=None,distance=None,sample_sub=None,scaling=None,merge_distance=None,refining=False,error_dump=None,convergence_factor=None,smoothing=None,locality=None)

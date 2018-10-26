@@ -32,11 +32,12 @@ import copy
 
 class Node:
 
-    def __init__(self, node_json,tree,forest,prerequisites=None,level=0):
+    def __init__(self, node_json,tree,forest,parent=None,prerequisites=None,level=0):
         if prerequisites is None:
             prerequisites = []
         self.tree = tree
         self.forest = forest
+        self.parent = parent
         self.level = level
         self.feature = node_json['feature']
         self.split = node_json['split']
@@ -49,8 +50,8 @@ class Node:
         self.children = []
         self.prerequisites = prerequisites
         if len(node_json['children']) > 0:
-            self.children.append(Node(node_json['children'][0],self.tree,self.forest,prerequisites = prerequisites + [(self.feature,self.split,'<')],level=level+1))
-            self.children.append(Node(node_json['children'][1],self.tree,self.forest,prerequisites = prerequisites + [(self.feature,self.split,'>')],level=level+1))
+            self.children.append(Node(node_json['children'][0],self.tree,self.forest,self,prerequisites = prerequisites + [(self.feature,self.split,'<')],level=level+1))
+            self.children.append(Node(node_json['children'][1],self.tree,self.forest,self,prerequisites = prerequisites + [(self.feature,self.split,'>')],level=level+1))
 
     def nodes(self):
         nodes = []
@@ -74,11 +75,19 @@ class Node:
         for child in self.children:
             child_levels = child.nodes_by_level()
             for i,child_level in enumerate(child_levels):
-                if len(levels) < i+1:
-                    levels.push([])
+                if len(levels) < i+2:
+                    levels.append([])
                 levels[i+1].extend(child_level)
-        levels
+        return levels
 
+    def plotting_representation(self):
+        total_width = sum([len(x.samples) for x in self.children])
+        child_proportions = []
+        for child in self.children:
+            child_proportions.append([float(len(child.samples)) / float(total_width),])
+            child_proportions[-1].append(child.plotting_representation())
+        # print(child_proportions)
+        return child_proportions
 
     def feature_levels(self):
         feature_levels = []
@@ -113,6 +122,10 @@ class Node:
             level_nodes.append(self)
         return level_nodes
 
+    def depth(self,d=0):
+        for child in self.children:
+            d = max(child.depth(d+1),d)
+        return d
 
     def feature_index(self, truth_dictionary=None):
         if truth_dictionary is None:
@@ -152,6 +165,16 @@ class Node:
     def split_sample_index(self):
         counts = self.singly_sorted_counts()
         return np.sum(counts[:,self.split_feature_index] > float(self.split))
+
+    def ranked_feature_gain(self):
+
+        gain_rankings = np.argsort(self.absolute_gains)
+        sorted_gains = np.array(self.absolute_gains)[gain_rankings]
+        sorted_features = np.array(self.features)[gain_rankings]
+
+        return sorted_features,sorted_gains
+
+
 
 
 class Tree:
@@ -198,12 +221,13 @@ class Tree:
     def plotting_representation(self,width=10,height=10):
         coordinates = []
         connectivities = []
+        bars = []
         levels = self.root.nodes_by_level()
         jump = height / len(levels)
         for i,level in enumerate(levels):
             level_samples = sum([len(node.samples) for node in level])
             next_level_samples = 0
-            if i < len(levels):
+            if i < (len(levels)-1):
                 next_level_samples = sum([len(node.samples) for node in levels[i+1]])
             consumed_width = 0
             next_consumed_width = 0
@@ -212,22 +236,64 @@ class Tree:
                 half_width = (width * sample_weight)/2
                 center = consumed_width + half_width
                 consumed_width = consumed_width + (half_width * 2)
-                coordinates.append((i*jump,center)))
-                if i < len(levels):
+                coordinates.append((i*jump,center))
+                if i < (len(levels)-1):
                     for child in node.children:
                         child_sample_weight = float(len(child.samples)) / float(next_level_samples)
-                        child_half_width = (width * sample_weight)/2
+                        child_half_width = (width * child_sample_weight)/2
                         child_center = next_consumed_width + child_half_width
                         next_consumed_width = next_consumed_width + (child_half_width * 2)
-                        connectivities.append((i*jump,j*(center),((i+1)*jump,child_center)))
-        np.array(coordinates)
+                        connectivities.append(([i*jump,(i+1)*jump],[center,child_center]))
+        coordinates = np.array(coordinates)
         plt.figure()
-        plt.scatter(coordinates[:,0],[:,1])
+        plt.scatter(coordinates[:,0],coordinates[:,1],s=1)
         for connection in connectivities:
-            plot(connection[0],connection[1])
+            plt.plot(connection[0],connection[1])
         plt.show()
 
         # return coordinates,connectivities
+
+
+    def recursive_plotting_repesentation(self,axes,height=None,height_step=None,representation=None,limits=None):
+        if limits is None:
+            limits = axes.get_xlim()
+        current_position = limits[0]
+        width = float(limits[1] - limits[0])
+        center = (limits[1] + limits[0]) / 2
+        if representation is None:
+            representation = self.root.plotting_representation()
+            print(representation)
+        if height_step is None or height is None:
+            depth = self.root.depth()
+            height_limits = axes.get_ylim()
+            height = height_limits[1]
+            height_step = -1 * (height_limits[1] - height_limits[0]) / depth
+        # print(representation)
+        for i,current_representation in enumerate(representation):
+            width_proportion = current_representation[0]
+            children = current_representation[1]
+            node_start = current_position
+            node_width = width_proportion * width
+            padding = node_width * .05
+            node_width = node_width - padding
+            node_center = (node_width/2) + current_position
+            node_height = height + height_step
+            node_end = (node_width) + current_position
+            current_position = node_end + padding
+
+            color = ['r','b'][(i%2)]
+
+            axes.plot([center,node_center],[height,node_height],c=color)
+            # axes.plot([node_center],[node_height])
+            axes.plot([node_start,node_end],[node_height,node_height],c=color)
+
+            self.recursive_plotting_repesentation(axes,height=node_height,height_step=height_step,representation=children,limits=(node_start,node_end))
+
+    def plot(self):
+        fig = plt.figure(figsize=(10,20))
+        ax = fig.add_subplot(111)
+        self.recursive_plotting_repesentation(ax)
+        fig.show()
 
 
     def summary(self, verbose=True):
@@ -273,6 +339,7 @@ class Forest:
         return level
 
     def load(location, prefix="/run.*.compact", header="/run.prediction_header",truth="run.prediction_truth"):
+
         combined_tree_files = glob.glob(location + prefix)
 
         print(combined_tree_files)
@@ -327,6 +394,15 @@ from sklearn.cluster import AgglomerativeClustering
 import community
 import networkx as nx
 
+def numpy_mad(mtx):
+    medians = []
+    for column in mtx.T:
+        medians.append(np.median(column[column!=0]))
+    median_distances = np.abs(mtx - np.tile(np.array(medians), (mtx.shape[0],1)))
+    mads = []
+    for (i,column) in enumerate(median_distances.T):
+        mads.append(np.median(column[mtx[:,i]!=0]))
+    return np.array(mads)
 
 def node_sample_encoding(nodes,samples):
 
@@ -475,4 +551,4 @@ def sample_agglomerative(nodes,samples,n_clusters):
 
 #     clusters = clustering_model.fit_predict(node_encoding)
 
-return clusters
+    return clusters
