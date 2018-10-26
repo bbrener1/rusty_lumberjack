@@ -18,19 +18,19 @@ import tree_reader as tr
 import numpy as np
 # import matplotlib.pyplot as plt
 
-def main():
+def main(target,**kwargs):
     # print("Tree reader?")
     # print(path_to_tree_reader)
     print("Running main")
     print("Trying to load")
-    print(sys.argv[1])
-    counts = np.loadtxt(sys.argv[1])
+    print(target)
+    counts = np.loadtxt(target)
     print("Loaded counts")
     print(counts)
-    fit_return = context(counts,trees=100)
+    fit_return = context(counts,**kwargs)
     print(fit_return)
 
-def context(targets,header=None,**args):
+def context(targets,header=None,**kwargs):
 
     targets = targets.T
 
@@ -52,7 +52,7 @@ def context(targets,header=None,**args):
 
     print("Generating trees")
 
-    fit(targets,output,**args)
+    fit(targets,output,**kwargs)
 
     print("CHECK OUTPUT")
     print(os.listdir(tmp_dir.name))
@@ -64,7 +64,7 @@ def context(targets,header=None,**args):
     return forest
 
 
-def fit(targets,location, **args):
+def fit(targets,location, **kwargs):
 
     targets = "\n".join(["\t".join([str(y) for y in x]) for x in targets]) + "\n"
 
@@ -73,6 +73,10 @@ def fit(targets,location, **args):
     print("Running " + str(path_to_rust))
 
     arg_list = [str(path_to_rust),"generate","-stdin","-o",location ,"-auto"]
+
+    for arg in kwargs.keys():
+        arg_list.append("-" + str(arg))
+        arg_list.append(str(kwargs[arg]))
 
     print("Command: " + " ".join(arg_list))
 
@@ -113,7 +117,8 @@ def fit(targets,location, **args):
     print(cp.stderr)
 
 if __name__ == "__main__":
-    main()
+    kwargs = {x.split("=")[0]:x.split("=")[1] for x in sys.argv[2:]}
+    main(sys.argv[1],**kwargs)
 
 
 # ,feature_sub=None,distance=None,sample_sub=None,scaling=None,merge_distance=None,refining=False,error_dump=None,convergence_factor=None,smoothing=None,locality=None)
