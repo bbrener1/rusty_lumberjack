@@ -37,7 +37,7 @@ def context(targets,header=None,**kwargs):
     print("Setting context")
 
     tmp_dir = tmp.TemporaryDirectory()
-    output = tmp_dir.name + "/tmp"
+    output = tmp_dir.name
 
     np.savetxt(output + ".truth",targets)
 
@@ -57,7 +57,7 @@ def context(targets,header=None,**kwargs):
     print("CHECK OUTPUT")
     print(os.listdir(tmp_dir.name))
 
-    forest = tr.Forest.load(output,prefix="/tmp.*.compact",header=".header",truth=".truth")
+    forest = tr.Forest.load(output,prefix="/tmp.*.compact",header="tmp.header",truth="tmp.truth")
 
     tmp_dir.cleanup()
 
@@ -72,7 +72,7 @@ def fit(targets,location, **kwargs):
 
     print("Running " + str(path_to_rust))
 
-    arg_list = [str(path_to_rust),"generate","-stdin","-o",location ,"-auto"]
+    arg_list = [str(path_to_rust),"generate","-stdin","-o",location + "tmp" ,"-auto"]
 
     for arg in kwargs.keys():
         arg_list.append("-" + str(arg))
