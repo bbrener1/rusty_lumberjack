@@ -39,12 +39,12 @@ def context(targets,header=None,**kwargs):
     tmp_dir = tmp.TemporaryDirectory()
     output = tmp_dir.name
 
-    np.savetxt(output + ".truth",targets)
+    np.savetxt(output + "tmp.truth",targets)
 
     features = targets.shape[1]
 
     if header is None:
-        np.savetxt(output + ".header", np.arange(features))
+        np.savetxt(output + "tmp.header", np.arange(features))
 
     print("CHECK TRUTH")
     print(tmp_dir.name)
