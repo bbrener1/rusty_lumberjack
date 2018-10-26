@@ -37,7 +37,7 @@ def context(targets,header=None,**kwargs):
     print("Setting context")
 
     tmp_dir = tmp.TemporaryDirectory()
-    output = tmp_dir.name
+    output = tmp_dir.name + "/"
 
     np.savetxt(output + "tmp.truth",targets)
 
@@ -57,7 +57,7 @@ def context(targets,header=None,**kwargs):
     print("CHECK OUTPUT")
     print(os.listdir(tmp_dir.name))
 
-    forest = tr.Forest.load(output,prefix="/tmp.*.compact",header="tmp.header",truth="tmp.truth")
+    forest = tr.Forest.load(output,prefix="tmp.*.compact",header="tmp.header",truth="tmp.truth")
 
     tmp_dir.cleanup()
 
