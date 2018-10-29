@@ -411,6 +411,10 @@ impl Parameters {
             arg_struct.sample_names = (0..dimensions.1).map(|x| x.to_string()).collect()
         }
 
+        eprintln!("INPUT ARRAY FEATURES:{}", arg_struct.input_array.as_ref().unwrap().len());
+        eprintln!("OUTPUT ARRAY FEATURES:{}", arg_struct.output_array.as_ref().unwrap().len());
+        eprintln!("SAMPLE HEADER:{}", arg_struct.sample_names.len());
+
         arg_struct
 
     }
@@ -482,15 +486,15 @@ impl Parameters {
         }
 
         println!("Automatic parameters:");
-        println!("{:?}",feature_subsample);
-        println!("{:?}",sample_subsample);
-        println!("{:?}",input_features);
-        println!("{:?}",output_features);
-        println!("{:?}",processors);
-        println!("{:?}",trees,);
-        println!("{:?}",leaf_size_cutoff);
-        println!("{:?}",dropout);
-        println!("{:?}",prediction_mode);
+        // println!("fs:{:?}",feature_subsample);
+        println!("ss:{:?}",sample_subsample);
+        println!("if:{:?}",input_features);
+        println!("of:{:?}",output_features);
+        println!("p:{:?}",processors);
+        println!("t:{:?}",trees,);
+        println!("l:{:?}",leaf_size_cutoff);
+        println!("d:{:?}",dropout);
+        println!("pm:{:?}",prediction_mode);
 
         self.auto = true;
 
@@ -806,7 +810,7 @@ pub fn read_standard_in() -> Vec<Vec<f64>> {
     // eprintln!("Counts read:");
     // eprintln!("{:?}", counts);
 
-    count_array
+    matrix_flip(&count_array)
 }
 
 pub fn read_header(location: &str) -> Vec<String> {

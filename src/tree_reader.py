@@ -45,6 +45,7 @@ class Node:
         self.samples = node_json['samples']
         self.medians = node_json['medians']
         self.dispersions = node_json['dispersions']
+        self.weights = np.ones(len(self.features),dtype=float)
         self.local_gains = node_json['local_gains']
         self.absolute_gains = node_json['absolute_gains']
         self.children = []
@@ -174,8 +175,34 @@ class Node:
 
         return sorted_features,sorted_gains
 
+    def aborting_sample_descent(self,sample):
 
+        if self.feature is not None:
+            if self.feature in sample:
+                if sample[self.feature] < self.split:
+                    return self.children[0].aborting_sample_descent(sample)
+                else:
+                    return self.children[1].aborting_sample_descent(sample)
+            else:
+                return []
+        else:
+            return [self]
 
+    def spaced_predictions(self):
+        fd = self.forest.truth_dictionary.feature_dictionary
+        predictions = np.zeros(len(self.forest.features))
+        for feature,median in zip(self.features,self.medians):
+            predictions[fd[feature]] = median
+        return predictions
+
+    def spaced_weighted_predictions(self):
+        fd = self.forest.truth_dictionary.feature_dictionary
+        predictions = np.zeros(len(self.forest.features))
+        weights = np.zeros(len(self.forest.features))
+        for feature,median,weight in zip(self.features,self.medians,self.weights):
+            predictions[fd[feature]] = median * weight
+            weights[fd[feature]] = weight
+        return predictions,weights
 
 class Tree:
 
@@ -253,7 +280,6 @@ class Tree:
 
         # return coordinates,connectivities
 
-
     def recursive_plotting_repesentation(self,axes,height=None,height_step=None,representation=None,limits=None):
         if limits is None:
             limits = axes.get_xlim()
@@ -303,6 +329,9 @@ class Tree:
             print("Nodes: {}".format(nodes))
             print("Leaves: {}".format(leaves))
 
+    def aborting_sample_descent(self,sample):
+        return self.root.aborting_sample_descent(sample)
+
 class Forest:
 
     def __init__(self,trees,counts,features=None,samples=None):
@@ -332,6 +361,13 @@ class Forest:
             leaves.extend(tree.leaves())
         return leaves
 
+    def feature_leaves(self,feature):
+        leaves = []
+        for tree in self.trees:
+            if feature in tree.root.features:
+                leaves.extend(tree.leaves)
+        return leaves
+
     def level(self,target):
         level = []
         for tree in self.trees:
@@ -356,6 +392,132 @@ class Forest:
 
         return first_forest
 
+    def abort_sample_leaves(self,sample):
+
+        leaves = []
+
+        for tree in self.trees:
+            leaves.extend(tree.aborting_sample_descent(sample))
+
+        return leaves
+
+    def abort_predict_sample(self,sample):
+
+        leaves = self.abort_sample_leaves(sample)
+
+        prediction = np.zeros((len(leaves),len(self.features)))
+
+        prediction_index = np.zeros(len(leaves),len(self.features))
+
+        for i,leaf in enumerate(leaves):
+            prediction[i] = leaf.spaced_predictions()
+            prediction_index = leaf.feature_index()
+
+        prediction,prediction_index
+
+    def abort_weighted_predict_sample(self,sample):
+
+        leaves = self.abort_sample_leaves(sample)
+
+        leaf_predictions = np.zeros((len(leaves),len(self.features)))
+        leaf_weights = np.zeros((len(leaves),len(self.features)))
+
+        for i,leaf in enumerate(leaves):
+            leaf_prediction,leaf_weight = leaf.spaced_weighted_predictions()
+            leaf_predictions[i] = leaf_prediction
+            leaf_weights[i] = leaf_weight
+
+        prediction = np.sum(leaf_predictions,axis=0) / np.sum(leaf_weights,axis=0)
+
+        # print("Prediction:" + str(prediction))
+
+        return prediction
+
+    def predict_matrix(self,counts,samples=None,features=None):
+
+        if samples is None:
+            samples = list(range(counts.shape[0]))
+
+        if features is None:
+            features = self.features
+
+        predictions = np.zeros((len(samples),len(features)))
+
+        for i,sample in enumerate(samples):
+            sample = {feature:value for feature,value in zip(features,counts[i])}
+            predictions[i] = self.abort_weighted_predict_sample(sample)
+
+        return predictions
+
+    # def leaf_feature_weights(self,feature):
+    #
+    #     fd = self.truth_dictionary.feature_dictionary
+    #     leaves = self.leaves()
+    #     leaf_sample_encoding = node_sample_encoding(leaves)
+    #     # leaf_feature_encoding = node_feature_encoding(leaves,self.truth_dictionary)
+    #     truth = self.counts[:,fd[feature]]
+
+    def raw_node_predictions(self,nodes):
+
+        predictions = np.zeros((len(nodes),len(self.features)))
+
+        for i,node in enumerate(nodes):
+            predictions[i] = node.spaced_predictions()
+
+        return predictions
+
+    def weighted_node_predictions(self,nodes):
+
+        predictions = np.zeros((len(nodes),len(self.features)))
+
+        for i,node in enumerate(nodes):
+            predictions[i] = node.spaced_weighted_predictions()
+
+        return predictions
+
+    def weighted_predictions(self):
+
+        leaves = self.leaves()
+        weighted_node_predictions = self.weighted_node_predictions(leaves).T
+        membership = node_sample_encoding(leaves,len(self.samples))
+
+        print("Weighted predictions:" + str(weighted_node_predictions.shape))
+        print("Membership:" + str(membership.shape))
+
+        predictions = np.matmul(weighted_node_predictions,membership)
+
+        return predictions
+
+    def set_node_weights(self,node,weights):
+        fd = self.truth_dictionary.feature_dictionary
+        for i,feature in enumerate(node.features):
+            node.weights[i] = weights[fd[feature]]
+
+    def weigh_leaves(self):
+
+        truth = self.counts
+        leaves = self.leaves()
+        predictions = self.raw_node_predictions(leaves)
+        leaf_sample_encoding = node_sample_encoding(leaves,len(self.samples))
+
+        inverse_encoding = np.linalg.pinv(leaf_sample_encoding)
+
+        weighted_predictions = np.matmul(truth.T,inverse_encoding)
+
+        weights = weighted_predictions.T / predictions
+
+        # weights[weights < 0] = 0
+
+        for leaf,leaf_weights in zip(leaves,weights):
+            self.set_node_weights(leaf,leaf_weights)
+
+        return weights
+
+
+
+
+
+
 class TruthDictionary:
 
     def __init__(self,counts,header,observations=None):
@@ -374,7 +536,6 @@ class TruthDictionary:
     def look(self,observation,feature):
 #         print(feature)
         return(self.counts[self.obs_dictionary[observation],self.feature_dictionary[feature]])
-
 
 
 ################################
@@ -420,6 +581,23 @@ def sample_node_encoding(nodes,samples):
     if np.sum(unrepresented) > 0:
         sample_encoding[unrepresented] = 1;
     return sample_encoding
+
+def node_feature_encoding(nodes,truth_dictionary):
+
+    fd = truth_dictionary.feature_dictionary
+    encoding = np.zeros((len(nodes),len(fd)),dtype=bool)
+    for i,node in enumerate(nodes):
+        for feature in node.features:
+            encoding[i,fd[feature]] = True
+    return encoding
+
+def feature_node_index(nodes,feature):
+    encoding = np.zeros(len(nodes),dtype=bool)
+    for i,node in enumerate(nodes):
+        if feature in node.features:
+            encoding[i] = True
+    return encoding
+
 
 def coocurrence_matrix(sample_encoding):
 

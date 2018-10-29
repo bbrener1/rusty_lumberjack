@@ -30,11 +30,11 @@ def main(target,**kwargs):
     fit_return = context(counts,**kwargs)
     print(fit_return)
 
-def context(targets,header=None,**kwargs):
-
-    targets = targets.T
+def fit(targets,header=None,**kwargs):
 
     print("Setting context")
+
+    print("Input shape:" + str(targets.shape))
 
     tmp_dir = tmp.TemporaryDirectory()
     output = tmp_dir.name + "/"
@@ -44,7 +44,7 @@ def context(targets,header=None,**kwargs):
     features = targets.shape[1]
 
     if header is None:
-        np.savetxt(output + "tmp.header", np.arange(features))
+        np.savetxt(output + "tmp.header", np.arange(features,dtype=int),fmt='%u')
 
     print("CHECK TRUTH")
     print(tmp_dir.name)
@@ -52,7 +52,7 @@ def context(targets,header=None,**kwargs):
 
     print("Generating trees")
 
-    fit(targets,output,**kwargs)
+    inner_fit(targets,output,**kwargs)
 
     print("CHECK OUTPUT")
     print(os.listdir(tmp_dir.name))
@@ -64,7 +64,7 @@ def context(targets,header=None,**kwargs):
     return forest
 
 
-def fit(targets,location, **kwargs):
+def inner_fit(targets,location, **kwargs):
 
     targets = "\n".join(["\t".join([str(y) for y in x]) for x in targets]) + "\n"
 
@@ -84,7 +84,7 @@ def fit(targets,location, **kwargs):
 
     cp = sp.Popen(arg_list,stdin=sp.PIPE,stdout=sp.PIPE,stderr=sp.PIPE,universal_newlines=True)
     try:
-        cp.communicate(input=targets,timeout=1)
+        output,error = cp.communicate(input=targets,timeout=1)
     except:
         print("Communicated input")
     #
@@ -112,9 +112,9 @@ def fit(targets,location, **kwargs):
         # sys.stdout.write(str(os.listdir(location)))
         sleep(1)
 
-    # print(cp.stdout)
+    print(output)
 
-    print(cp.stderr)
+    print(error)
 
 if __name__ == "__main__":
     kwargs = {x.split("=")[0]:x.split("=")[1] for x in sys.argv[2:]}
