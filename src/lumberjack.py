@@ -33,7 +33,7 @@ def main(location,input,output=None,header=None,**kwargs):
         header = np.loadtxt(header,dtype=str)
     print("Loaded counts")
     print(input)
-    fit_return = save_trees(location,counts,**kwargs)
+    fit_return = save_trees(location,input_counts,output_counts=output_counts,**kwargs)
     print(fit_return)
 
 def save_trees(location,input_counts,output_counts=None,header=None,**kwargs):
