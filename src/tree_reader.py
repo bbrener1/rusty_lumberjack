@@ -151,8 +151,21 @@ class Node:
     def feature_sample_boolean_index(self,truth_dictionary=None):
         return self.sample_index(truth_dictionary),self.feature_index(truth_dictionary)
 
-    def node_counts(self,counts,truth_dictionary=None):
+    def node_counts(self,counts=None,truth_dictionary=None):
+        if counts is None:
+            counts = self.forest.counts
         return counts[self.sample_index()].T[self.feature_index()].T
+
+    def ordered_node_counts(self,counts=None,truth_dictionary=None):
+        if counts is None:
+            counts = self.forest.counts
+        if truth_dictionary is None:
+            truth_dictionary = self.forest.truth_dictionary
+        node_counts = np.zeros((len(self.samples),len(self.features)))
+        for i,sample in enumerate(self.samples):
+            for j,feature in enumerate(self.features):
+                node_counts[i,j] = truth_dictionary.look(sample,feature)
+        return node_counts
 
     def split_feature_index(self):
         split_feature_index = self.features.index(self.feature)
@@ -169,11 +182,13 @@ class Node:
 
     def ranked_feature_gain(self):
 
-        gain_rankings = np.argsort(self.absolute_gains)
-        sorted_gains = np.array(self.absolute_gains)[gain_rankings]
+        gain_rankings = np.argsort(self.local_gains)
+        sorted_gains = np.array(self.local_gains)[gain_rankings]
         sorted_features = np.array(self.features)[gain_rankings]
+        sorted_dispersions = np.array(self.dispersions)[gain_rankings]
+        sorted_original_dispersions = np.array(self.tree.root.dispersions)[gain_rankings]
 
-        return sorted_features,sorted_gains
+        return sorted_features,sorted_gains,sorted_dispersions,sorted_original_dispersions
 
     def aborting_sample_descent(self,sample):
 
@@ -471,7 +486,7 @@ class Forest:
         predictions = np.zeros((len(nodes),len(self.features)))
 
         for i,node in enumerate(nodes):
-            predictions[i] = node.spaced_weighted_predictions()
+            predictions[i] = node.spaced_weighted_predictions()[0]
 
         return predictions
 
@@ -493,7 +508,7 @@ class Forest:
         for i,feature in enumerate(node.features):
             node.weights[i] = weights[fd[feature]]
 
-    def weigh_leaves(self):
+    def weigh_leaves(self,negative_weights=True):
 
         truth = self.counts
         leaves = self.leaves()
@@ -506,7 +521,10 @@ class Forest:
 
         weights = weighted_predictions.T / predictions
 
-        # weights[weights < 0] = 0
+        if not negative_weights:
+            weights[weights < 0] = 0
+
+        weights[np.logical_not(np.isfinite(weights))] = 0;
 
         for leaf,leaf_weights in zip(leaves,weights):
             self.set_node_weights(leaf,leaf_weights)
@@ -564,6 +582,12 @@ def numpy_mad(mtx):
     for (i,column) in enumerate(median_distances.T):
         mads.append(np.median(column[mtx[:,i]!=0]))
     return np.array(mads)
+
+def nonzero_var_column(mtx):
+    nzv = np.zeros(mtx.shape[1])
+    for i in range(mtx.shape[1]):
+        nzv[i] = np.var(mtx[:,i][mtx[:,i] != 0])
+    return nzv
 
 def node_sample_encoding(nodes,samples):
 

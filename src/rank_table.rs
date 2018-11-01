@@ -3,16 +3,12 @@ use std::collections::HashSet;
 use std::collections::HashMap;
 use std::cmp::Ordering;
 use std::sync::Arc;
-use std::mem::swap;
 use std::sync::mpsc;
 use feature_thread_pool::FeatureMessage;
 extern crate rand;
 use std::f64;
-use square_mtx_ip;
 use io::NormMode;
-use io::SplitMode;
-use serde::ser::Serialize;
-use serde::de::Deserialize;
+use io::DispersionMode;
 use rank_vector::RankVector;
 use rank_vector::Node;
 use io::DropMode;
@@ -32,8 +28,9 @@ pub struct RankTable {
     pub dimensions: (usize,usize),
     dropout: DropMode,
 
-    split_mode: SplitMode,
+    dispersion_mode: DispersionMode,
     norm_mode: NormMode,
+    split_fraction_regularization: i32
 }
 
 
@@ -82,7 +79,8 @@ impl RankTable {
             dropout:parameters.dropout,
 
             norm_mode: parameters.norm_mode,
-            split_mode: parameters.split_mode,
+            dispersion_mode: parameters.dispersion_mode,
+            split_fraction_regularization: parameters.split_fraction_regularization as i32,
         }
 
     }
@@ -100,7 +98,8 @@ impl RankTable {
             dropout:DropMode::No,
 
             norm_mode: NormMode::L1,
-            split_mode: SplitMode::MAD,
+            dispersion_mode: DispersionMode::MAD,
+            split_fraction_regularization: 1,
         }
 
     }
@@ -111,10 +110,11 @@ impl RankTable {
 
     pub fn dispersions(&self) -> Vec<f64> {
 
-        match self.split_mode {
-            SplitMode::Variance => self.meta_vector.iter().map(|x| x.var()).collect(),
-            SplitMode::MAD => self.meta_vector.iter().map(|x| x.mad()).collect(),
-            SplitMode::Mixed => panic!("Mixed mode isn't a valid setting for dispersion calculation in individual trees")
+        match self.dispersion_mode {
+            DispersionMode::Variance => self.meta_vector.iter().map(|x| x.var()).collect(),
+            DispersionMode::MAD => self.meta_vector.iter().map(|x| x.mad()).collect(),
+            DispersionMode::SSME => self.meta_vector.iter().map(|x| x.ssme()).collect(),
+            DispersionMode::Mixed => panic!("Mixed mode isn't a valid setting for dispersion calculation in individual trees")
         }
     }
 
@@ -172,12 +172,12 @@ impl RankTable {
         &self.sample_names[..]
     }
 
-    pub fn split_mode(&self) -> SplitMode {
-        self.split_mode
+    pub fn dispersion_mode(&self) -> DispersionMode {
+        self.dispersion_mode
     }
 
-    pub fn set_split_mode(&mut self, split_mode: SplitMode) {
-        self.split_mode = split_mode;
+    pub fn set_dispersion_mode(&mut self, dispersion_mode: DispersionMode) {
+        self.dispersion_mode = dispersion_mode;
     }
 
     pub fn derive(&self, indecies:&[usize]) -> RankTable {
@@ -217,7 +217,8 @@ impl RankTable {
             dimensions: dimensions,
             dropout: self.dropout,
             norm_mode: self.norm_mode,
-            split_mode: self.split_mode,
+            dispersion_mode: self.dispersion_mode,
+            split_fraction_regularization: self.split_fraction_regularization,
         };
 
         // println!("{:?}",child.samples());
@@ -282,7 +283,8 @@ impl RankTable {
             dimensions: dimensions,
             dropout: self.dropout,
             norm_mode: self.norm_mode,
-            split_mode: self.split_mode,
+            dispersion_mode: self.dispersion_mode,
+            split_fraction_regularization: self.split_fraction_regularization
 
         }
 
@@ -332,7 +334,8 @@ impl RankTable {
             dimensions: dimensions,
             dropout: self.dropout,
             norm_mode: self.norm_mode,
-            split_mode: self.split_mode,
+            dispersion_mode: self.dispersion_mode,
+            split_fraction_regularization: self.split_fraction_regularization,
         }
     }
 
@@ -413,7 +416,7 @@ impl RankTable {
 
         for feature in self.meta_vector.iter().cloned() {
             let (tx,rx) = mpsc::channel();
-            pool.send(FeatureMessage::Message((feature,forward_draw_arc.clone(),drop_arc.clone(),self.split_mode),tx));
+            pool.send(FeatureMessage::Message((feature,forward_draw_arc.clone(),drop_arc.clone(),self.dispersion_mode),tx));
             forward_receivers.push(rx);
         }
 
@@ -432,7 +435,7 @@ impl RankTable {
 
         for feature in self.meta_vector.iter().cloned() {
             let (tx,rx) = mpsc::channel();
-            pool.send(FeatureMessage::Message((feature,reverse_draw_arc.clone(),drop_arc.clone(),self.split_mode),tx));
+            pool.send(FeatureMessage::Message((feature,reverse_draw_arc.clone(),drop_arc.clone(),self.dispersion_mode),tx));
             reverse_receivers.push(rx);
         }
 
@@ -453,11 +456,22 @@ impl RankTable {
         // println!("{:?}",forward_dispersions);
         // println!("{:?}",reverse_dispersions);
 
-        let mut covs: Vec<Vec<f64>> = vec![vec![0.;self.dimensions.0];len];
+        let mut dispersions: Vec<Vec<f64>> = vec![vec![0.;self.dimensions.0];len];
 
-        for (i,(f_s,r_s)) in forward_dispersions.into_iter().zip(reverse_dispersions.into_iter()).enumerate() {
-            for (j,(gf,gr)) in f_s.into_iter().zip(r_s.into_iter()).enumerate() {
-                covs[i][j] = (gf * ((len - i) as f64 / len as f64).powi(1)) + (gr * ((i+1) as f64/ len as f64).powi(1));
+        match self.dispersion_mode {
+            DispersionMode::SSME => {
+                for (i,(f_s,r_s)) in forward_dispersions.into_iter().zip(reverse_dispersions.into_iter()).enumerate() {
+                    for (j,(gf,gr)) in f_s.into_iter().zip(r_s.into_iter()).enumerate() {
+                        dispersions[i][j] = gf + gr;
+                    }
+                }
+            }
+            _ => {
+                for (i,(f_s,r_s)) in forward_dispersions.into_iter().zip(reverse_dispersions.into_iter()).enumerate() {
+                    for (j,(gf,gr)) in f_s.into_iter().zip(r_s.into_iter()).enumerate() {
+                        dispersions[i][j] = (gf * ((len - i) as f64 / len as f64).powi(self.split_fraction_regularization)) + (gr * ((i+1) as f64/ len as f64).powi(self.split_fraction_regularization));
+                    }
+                }
             }
         }
 
@@ -468,7 +482,7 @@ impl RankTable {
         // println!("___________________________________________________________________________");
 
 
-        Some(covs)
+        Some(dispersions)
 
     }
 
@@ -485,7 +499,8 @@ impl RankTable {
             dropout:self.dropout,
 
             norm_mode:self.norm_mode,
-            split_mode:self.split_mode,
+            dispersion_mode:self.dispersion_mode,
+            split_fraction_regularization: self.split_fraction_regularization
         }
 
     }
@@ -503,8 +518,9 @@ pub struct RankTableWrapper {
     pub dimensions: (usize,usize),
     dropout: DropMode,
 
-    split_mode: SplitMode,
+    dispersion_mode: DispersionMode,
     norm_mode: NormMode,
+    split_fraction_regularization: i32,
 }
 
 impl RankTableWrapper {
@@ -521,7 +537,8 @@ impl RankTableWrapper {
             dropout:self.dropout,
 
             norm_mode:self.norm_mode,
-            split_mode:self.split_mode,
+            dispersion_mode:self.dispersion_mode,
+            split_fraction_regularization: self.split_fraction_regularization,
         }
     }
 }

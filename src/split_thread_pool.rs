@@ -1,27 +1,21 @@
 use std;
 use std::collections::HashSet;
-use std::mem::replace;
 use std::sync::Arc;
 
 use std::sync::mpsc;
 use std::sync::Mutex;
 use std::sync::mpsc::Receiver;
 use std::sync::mpsc::Sender;
-use std::sync::mpsc::SyncSender;
-use std::sync::mpsc::sync_channel;
 
 use std::thread;
 
 extern crate rand;
 
-use smallvec::SmallVec;
 
 use rank_table::RankTable;
 use feature_thread_pool::FeatureThreadPool;
 use feature_thread_pool::FeatureMessage;
-use rank_vector::RankVector;
-use rank_vector::Node;
-use io::SplitMode;
+
 
 impl SplitThreadPool{
     pub fn new(processors: usize) -> Sender<SplitMessage> {

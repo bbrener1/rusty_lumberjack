@@ -17,7 +17,7 @@ use split_thread_pool::SplitMessage;
 use io::DropMode;
 use io::PredictionMode;
 use io::Parameters;
-use io::SplitMode;
+use io::DispersionMode;
 
 
 #[derive(Clone)]
@@ -398,12 +398,12 @@ impl Node {
         self.split_thread_pool = pool.clone()
     }
 
-    pub fn set_split_mode(&mut self, split_mode : SplitMode) {
-        self.output_table.set_split_mode(split_mode);
+    pub fn set_dispersion_mode(&mut self, dispersion_mode : DispersionMode) {
+        self.output_table.set_dispersion_mode(dispersion_mode);
     }
 
-    pub fn split_mode(&self) -> SplitMode {
-        self.output_table.split_mode()
+    pub fn dispersion_mode(&self) -> DispersionMode {
+        self.output_table.dispersion_mode()
     }
 
     pub fn wrap_consume(self) -> NodeWrapper {

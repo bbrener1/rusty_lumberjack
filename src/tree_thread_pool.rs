@@ -15,7 +15,7 @@ use rand::Rng;
 use tree::Tree;
 use tree::PredictiveTree;
 use Parameters;
-use io::SplitMode;
+use io::DispersionMode;
 
 impl TreeThreadPool{
     pub fn new(prototype:&Tree, parameters: Arc<Parameters>) -> Sender<(usize, mpsc::Sender<PredictiveTree>)> {
@@ -27,7 +27,7 @@ impl TreeThreadPool{
         let samples_per_tree = parameters.sample_subsample;
         let input_features = parameters.input_features;
         let output_features = parameters.output_features;
-        let split_mode = parameters.split_mode;
+        let dispersion_mode = parameters.dispersion_mode;
 
         if processors < 1 {
             panic!("Warning, no processors were allocated to the pool, quitting!");
@@ -45,12 +45,12 @@ impl TreeThreadPool{
                 println!("Spawning tree pool worker");
                 println!("Prototype tree has {} threads", processors/(processors/30));
 
-                workers.push(Worker::new(i,prototype.pool_switch_clone(processors/(processors/30)),samples_per_tree,input_features,output_features, split_mode, worker_receiver_channel.clone()))
+                workers.push(Worker::new(i,prototype.pool_switch_clone(processors/(processors/30)),samples_per_tree,input_features,output_features, dispersion_mode, worker_receiver_channel.clone()))
 
             }
         }
         else {
-            workers.push(Worker::new(0,prototype.pool_switch_clone(processors),samples_per_tree,input_features,output_features, split_mode, worker_receiver_channel.clone()))
+            workers.push(Worker::new(0,prototype.pool_switch_clone(processors),samples_per_tree,input_features,output_features, dispersion_mode, worker_receiver_channel.clone()))
         }
 
         tx
@@ -70,7 +70,7 @@ pub struct TreeThreadPool {
 
 impl Worker{
 
-    pub fn new(id:usize,mut prototype:Tree,samples_per_tree:usize,input_features:usize,output_features:usize, split_mode: SplitMode, channel:Arc<Mutex<Receiver<(usize, mpsc::Sender<PredictiveTree>)>>>) -> Worker {
+    pub fn new(id:usize,mut prototype:Tree,samples_per_tree:usize,input_features:usize,output_features:usize, dispersion_mode: DispersionMode, channel:Arc<Mutex<Receiver<(usize, mpsc::Sender<PredictiveTree>)>>>) -> Worker {
         Worker{
             id: id,
             thread: std::thread::spawn(move || {
@@ -86,15 +86,15 @@ impl Worker{
                         println!("Tree Pool: Request for tree: {}",tree_iter);
                         println!("Tree Pool: Deriving {}", tree_iter);
                         let mut tree = prototype.derive_from_prototype(samples_per_tree,input_features,output_features,tree_iter);
-                        match split_mode {
-                            SplitMode::Mixed => {
-                                if rng.gen::<f32>() > 0.4 { tree.set_split_mode(SplitMode::MAD) }
-                                else { tree.set_split_mode(SplitMode::Variance) }
+                        match dispersion_mode {
+                            DispersionMode::Mixed => {
+                                if rng.gen::<f32>() > 0.4 { tree.set_dispersion_mode(DispersionMode::MAD) }
+                                else { tree.set_dispersion_mode(DispersionMode::Variance) }
                             }
                             _ => {}
                         };
                         println!("Tree Pool: Growing {}", tree_iter);
-                        println!("{:?}",tree.split_mode());
+                        println!("{:?}",tree.dispersion_mode());
                         tree.grow_branches();
                         println!("Tree Pool: Sending {}", tree_iter);
                         let p_tree = tree.strip_consume();

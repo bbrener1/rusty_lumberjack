@@ -47,7 +47,7 @@ impl Node {
     }
 }
 
-impl<T: Borrow<[Node]> + BorrowMut<[Node]> + Index<usize,Output=Node> + IndexMut<usize,Output=Node> + Clone + Debug > RankVector<T> {
+impl<T: Borrow<[Node]> + BorrowMut<[Node]> + Index<usize,Output=Node> + IndexMut<usize,Output=Node> + Clone + Debug> RankVector<T> {
 
     pub fn empty() -> RankVector<Vec<Node>> {
         RankVector::<Vec<Node>>::link(&vec![])
@@ -254,6 +254,19 @@ impl<T: Borrow<[Node]> + BorrowMut<[Node]> + Index<usize,Output=Node> + IndexMut
     //
     //     &self.nodes[target]
     // }
+
+    #[inline]
+    fn mpop(&mut self, target: usize) -> (f64,f64) {
+        let target_zone = self.nodes[target].zone;
+        if target_zone != 0 {
+            self.unlink(target);
+            let (_old_median,new_median) = self.recenter_median(target);
+            (new_median,self.nodes[target].data)
+        }
+        else {
+            (self.median(),self.nodes[target].data)
+        }
+    }
 
     #[inline]
     fn unlink(&mut self, target: usize) {
@@ -660,6 +673,13 @@ impl<T: Borrow<[Node]> + BorrowMut<[Node]> + Index<usize,Output=Node> + IndexMut
         deviation_sum/len
     }
 
+    pub fn ssme(&self) -> f64 {
+        let values = self.ordered_values();
+        let median = self.median();
+        let sum:f64 = values.into_iter().map(|x| (x - median).powi(2)).sum();
+        sum
+    }
+
     #[inline]
     pub fn l2(&self) -> f64 {
         let values = self.ordered_values();
@@ -695,6 +715,7 @@ impl<T: Borrow<[Node]> + BorrowMut<[Node]> + Index<usize,Output=Node> + IndexMut
         self.left_to_right().iter().map(|x| self.nodes[*x].data).collect()
     }
 
+    #[inline]
     pub fn full_values(&self) -> Vec<f64> {
         (0..self.raw_len()).map(|x| self.nodes[x].data).collect()
         // self.nodes[0..self.raw_len()].map(|x| x.data).collect()
@@ -761,6 +782,30 @@ impl<T: Borrow<[Node]> + BorrowMut<[Node]> + Index<usize,Output=Node> + IndexMut
         };
 
         variances.into_iter().rev().collect()
+
+    }
+
+    pub fn ordered_ssme(&mut self,draw_order: &Vec<usize>, drop_set: &HashSet<usize>) -> Vec<f64> {
+
+        for dropped_sample in drop_set {
+            self.pop(*dropped_sample);
+        }
+
+        let mut ssmes = Vec::with_capacity(draw_order.len());
+
+        let mut running_square_sum = 0.;
+        let mut running_double_sum = 0.;
+
+        for (i,draw) in draw_order.iter().rev().enumerate() {
+            let (new_median,value) = self.mpop(*draw);
+            running_square_sum += value.powi(2);
+            running_double_sum += value * 2.;
+            let new_ssme = running_square_sum - (running_double_sum * new_median) + (i as f64 * new_median.powi(2));
+
+            ssmes.push(new_ssme);
+        };
+
+        ssmes.into_iter().rev().collect()
 
     }
 

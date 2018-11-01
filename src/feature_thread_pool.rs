@@ -18,7 +18,7 @@ use smallvec::SmallVec;
 
 use rank_vector::RankVector;
 use rank_vector::Node;
-use io::SplitMode;
+use io::DispersionMode;
 
 impl FeatureThreadPool{
     pub fn new(size: usize) -> Sender<FeatureMessage> {
@@ -69,8 +69,8 @@ impl Worker{
                     let message_option = channel.lock().unwrap().recv().ok();
                     if let Some(message) = message_option {
                         match message {
-                            FeatureMessage::Message((vector,draw_order,drop_set,split_mode),sender) => {
-                                sender.send(compute(vector,draw_order,drop_set,split_mode,&mut local_vector)).expect("Failed to send feature result");
+                            FeatureMessage::Message((vector,draw_order,drop_set,dispersion_mode),sender) => {
+                                sender.send(compute(vector,draw_order,drop_set,dispersion_mode,&mut local_vector)).expect("Failed to send feature result");
                             },
                             FeatureMessage::Terminate => break
                         }
@@ -89,18 +89,19 @@ struct Worker {
 
 
 pub enum FeatureMessage {
-    Message((Arc<RankVector<Vec<Node>>>,Arc<Vec<usize>>,Arc<HashSet<usize>>,SplitMode), mpsc::Sender<Vec<f64>>),
+    Message((Arc<RankVector<Vec<Node>>>,Arc<Vec<usize>>,Arc<HashSet<usize>>,DispersionMode), mpsc::Sender<Vec<f64>>),
     Terminate
 }
 
-fn compute (prot_vector: Arc<RankVector<Vec<Node>>> , draw_order: Arc<Vec<usize>> , drop_set: Arc<HashSet<usize>>, split_mode:SplitMode, local_vector: &mut RankVector<SmallVec<[Node;1024]>>) -> Vec<f64> {
+fn compute (prot_vector: Arc<RankVector<Vec<Node>>> , draw_order: Arc<Vec<usize>> , drop_set: Arc<HashSet<usize>>, dispersion_mode:DispersionMode, local_vector: &mut RankVector<SmallVec<[Node;1024]>>) -> Vec<f64> {
 
     local_vector.clone_from_prototype(&prot_vector);
 
-    let result = match split_mode {
-        SplitMode::Variance => local_vector.ordered_variance(&draw_order,&drop_set),
-        SplitMode::MAD => local_vector.ordered_mads(&draw_order,&drop_set),
-        SplitMode::Mixed => panic!("Mixed mode not a valid split setting for individual trees!"),
+    let result = match dispersion_mode {
+        DispersionMode::Variance => local_vector.ordered_variance(&draw_order,&drop_set),
+        DispersionMode::MAD => local_vector.ordered_mads(&draw_order,&drop_set),
+        DispersionMode::SSME => local_vector.ordered_ssme(&draw_order, &drop_set),
+        DispersionMode::Mixed => panic!("Mixed mode not a valid split setting for individual trees!"),
     };
 
     // println!("parallel: {:?}", result);

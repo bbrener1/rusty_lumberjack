@@ -1,6 +1,4 @@
 use std::fs::File;
-use std::fs::OpenOptions;
-use std::io::Write;
 use std::io::Error;
 use std::io::BufRead;
 use std::io;
@@ -13,18 +11,14 @@ use tree::PredictiveTree;
 extern crate rand;
 use rand::seq;
 
-use io::PredictionMode;
 use io::DropMode;
 use io::Parameters;
 use io::TreeBackups;
-use feature_thread_pool::FeatureThreadPool;
 use split_thread_pool::SplitThreadPool;
 use tree_thread_pool::TreeThreadPool;
 use std::sync::Arc;
 // use predictor::predict;
 // use compact_predictor::compact_predict;
-use matrix_flip;
-use tsv_format;
 // use weigh_leaves::weigh_leaves;
 use node::StrippedNode;
 // use compact_predictor::node_sample_encoding;

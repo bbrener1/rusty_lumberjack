@@ -19,7 +19,7 @@ use node::NodeWrapper;
 use node::StrippedNode;
 use split_thread_pool::SplitThreadPool;
 use split_thread_pool::SplitMessage;
-use io::SplitMode;
+use io::DispersionMode;
 use io::DropMode;
 use io::PredictionMode;
 use io::Parameters;
@@ -213,12 +213,12 @@ impl<'a> Tree {
         self.root.set_weights(weights);
     }
 
-    pub fn set_split_mode(&mut self, split_mode:SplitMode) {
-        self.root.set_split_mode(split_mode);
+    pub fn set_dispersion_mode(&mut self, dispersion_mode:DispersionMode) {
+        self.root.set_dispersion_mode(dispersion_mode);
     }
 
-    pub fn split_mode(&self) -> SplitMode {
-        self.root.split_mode()
+    pub fn dispersion_mode(&self) -> DispersionMode {
+        self.root.dispersion_mode()
     }
 
     pub fn nodes(&self) -> Vec<&Node> {

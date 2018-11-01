@@ -199,7 +199,8 @@ pub struct Parameters {
     pub averaging_mode: AveragingMode,
     pub norm_mode: NormMode,
     pub weighing_mode: WeighingMode,
-    pub split_mode: SplitMode,
+    pub dispersion_mode: DispersionMode,
+    pub split_fraction_regularization: usize,
 
     pub backups: Option<String>,
     pub backup_vec: Option<Vec<String>>,
@@ -243,7 +244,8 @@ impl Parameters {
             averaging_mode: AveragingMode::Arithmetic,
             norm_mode: NormMode::L2,
             weighing_mode: WeighingMode::Flat,
-            split_mode: SplitMode::Variance,
+            dispersion_mode: DispersionMode::Variance,
+            split_fraction_regularization: 1,
 
 
             backups: None,
@@ -292,13 +294,11 @@ impl Parameters {
                     arg_struct.input_array = single_array.clone();
                     arg_struct.output_count_array_file = single_count_array_file;
                     arg_struct.output_array = single_array;
-                    eprintln!("LOADING OUTPUT ARRAY");
-                    eprintln!("{:?}",arg_struct.output_array);
                 },
-                "-ic" | "-input_counts" => {
+                "-ic" | "-input_counts" | "-input" => {
                     arg_struct.input_array = Some(read_counts(&args.next().expect("Error parsing input count location!")));
                 }
-                "-oc" | "-output_counts" => {
+                "-oc" | "-output_counts" | "-output" => {
                     arg_struct.output_array = Some(read_counts(&args.next().expect("Error parsing output count location!")));
                 }
                 "-m" | "-mode" | "-pm" | "-prediction_mode" | "-prediction" => {
@@ -319,9 +319,12 @@ impl Parameters {
                 "-wm" | "-w" | "-weighing_mode" => {
                     arg_struct.weighing_mode = WeighingMode::read(&args.next().expect("Failed to read weighing mode!"));
                 },
-                "-sm" | "-split_mode" => {
-                    arg_struct.split_mode = SplitMode::read(&args.next().expect("Failed to read split mode"));
+                "-dm" | "-dispersion_mode" => {
+                    arg_struct.dispersion_mode = DispersionMode::read(&args.next().expect("Failed to read split mode"));
                 },
+                "-split_fraction_regularization" | "-sfr" => {
+                    arg_struct.split_fraction_regularization = args.next().expect("Error processing SFR").parse::<usize>().expect("Error parsing SFR");
+                }
                 "-n" | "-norm" | "-norm_mode" => {
                     arg_struct.norm_mode = NormMode::read(&args.next().expect("Failed to read norm mode"));
                 },
@@ -346,7 +349,16 @@ impl Parameters {
                     arg_struct.output_feature_header_file = Some(args.next().expect("Error processing feature file"));
                     arg_struct.output_feature_names = read_header(arg_struct.output_feature_header_file.as_ref().unwrap());
                 },
+                "-h" | "-header" => {
+                    let header_file = args.next().expect("Error processing feature file");
+                    let header = read_header(&header_file);
 
+                    arg_struct.input_feature_header_file = Some(header_file.clone());
+                    arg_struct.output_feature_header_file = Some(header_file);
+
+                    arg_struct.input_feature_names = header.clone();
+                    arg_struct.output_feature_names = header;
+                },
                 "-s" | "-samples" => {
                     arg_struct.sample_header_file = Some(args.next().expect("Error processing feature file"));
                     arg_struct.sample_names = read_sample_names(arg_struct.sample_header_file.as_ref().unwrap());
@@ -634,19 +646,21 @@ impl WeighingMode {
 }
 
 #[derive(Serialize,Deserialize,Debug,Clone,Copy)]
-pub enum SplitMode {
+pub enum DispersionMode {
     MAD,
     Variance,
+    SSME,
     Mixed,
 }
 
-impl SplitMode {
-    pub fn read(input: &str) -> SplitMode {
+impl DispersionMode {
+    pub fn read(input: &str) -> DispersionMode {
         match input {
-            "var" | "variance" => SplitMode::Variance,
-            "mad"  => SplitMode::MAD,
-            "mix" | "mixed" => SplitMode::Mixed,
-            _ => panic!("Not a valid split mode, choose var, mad, or mixed")
+            "var" | "variance" => DispersionMode::Variance,
+            "mad"  => DispersionMode::MAD,
+            "mix" | "mixed" => DispersionMode::Mixed,
+            "ssme" => DispersionMode::SSME,
+            _ => panic!("Not a valid dispersion mode, choose var, mad, or mixed")
 
         }
     }
