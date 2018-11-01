@@ -147,7 +147,7 @@ def inner_fit(input_counts,output_counts,location, **kwargs):
     print(cp.stderr.read())
 
 if __name__ == "__main__":
-    kwargs = {x.split("=")[0]:x.split("=")[1] for x in sys.argv[2:]}
+    kwargs = {x.split("=")[0]:x.split("=")[1] for x in sys.argv[3:]}
     main(sys.argv[1],sys.argv[2],**kwargs)
 
 
