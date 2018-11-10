@@ -341,11 +341,11 @@ impl Parameters {
                 "-o" | "-output" => {
                     arg_struct.report_address = args.next().expect("Error processing output destination")
                 },
-                "-ifh" | "-ih" | "-input_features" => {
+                "-ifh" | "-ih" | "-input_feature_header" => {
                     arg_struct.input_feature_header_file = Some(args.next().expect("Error processing feature file"));
                     arg_struct.input_feature_names = read_header(arg_struct.input_feature_header_file.as_ref().unwrap());
                 },
-                "-ofh" | "-oh" | "-output_features" => {
+                "-ofh" | "-oh" | "-output_feature_header" => {
                     arg_struct.output_feature_header_file = Some(args.next().expect("Error processing feature file"));
                     arg_struct.output_feature_names = read_header(arg_struct.output_feature_header_file.as_ref().unwrap());
                 },
@@ -369,10 +369,10 @@ impl Parameters {
                 "-depth" => {
                     arg_struct.depth_cutoff = args.next().expect("Error processing depth").parse::<usize>().expect("Error parsing depth");
                 }
-                "-if" | "-in_features" => {
+                "-if" | "-in_features" | "-in_feature_subsample" => {
                     arg_struct.input_features = args.next().expect("Error processing in feature arg").parse::<usize>().expect("Error in feature  arg");
                 },
-                "-of" | "-out_features" => {
+                "-of" | "-out_features" | "-out_feature_subsample"=> {
                     arg_struct.output_features = args.next().expect("Error processing out feature arg").parse::<usize>().expect("Error out feature arg");
                 },
                 "-fs" | "-feature_sub" | "-feature_subsample" | "-feature_subsamples" => {
@@ -649,6 +649,7 @@ impl WeighingMode {
 pub enum DispersionMode {
     MAD,
     Variance,
+    SME,
     SSME,
     Mixed,
 }
@@ -660,6 +661,7 @@ impl DispersionMode {
             "mad"  => DispersionMode::MAD,
             "mix" | "mixed" => DispersionMode::Mixed,
             "ssme" => DispersionMode::SSME,
+            "sme" => DispersionMode::SME,
             _ => panic!("Not a valid dispersion mode, choose var, mad, or mixed")
 
         }

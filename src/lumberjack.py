@@ -74,7 +74,11 @@ def fit(input_counts,output_counts=None,header=None,**kwargs):
     output_features = output_counts.shape[1]
 
     if header is None:
-        np.savetxt(output + "tmp.header", np.arange(output_features,dtype=int),fmt='%u')
+        np.savetxt(output + "tmp.i.header", np.arange(output_features,dtype=int),fmt='%u')
+        np.savetxt(output + "tmp.o.header", np.arange(output_features,dtype=int),fmt='%u')
+    else:
+        np.savetxt(output + "tmp.i.header", header,fmt="%str")
+        np.savetxt(output + "tmp.o.header", header,fmt="%str")
 
     print("CHECK TRUTH")
     print(tmp_dir.name)
@@ -82,12 +86,12 @@ def fit(input_counts,output_counts=None,header=None,**kwargs):
 
     print("Generating trees")
 
-    inner_fit(input_counts,output_counts,output,**kwargs)
+    inner_fit(input_counts,output_counts,output,ifh=output+"tmp.i.header",ofh=output+"tmp.o.header",**kwargs)
 
     print("CHECK OUTPUT")
     print(os.listdir(tmp_dir.name))
 
-    forest = tr.Forest.load(output,prefix="tmp.*.compact",header="tmp.header",truth="output.counts")
+    forest = tr.Forest.load(output,prefix="tmp.*.compact",header="tmp.o.header",truth="output.counts")
 
     tmp_dir.cleanup()
 
@@ -112,39 +116,39 @@ def inner_fit(input_counts,output_counts,location, **kwargs):
 
     # cp = sp.run(arg_list,stdout=sp.PIPE,stderr=sp.PIPE,universal_newlines=True)
 
-    cp = sp.Popen(arg_list,stdin=sp.PIPE,stdout=sp.PIPE,stderr=sp.PIPE,universal_newlines=True)
+    # cp = sp.Popen(arg_list,stdin=sp.PIPE,stdout=sp.PIPE,stderr=sp.PIPE,universal_newlines=True)
     # try:
     #     output,error = cp.communicate(input=targets,timeout=1)
     # except:
     #     print("Communicated input")
     #
-    # with sp.Popen(arg_list,stdin=sp.PIPE,stdout=sp.PIPE,stderr=sp.PIPE,universal_newlines=True) as cp:
-    #     try:
-    #         cp.communicate(input=targets,timeout=1)
-    #     except:
-    #         pass
-    #     while True:
-    #         print("Trying to readline")
-    #         # sleep(1)
-    #         rc = cp.poll()
-    #         if rc is not None:
-    #             print(cp.stdout.read())
-    #             print(cp.stderr.read())
-    #             break
-    #         output = cp.stdout.readline()
-    #         print("Read line")
-    #         print(output)
+    with sp.Popen(arg_list,stdin=sp.PIPE,stdout=sp.PIPE,stderr=sp.PIPE,universal_newlines=True) as cp:
+        # try:
+        #     cp.communicate(input=targets,timeout=1)
+        # except:
+        #     pass
+        print("Trying to readline")
+        while True:
+            # sleep(0.1)
+            rc = cp.poll()
+            if rc is not None:
+                print(cp.stdout.read())
+                print(cp.stderr.read())
+                break
+            output = cp.stdout.readline()
+            # print("Read line")
+            print(output.strip())
 
 
-    while cp.poll() is None:
-        sys.stdout.flush()
-        sys.stdout.write("Constructing trees: %s" % str(len(glob.glob(location + "tmp.*.compact"))) + "\r")
-        # sys.stdout.write(str(os.listdir(location)))
-        sleep(1)
+    # while cp.poll() is None:
+    #     sys.stdout.flush()
+    #     sys.stdout.write("Constructing trees: %s" % str(len(glob.glob(location + "tmp.*.compact"))) + "\r")
+    #     # sys.stdout.write(str(os.listdir(location)))
+    #     sleep(1)
 
-    print(cp.stdout.read())
-
-    print(cp.stderr.read())
+    # print(cp.stdout.read())
+    #
+    # print(cp.stderr.read())
 
 if __name__ == "__main__":
     kwargs = {x.split("=")[0]:x.split("=")[1] for x in sys.argv[3:]}

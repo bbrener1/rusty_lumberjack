@@ -562,6 +562,12 @@ impl<T: Borrow<[Node]> + BorrowMut<[Node]> + Index<usize,Output=Node> + IndexMut
 
         let new_median = self.median();
 
+        // println!("Done recentering");
+        // println!("{:?}", self.nodes[self.median.0]);
+        // println!("{:?}", self.nodes[self.median.1]);
+        // println!("{:?}", self.median());
+        // println!("{:?}", (old_median,new_median));
+
         (old_median, new_median)
 
     }
@@ -673,11 +679,19 @@ impl<T: Borrow<[Node]> + BorrowMut<[Node]> + Index<usize,Output=Node> + IndexMut
         deviation_sum/len
     }
 
+    #[inline]
     pub fn ssme(&self) -> f64 {
         let values = self.ordered_values();
         let median = self.median();
         let sum:f64 = values.into_iter().map(|x| (x - median).powi(2)).sum();
         sum
+    }
+
+    #[inline]
+    pub fn sme(&self) -> f64 {
+        let values = self.ordered_values();
+        let median = self.median();
+        values.iter().sum::<f64>() - median * values.len() as f64
     }
 
     #[inline]
@@ -793,19 +807,60 @@ impl<T: Borrow<[Node]> + BorrowMut<[Node]> + Index<usize,Output=Node> + IndexMut
 
         let mut ssmes = Vec::with_capacity(draw_order.len());
 
-        let mut running_square_sum = 0.;
-        let mut running_double_sum = 0.;
+        let ordered_values = self.ordered_values();
+        let mut total_values = ordered_values.len() as f64;
 
-        for (i,draw) in draw_order.iter().rev().enumerate() {
-            let (new_median,value) = self.mpop(*draw);
-            running_square_sum += value.powi(2);
-            running_double_sum += value * 2.;
-            let new_ssme = running_square_sum - (running_double_sum * new_median) + (i as f64 * new_median.powi(2));
+        let mut running_square_sum: f64 = ordered_values.iter().map(|x| x.powi(2)).sum();
+        let mut running_double_sum: f64 = ordered_values.iter().sum::<f64>() * 2.;
+        let mut running_median = self.median();
 
+        for (i,draw) in draw_order.iter().enumerate() {
+            let new_ssme = running_square_sum - (running_double_sum * running_median) + (total_values * running_median.powi(2));
             ssmes.push(new_ssme);
+            // println!("RSS:{:?}",running_square_sum);
+            // println!("RDS:{:?}",running_double_sum);
+            // println!("NM:{:?}",running_median);
+            // println!("NSS:{:?}",new_ssme);
+            let (new_median,value) = self.mpop(*draw);
+            running_median = new_median;
+            // println!("V:{:?}",value);
+            running_square_sum -= value.powi(2);
+            running_double_sum -= value * 2.;
+            total_values -= 1.;
         };
 
-        ssmes.into_iter().rev().collect()
+        ssmes
+
+    }
+
+    pub fn ordered_sme(&mut self,draw_order: &Vec<usize>, drop_set: &HashSet<usize>) -> Vec<f64> {
+
+        for dropped_sample in drop_set {
+            self.pop(*dropped_sample);
+        }
+
+        let mut smes = Vec::with_capacity(draw_order.len());
+
+        let ordered_values = self.ordered_values();
+        let mut total_values = ordered_values.len() as f64;
+        let mut running_sum = ordered_values.iter().sum::<f64>();
+        let mut running_median = self.median();
+
+        for (i,draw) in draw_order.iter().enumerate() {
+            let new_sme = running_sum - (total_values * running_median);
+            smes.push(new_sme);
+            // println!("RSS:{:?}",running_square_sum);
+            // println!("RDS:{:?}",running_double_sum);
+            // println!("NM:{:?}",running_median);
+            // println!("NSS:{:?}",new_ssme);
+            let (new_median,value) = self.mpop(*draw);
+            running_median = new_median;
+            // println!("V:{:?}",value);
+            running_sum -= value;
+            total_values -= 1.;
+        };
+
+        smes
 
     }
 
@@ -1271,6 +1326,11 @@ fn slow_mad(values: Vec<f64>) -> f64 {
 
 }
 
+fn slow_ssme(values: Vec<f64>) -> f64 {
+    let median = slow_median(values.clone());
+    values.iter().map(|x| (x - median).powi(2)).sum()
+}
+
 #[cfg(test)]
 mod rank_vector_tests {
 
@@ -1319,6 +1379,8 @@ mod rank_vector_tests {
         assert_eq!(slow_mad(vector.ordered_values()),vector.mad());
 
     }
+
+
 
     #[test]
     fn create_repetitive() {
@@ -1378,6 +1440,25 @@ mod rank_vector_tests {
 
     }
 
+    #[test]
+    fn sequential_ssme_simple() {
+        let mut vector = RankVector::<Vec<Node>>::link(&vec![10.,-3.,0.,5.,-2.,-1.,15.,20.],);
+        vector.drop_f(0.);
+        let draw_order = vector.draw_order();
+        let drop_set = HashSet::new();
+        let mut vm = vector.clone();
+        let ordered_ssme = vector.clone().ordered_ssme(&draw_order,&drop_set);
+        println!("{:?}",ordered_ssme);
+        let mut slow_ordered_ssme = vec![];
+        for (i,draw) in vm.draw_order().iter().enumerate() {
+            println!("{:?}",vm.ordered_values());
+            println!("{:?}",slow_ssme(vm.ordered_values()));
+            slow_ordered_ssme.push(slow_ssme(vm.ordered_values()));
+            vm.pop(*draw);
+        }
+        assert_eq!(ordered_ssme,slow_ordered_ssme);
+
+    }
 
     // #[bench]
     // fn bench_rv3_ordered_values_vector(b: &mut Bencher) {

@@ -12,21 +12,27 @@ from scipy.stats import linregress
 from scipy.spatial.distance import jaccard
 from scipy.spatial.distance import pdist
 from scipy.spatial.distance import squareform
+from scipy.optimize import nnls
 
 from sklearn.decomposition import KernelPCA
 from sklearn.manifold import TSNE
 from sklearn.cluster import DBSCAN
 from sklearn.manifold import MDS
+from sklearn.linear_model import Ridge,Lasso
 
 from hdbscan import HDBSCAN
 
 from scipy.cluster import hierarchy as hrc
+from scipy.cluster.hierarchy import dendrogram,linkage
+
 from sklearn.decomposition import PCA
 
 from sklearn.cluster import AgglomerativeClustering
 
 from sklearn.metrics import jaccard_similarity_score
 jaccard_index = jaccard_similarity_score
+
+from multiprocessing import Pool
 
 import copy
 
@@ -139,9 +145,9 @@ class Node:
     def sample_index(self, truth_dictionary=None):
         if truth_dictionary is None:
             truth_dictionary = self.forest.truth_dictionary
-        sample_index = np.zeros(len(truth_dictionary.obs_dictionary),dtype=bool)
+        sample_index = np.zeros(len(truth_dictionary.sample_dictionary),dtype=bool)
         for sample in self.samples:
-            sample_index[truth_dictionary.obs_dictionary[sample]] = True
+            sample_index[truth_dictionary.sample_dictionary[sample]] = True
         # if np.sum(sample_index) == 0:
         #     print(self.samples)
         #     print(self.prerequisites)
@@ -191,33 +197,52 @@ class Node:
         return sorted_features,sorted_gains,sorted_dispersions,sorted_original_dispersions
 
     def aborting_sample_descent(self,sample):
-
+        # print("Own feature")
+        # print(self.feature)
         if self.feature is not None:
+            # print("In sample?")
+            # print(sample.keys())
             if self.feature in sample:
-                if sample[self.feature] < self.split:
+                # print("Split")
+                # print(self.split)
+                # print("Sample Value:")
+                # print(sample[self.feature])
+                if sample[self.feature] <= self.split:
+                    # print("Left")
                     return self.children[0].aborting_sample_descent(sample)
                 else:
+                    # print("Right")
                     return self.children[1].aborting_sample_descent(sample)
             else:
                 return []
         else:
-            return [self]
+            # print("TERMINUS")
+            # print(len(self.samples))
+            # print(self.samples)
+            # print("\n\n\n\n")
+            return [self,]
 
-    def spaced_predictions(self):
-        fd = self.forest.truth_dictionary.feature_dictionary
-        predictions = np.zeros(len(self.forest.features))
-        for feature,median in zip(self.features,self.medians):
-            predictions[fd[feature]] = median
-        return predictions
+    def predict_dictionary(self):
+        return {x:y for x,y in zip(self.features,self.medians)}
 
-    def spaced_weighted_predictions(self):
-        fd = self.forest.truth_dictionary.feature_dictionary
-        predictions = np.zeros(len(self.forest.features))
-        weights = np.zeros(len(self.forest.features))
-        for feature,median,weight in zip(self.features,self.medians,self.weights):
-            predictions[fd[feature]] = median * weight
-            weights[fd[feature]] = weight
-        return predictions,weights
+    def predict_weighted_dictionary(self):
+        return {x:(y,z) for x,y,z in zip(self.features,self.medians,self.weights)}
+
+    # def spaced_predictions(self):
+    #     fd = self.forest.truth_dictionary.feature_dictionary
+    #     predictions = np.zeros(len(self.forest.features))
+    #     for feature,median in zip(self.features,self.medians):
+    #         predictions[fd[feature]] = median
+    #     return predictions
+    #
+    # def spaced_weighted_predictions(self):
+    #     fd = self.forest.truth_dictionary.feature_dictionary
+    #     predictions = np.zeros(len(self.forest.features))
+    #     weights = np.zeros(len(self.forest.features))
+    #     for feature,median,weight in zip(self.features,self.medians,self.weights):
+    #         predictions[fd[feature]] = median * weight
+    #         weights[fd[feature]] = weight
+    #     return predictions,weights
 
 class Tree:
 
@@ -347,6 +372,24 @@ class Tree:
     def aborting_sample_descent(self,sample):
         return self.root.aborting_sample_descent(sample)
 
+    def plot_leaf_counts(self):
+        leaves = self.leaves()
+        total_samples = sum([len(x.samples) for x in leaves])
+        heatmap = np.zeros((total_samples,len(self.root.features)))
+        running_samples = 0
+        for leaf in leaves:
+            leaf_counts = leaf.node_counts()
+            leaf_samples = leaf_counts.shape[0]
+            heatmap[running_samples:running_samples+leaf_samples] = leaf_counts
+            running_samples += leaf_samples
+
+        ordering = dendrogram(linkage(heatmap.T),no_plot=True)['leaves']
+        heatmap = heatmap.T[ordering].T
+        plt.figure()
+        im = plt.imshow(heatmap,aspect='auto')
+        plt.colorbar()
+        plt.show()
+
 class Forest:
 
     def __init__(self,trees,counts,features=None,samples=None):
@@ -383,6 +426,24 @@ class Forest:
                 leaves.extend(tree.leaves)
         return leaves
 
+    def node_sample_encoding(self,nodes):
+        encoding = np.zeros((len(self.samples),len(nodes)),dtype=bool)
+        sd = self.truth_dictionary.sample_dictionary
+        for i,node in enumerate(nodes):
+            for sample in node.samples:
+                encoding[sd[sample],i] = True
+        return encoding
+
+    def node_feature_encoding(self,nodes):
+
+        fd = self.truth_dictionary.feature_dictionary
+        encoding = np.zeros((len(nodes),len(fd)),dtype=bool)
+        for i,node in enumerate(nodes):
+            for feature in node.features:
+                encoding[i,fd[feature]] = True
+        return encoding
+
+
     def level(self,target):
         level = []
         for tree in self.trees:
@@ -416,144 +477,330 @@ class Forest:
 
         return leaves
 
+    def raw_predict_nodes(self,nodes):
+
+        consolidated_predictions = {}
+
+        for node in nodes:
+            node_predictions = node.predict_dictionary()
+            for feature,prediction in node_predictions.items():
+                if feature not in consolidated_predictions:
+                    consolidated_predictions[feature] = []
+                consolidated_predictions[feature].append(prediction)
+
+        return consolidated_predictions
+
+    def weighted_predict_nodes(self,nodes):
+
+        consolidated_predictions = {}
+
+        for node in nodes:
+            node_predictions = node.predict_weighted_dictionary()
+            for feature,prediction in node_predictions.items():
+                if feature not in consolidated_predictions:
+                    consolidated_predictions[feature] = ([],[])
+                consolidated_predictions[feature][0].append(prediction[0])
+                consolidated_predictions[feature][1].append(prediction[1])
+
+        return consolidated_predictions
+
+    def raw_prediction_matrix(self,nodes):
+        fd = self.truth_dictionary.feature_dictionary
+        predictions = np.zeros((len(nodes),len(fd)))
+        for i,node in enumerate(nodes):
+            for feature,feature_prediction in zip(node.features,node.medians):
+                predictions[i,fd[feature]] = feature_prediction
+        return predictions
+
+    def feature_weight_matrix(self,nodes):
+        fd = self.truth_dictionary.feature_dictionary
+        weights = np.zeros((len(nodes),len(fd)))
+        for i,node in enumerate(nodes):
+            for feature,feature_weight in zip(node.features,node.weights):
+                weights[i,fd[feature]] = feature_weight
+        return weights
+
+    def nodes_predict_feature(self,nodes,feature):
+        predictions = []
+        for node in nodes:
+            try:
+                node_feature_index = node.features.index(feature)
+                predictions.append(node.medians[node_feature_index])
+            except ValueError:
+                predictions.append(None)
+        return predictions
+
+    def node_feature_index_table(self,nodes):
+        fd = self.truth_dictionary.feature_dictionary
+        table = -1 * np.ones((len(nodes),len(fd)),dtype=int)
+        for node_index,node in enumerate(nodes):
+            for node_feature_index,node_feature in enumerate(node.features):
+                forest_feature_index = fd[node_feature]
+                table[node_index,forest_feature_index] = node_feature_index
+        return table
+
+    def node_predict_assisted(self,nodes,feature_indecies):
+        if -1 in weight_indecies:
+            print("Tried predict a feature a node doesn't have!")
+            raise ValueError
+        predictions = np.zeros(len(nodes))
+        for node_index,node,feature_index in zip(range(len(nodes)),nodes,feature_indecies):
+            predictions[node_index] = node.medians[feature_index]
+        return predictions
+
+    def set_feature_weights(self,nodes,weights,feature):
+        for node,weight in zip(nodes,weights):
+            feature_index = node.features.index(feature)
+            node.weights[feature_index] = weight
+
+    def set_feature_weights_assisted(self,nodes,weight_indecies,weights):
+        if -1 in weight_indecies:
+            print("Tried to set a weight for a feature a node doesn't have!")
+            print(weight_indecies)
+            raise ValueError
+        for node,weight_index,weight in zip(nodes,weight_indecies,weights):
+            node.weights[weight_index] = weight
+
+    # def solve_linear(self,problem):
+    #
+    #         index,feature,feature_leaf_sample_encoding,truth,positive = problem
+    #
+    #         print(f"Solving weights: {index},{feature}")
+    #
+    #         if positive:
+    #             # weights,residuals = nnls(feature_leaf_sample_encoding,truth)
+    #             model = Lasso(alpha=0.001,positive=True).fit(feature_leaf_sample_encoding,truth)
+    #             weights = model.coef_
+    #         else:
+    #             weights = Ridge(alpha=5).fit(feature_leaf_sample_encoding,truth).coef_
+    #         # weights,residuals,rank,singular_values = np.linalg.lstsq(feature_leaf_sample_encoding,truth)
+    #
+    #         sum = np.sum(weights)
+    #
+    #         if sum > .01:
+    #             weights = weights / np.sum(weights)
+    #         else:
+    #             weights = np.ones(weights.shape)
+
+            # if not negative_weights:
+            #     weights[weights < 0] = 0
+
+            # print("SOLVED")
+            # print(np.corrcoef(truth,np.matmul(feature_leaf_sample_encoding,weights)))
+            # print(np.corrcoef(truth,np.matmul(feature_leaf_sample_encoding,np.ones(weights.shape))))
+            # print(truth)
+            # print(rank)
+            # print(residuals)
+
+            # self.set_feature_weights(feature_leaves,weights,feature)
+            # self.set_feature_weights_assisted(feature_leaves,leaf_feature_indecies,weights)
+            # return (feature,weights)
+
+    # def linear_problem_generator(self,features,forest_leaves,leaf_sample_encoding,leaf_feature_encoding,raw_prediction_matrix,leaf_feature_index_table,negative_weights):
+    #
+    #     for feature in features:
+    #         feature_index = self.truth_dictionary.feature_dictionary[feature]
+    #         # leaf_feature_index = leaf_feature_encoding
+    #         feature_leaf_indecies = np.arange(len(forest_leaves))[leaf_feature_encoding[:,feature_index]]
+    #         feature_leaves = [forest_leaves[x] for x in feature_leaf_indecies]
+    #         feature_leaf_sample_encoding = leaf_sample_encoding.T[feature_leaf_indecies].T.astype(dtype=float)
+    #         leaf_predictions = raw_prediction_matrix[feature_leaf_indecies][:,feature_index]
+    #         for i,prediction in enumerate(leaf_predictions):
+    #             feature_leaf_sample_encoding[:,i] *= prediction
+    #         leaf_feature_indecies = leaf_feature_index_table[feature_leaf_indecies][:,feature_index]
+    #
+    #         truth = self.counts[:,feature_index]
+    #
+    #         yield (feature_index,feature,feature_leaf_sample_encoding,truth,negative_weights)
+
+
+    def weigh_leaves(self,positive=True):
+
+        forest_leaves = self.leaves()
+        leaf_sample_encoding = self.node_sample_encoding(forest_leaves)
+        # print("SAMPLE ENCODING")
+        # print(list(leaf_sample_encoding))
+        leaf_feature_encoding = self.node_feature_encoding(forest_leaves)
+        # print("FEATURE_ENCODING")
+        # print(list(leaf_feature_encoding))
+        raw_prediction_matrix = self.raw_prediction_matrix(forest_leaves)
+        leaf_feature_index_table = self.node_feature_index_table(forest_leaves)
+
+        # local_generator = self.linear_problem_generator(self.features,forest_leaves,leaf_sample_encoding,leaf_feature_encoding,raw_prediction_matrix,leaf_feature_index_table,negative_weights)
+
+        # constant_repeater = map(lambda x: (x[0],x[1],forest_leaves,leaf_sample_encoding,leaf_feature_encoding,raw_prediction_matrix,leaf_feature_index_table,negative_weights), enumerate(self.features))
+        #
+        #
+        for feature in self.features:
+            feature_index = self.truth_dictionary.feature_dictionary[feature]
+            # leaf_feature_index = leaf_feature_encoding
+            feature_leaf_indecies = np.arange(len(forest_leaves))[leaf_feature_encoding[:,feature_index]]
+            feature_leaves = [forest_leaves[x] for x in feature_leaf_indecies]
+            feature_leaf_sample_encoding = leaf_sample_encoding.T[feature_leaf_indecies].T.astype(dtype=float)
+            leaf_predictions = raw_prediction_matrix[feature_leaf_indecies][:,feature_index]
+            for i,prediction in enumerate(leaf_predictions):
+                feature_leaf_sample_encoding[:,i] *= prediction
+            leaf_feature_indecies = leaf_feature_index_table[feature_leaf_indecies][:,feature_index]
+
+            truth = self.counts[:,feature_index]
+
+            weights = Ridge(alpha=5).fit(feature_leaf_sample_encoding,truth).coef_
+
+            if positive:
+                weights[weights < 0] = 0
+
+            sum = np.sum(weights)
+
+            if sum > .01:
+                weights = weights / np.sum(weights)
+            else:
+                weights = np.ones(weights.shape)
+
+            # feature,weights = self.solve_linear((feature_index,feature,feature_leaf_sample_encoding,truth,positive))
+
+            # print("SOLVING WEIGHTS")
+            # print(feature)
+            # print(list(feature_leaf_indecies))
+            # print(list(leaf_feature_encoding[:,feature_index]))
+            # print(leaf_feature_indecies)
+            # print(leaf_feature_)
+            # print(list(feature_leaf_sample_encoding))
+            # print(feature_leaf_sample_encoding.shape)
+            # print(leaf_predictions)
+            # print(truth)
+            # print(weights)
+
+            self.set_feature_weights(feature_leaves,weights,feature)
+
+            # linear_problems.append((len(linear_problems),feature,feature_leaf_sample_encoding,truth))
+
+        # print("Linear problems formulated")
+        #
+        # for feature,weights in Pool().imap_unordered(self.solve_linear,local_generator,chunksize=1):
+        #     print("Solved weights:" + feature)
+        #     feature_index = self.truth_dictionary.feature_dictionary[feature]
+        #     feature_leaf_indecies = np.arange(len(forest_leaves))[leaf_feature_encoding[:,feature_index]]
+        #     feature_leaves = [forest_leaves[x] for x in feature_leaf_indecies]
+        #     self.set_feature_weights(feature_leaves,weights,feature)
+
+        plt.figure()
+        plt.hist(self.feature_weight_matrix(forest_leaves).flatten(),bins=50,log=True)
+        plt.show()
+
     def abort_predict_sample(self,sample):
+
+        fd = self.truth_dictionary.feature_dictionary
 
         leaves = self.abort_sample_leaves(sample)
 
-        prediction = np.zeros((len(leaves),len(self.features)))
+        # print(len(leaves))
+        # for leaf in leaves:
+            # print(leaf.prerequisites)
 
-        prediction_index = np.zeros(len(leaves),len(self.features))
+        consolidated_predictions = self.raw_predict_nodes(leaves)
 
-        for i,leaf in enumerate(leaves):
-            prediction[i] = leaf.spaced_predictions()
-            prediction_index = leaf.feature_index()
+        single_prediction = np.zeros(len(fd))
 
-        prediction,prediction_index
+        for feature,predictions in consolidated_predictions.items():
+            # print(feature)
+            # print(predictions)
+            # print(weights)
+            # prediction = sum([p * w for p,w in zip(predictions,weights)])
+
+            single_prediction[fd[feature]] = np.mean(predictions)
+            # single_prediction[fd[feature]] = np.median(predictions)
+
+            # if prediction > 1000:
+            #     print("Weird prediction")
+            #     print(prediction)
+            #     print(predictions)
+            #     print(weights)
+
+            # print(single_prediction[fd[feature]])
+
+        return single_prediction
 
     def abort_weighted_predict_sample(self,sample):
 
+        fd = self.truth_dictionary.feature_dictionary
+
         leaves = self.abort_sample_leaves(sample)
 
-        leaf_predictions = np.zeros((len(leaves),len(self.features)))
-        leaf_weights = np.zeros((len(leaves),len(self.features)))
+        # print(len(leaves))
+        # for leaf in leaves:
+            # print(leaf.prerequisites)
 
-        for i,leaf in enumerate(leaves):
-            leaf_prediction,leaf_weight = leaf.spaced_weighted_predictions()
-            leaf_predictions[i] = leaf_prediction
-            leaf_weights[i] = leaf_weight
+        consolidated_predictions = self.weighted_predict_nodes(leaves)
 
-        prediction = np.sum(leaf_predictions,axis=0) / np.sum(leaf_weights,axis=0)
+        single_prediction = np.zeros(len(fd))
 
-        # print("Prediction:" + str(prediction))
+        for feature,entry in consolidated_predictions.items():
+            predictions,weights = entry
+            # print(feature)
+            # print(predictions)
+            # print(weights)
+            # prediction = sum([p * w for p,w in zip(predictions,weights)])
+            prediction = sum([p * w for p,w in zip(predictions,weights)]) / sum(weights)
+            # prediction = np.median(predictions)
 
-        return prediction
+            if np.isfinite(prediction):
+                single_prediction[fd[feature]] = prediction
+            else:
+                single_prediction[fd[feature]] = 0
 
-    def predict_matrix(self,counts,samples=None,features=None):
+            if prediction > 1000:
+                print("Weird prediction")
+                print(prediction)
+                print(predictions)
+                print(weights)
 
-        if samples is None:
-            samples = list(range(counts.shape[0]))
+            # print(single_prediction[fd[feature]])
+
+        return single_prediction
+
+    def predict_matrix(self,matrix,features=None,samples=None,weighted=True):
 
         if features is None:
             features = self.features
+        if samples is None:
+            samples = self.samples
 
-        predictions = np.zeros((len(samples),len(features)))
+        predictions = np.zeros((len(matrix),len(self.features)))
 
-        for i,sample in enumerate(samples):
-            sample = {feature:value for feature,value in zip(features,counts[i])}
-            predictions[i] = self.abort_weighted_predict_sample(sample)
-
-        return predictions
-
-    # def leaf_feature_weights(self,feature):
-    #
-    #     fd = self.truth_dictionary.feature_dictionary
-    #     leaves = self.leaves()
-    #     leaf_sample_encoding = node_sample_encoding(leaves)
-    #     # leaf_feature_encoding = node_feature_encoding(leaves,self.truth_dictionary)
-    #     truth = self.counts[:,fd[feature]]
-
-    def raw_node_predictions(self,nodes):
-
-        predictions = np.zeros((len(nodes),len(self.features)))
-
-        for i,node in enumerate(nodes):
-            predictions[i] = node.spaced_predictions()
+        for i,row in enumerate(matrix):
+            sample = {feature:value for feature,value in zip(features,row)}
+            if weighted:
+                predictions[i] = self.abort_weighted_predict_sample(sample)
+            else:
+                predictions[i] = self.abort_predict_sample(sample)
 
         return predictions
 
-    def weighted_node_predictions(self,nodes):
-
-        predictions = np.zeros((len(nodes),len(self.features)))
-
-        for i,node in enumerate(nodes):
-            predictions[i] = node.spaced_weighted_predictions()[0]
-
-        return predictions
-
-    def weighted_predictions(self):
-
-        leaves = self.leaves()
-        weighted_node_predictions = self.weighted_node_predictions(leaves).T
-        membership = node_sample_encoding(leaves,len(self.samples))
-
-        print("Weighted predictions:" + str(weighted_node_predictions.shape))
-        print("Membership:" + str(membership.shape))
-
-        predictions = np.matmul(weighted_node_predictions,membership)
-
-        return predictions
-
-    def set_node_weights(self,node,weights):
-        fd = self.truth_dictionary.feature_dictionary
-        for i,feature in enumerate(node.features):
-            node.weights[i] = weights[fd[feature]]
-
-    def weigh_leaves(self,negative_weights=True):
-
-        truth = self.counts
-        leaves = self.leaves()
-        predictions = self.raw_node_predictions(leaves)
-        leaf_sample_encoding = node_sample_encoding(leaves,len(self.samples))
-
-        inverse_encoding = np.linalg.pinv(leaf_sample_encoding)
-
-        weighted_predictions = np.matmul(truth.T,inverse_encoding)
-
-        weights = weighted_predictions.T / predictions
-
-        if not negative_weights:
-            weights[weights < 0] = 0
-
-        weights[np.logical_not(np.isfinite(weights))] = 0;
-
-        for leaf,leaf_weights in zip(leaves,weights):
-            self.set_node_weights(leaf,leaf_weights)
-
-        return weights
-
-
-
-
-
+    def predict_vector_leaves(self,vector,features=None):
+        if features is None:
+            features = self.features
+        sample = {feature:value for feature,value in zip(features,vector)}
+        return self.abort_sample_leaves(sample)
 
 class TruthDictionary:
 
-    def __init__(self,counts,header,observations=None):
+    def __init__(self,counts,header,samples=None):
 
         self.counts = counts
         self.header = header
         self.feature_dictionary = {}
-        self.obs_dictionary = {}
+
+        self.sample_dictionary = {}
         for i,feature in enumerate(header):
             self.feature_dictionary[feature.strip('""').strip("''")] = i
-        if observations is None:
-            observations = map(lambda x: str(x),range(counts.shape[0]))
-        for i,observation in enumerate(observations):
-            self.obs_dictionary[observation.strip("''").strip('""')] = i
+        if samples is None:
+            samples = map(lambda x: str(x),range(counts.shape[0]))
+        for i,sample in enumerate(samples):
+            self.sample_dictionary[sample.strip("''").strip('""')] = i
 
-    def look(self,observation,feature):
+    def look(self,sample,feature):
 #         print(feature)
-        return(self.counts[self.obs_dictionary[observation],self.feature_dictionary[feature]])
+        return(self.counts[self.sample_dictionary[sample],self.feature_dictionary[feature]])
 
 
 ################################
@@ -589,13 +836,6 @@ def nonzero_var_column(mtx):
         nzv[i] = np.var(mtx[:,i][mtx[:,i] != 0])
     return nzv
 
-def node_sample_encoding(nodes,samples):
-
-    encoding = np.zeros((len(nodes),samples),dtype=bool)
-    for i,node in enumerate(nodes):
-        encoding[i] = node.sample_index()
-    return encoding
-
 def sample_node_encoding(nodes,samples):
     encoding = np.zeros((len(nodes),samples),dtype=bool)
     for i,node in enumerate(nodes):
@@ -606,14 +846,6 @@ def sample_node_encoding(nodes,samples):
         sample_encoding[unrepresented] = 1;
     return sample_encoding
 
-def node_feature_encoding(nodes,truth_dictionary):
-
-    fd = truth_dictionary.feature_dictionary
-    encoding = np.zeros((len(nodes),len(fd)),dtype=bool)
-    for i,node in enumerate(nodes):
-        for feature in node.features:
-            encoding[i,fd[feature]] = True
-    return encoding
 
 def feature_node_index(nodes,feature):
     encoding = np.zeros(len(nodes),dtype=bool)
@@ -754,3 +986,24 @@ def sample_agglomerative(nodes,samples,n_clusters):
 #     clusters = clustering_model.fit_predict(node_encoding)
 
     return clusters
+
+def stack_dictionaries(dictionaries):
+    stacked = {}
+    for dictionary in dictionaries:
+        for key,value in iter(dictionary):
+            if key not in stacked:
+                stacked[key] = []
+            stacked[entry].append(value)
+    return stacked
+
+def consolidate_entries(keys,dictionaries):
+    consolidated = empty_list_dictionary(keys)
+    for dictionary in dictionaries:
+        for key,value in iter(dictionary):
+            if key not in consolidated:
+                consolidated[key] = []
+            consolidated[entry].append(value)
+    return consolidated
+
+def empty_list_dictionary(keys):
+    return {key:[] for key in keys}

@@ -114,6 +114,7 @@ impl RankTable {
             DispersionMode::Variance => self.meta_vector.iter().map(|x| x.var()).collect(),
             DispersionMode::MAD => self.meta_vector.iter().map(|x| x.mad()).collect(),
             DispersionMode::SSME => self.meta_vector.iter().map(|x| x.ssme()).collect(),
+            DispersionMode::SME => self.meta_vector.iter().map(|x| x.sme()).collect(),
             DispersionMode::Mixed => panic!("Mixed mode isn't a valid setting for dispersion calculation in individual trees")
         }
     }
@@ -458,20 +459,26 @@ impl RankTable {
 
         let mut dispersions: Vec<Vec<f64>> = vec![vec![0.;self.dimensions.0];len];
 
-        match self.dispersion_mode {
-            DispersionMode::SSME => {
-                for (i,(f_s,r_s)) in forward_dispersions.into_iter().zip(reverse_dispersions.into_iter()).enumerate() {
-                    for (j,(gf,gr)) in f_s.into_iter().zip(r_s.into_iter()).enumerate() {
-                        dispersions[i][j] = gf + gr;
-                    }
-                }
-            }
-            _ => {
-                for (i,(f_s,r_s)) in forward_dispersions.into_iter().zip(reverse_dispersions.into_iter()).enumerate() {
-                    for (j,(gf,gr)) in f_s.into_iter().zip(r_s.into_iter()).enumerate() {
-                        dispersions[i][j] = (gf * ((len - i) as f64 / len as f64).powi(self.split_fraction_regularization)) + (gr * ((i+1) as f64/ len as f64).powi(self.split_fraction_regularization));
-                    }
-                }
+        // match self.dispersion_mode {
+        //     DispersionMode::SSME | DispersionMode::SME => {
+        //         for (i,(f_s,r_s)) in forward_dispersions.into_iter().zip(reverse_dispersions.into_iter()).enumerate() {
+        //             for (j,(gf,gr)) in f_s.into_iter().zip(r_s.into_iter()).enumerate() {
+        //                 dispersions[i][j] = gf + gr;
+        //             }
+        //         }
+        //     }
+        //     _ => {
+        //         for (i,(f_s,r_s)) in forward_dispersions.into_iter().zip(reverse_dispersions.into_iter()).enumerate() {
+        //             for (j,(gf,gr)) in f_s.into_iter().zip(r_s.into_iter()).enumerate() {
+        //                 dispersions[i][j] = (gf * ((len - i) as f64 / len as f64).powi(self.split_fraction_regularization)) + (gr * ((i+1) as f64/ len as f64).powi(self.split_fraction_regularization));
+        //             }
+        //         }
+        //     }
+        // }
+
+        for (i,(f_s,r_s)) in forward_dispersions.into_iter().zip(reverse_dispersions.into_iter()).enumerate() {
+            for (j,(gf,gr)) in f_s.into_iter().zip(r_s.into_iter()).enumerate() {
+                dispersions[i][j] = (gf * ((len - i) as f64 / len as f64).powi(self.split_fraction_regularization)) + (gr * ((i+1) as f64/ len as f64).powi(self.split_fraction_regularization));
             }
         }
 

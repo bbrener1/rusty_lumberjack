@@ -101,6 +101,7 @@ fn compute (prot_vector: Arc<RankVector<Vec<Node>>> , draw_order: Arc<Vec<usize>
         DispersionMode::Variance => local_vector.ordered_variance(&draw_order,&drop_set),
         DispersionMode::MAD => local_vector.ordered_mads(&draw_order,&drop_set),
         DispersionMode::SSME => local_vector.ordered_ssme(&draw_order, &drop_set),
+        DispersionMode::SME => local_vector.ordered_sme(&draw_order,&drop_set),
         DispersionMode::Mixed => panic!("Mixed mode not a valid split setting for individual trees!"),
     };
 
