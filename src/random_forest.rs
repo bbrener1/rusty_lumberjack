@@ -99,6 +99,37 @@ impl Forest {
 
     }
 
+    pub fn generate_weighted(&mut self,parameters:Arc<Parameters>) {
+        if let Some(ref prototype) = self.prototype_tree {
+
+            let mut tree_receivers = Vec::with_capacity(self.size);
+
+            let mut tree_pool = TreeThreadPool::new(self.prototype_tree.as_ref().unwrap(), parameters );
+
+            for tree in 1..self.size+1 {
+
+                let (tx,rx) = mpsc::channel();
+
+                tree_pool.send((tree,tx));
+
+                tree_receivers.push(rx);
+
+            }
+
+            for receiver in tree_receivers {
+                println!("Unwrapping tree");
+                let new_tree = receiver.recv().unwrap();
+                new_tree.serialize_compact();
+            }
+
+            TreeThreadPool::terminate(&mut tree_pool);
+        }
+        else {
+            panic!("Attempted to generate a forest without a prototype tree. Are you trying to do predictions after reloading from compact backups?")
+        }
+
+    }
+
     // pub fn set_leaf_weights(&mut self) {
     //     let truth = self.counts.clone();
     //     let sample_header = self.sample_map();
@@ -282,6 +313,9 @@ impl Forest {
         self.prototype_tree.as_ref().unwrap().samples().iter().cloned().enumerate().map(|x| (x.1,x.0)).collect()
     }
 
+    // pub fn random_features(&self, n_features) -> &Vec<&String> {
+    //
+    // }
 
 }
 
@@ -327,7 +361,7 @@ fn split_shuffle<T>(source_vector: Vec<T>, pieces: usize) -> Vec<Vec<T>> {
 mod random_forest_tests {
 
     use super::*;
-    use super::super::io::{read_counts,read_header};
+    use super::super::io::{read_matrix,read_header};
     use std::fs::remove_file;
 
     #[test]
@@ -343,7 +377,7 @@ mod random_forest_tests {
 
     #[test]
     fn test_forest_initialization_iris() {
-        let counts = read_counts("./testing/iris.drop");
+        let counts = read_matrix("./testing/iris.drop");
         let features = read_header("./testing/iris.features");
         Forest::initialize(&counts,&counts, Arc::new(Parameters::empty()),"./testing/err");
     }
@@ -352,7 +386,7 @@ mod random_forest_tests {
     fn test_forest_initialization_iris_nan() {
         let mut params = Parameters::empty();
         params.dropout = DropMode::NaNs;
-        let counts = read_counts("./testing/iris.nan");
+        let counts = read_matrix("./testing/iris.nan");
         let features = read_header("./testing/iris.features");
         Forest::initialize(&counts,&counts, Arc::new(params),"./testing/err");
     }

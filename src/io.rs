@@ -190,6 +190,9 @@ pub struct Parameters {
     pub depth_cutoff: usize,
     pub dropout: DropMode,
 
+    pub feature_similarity: Option<Vec<Vec<f64>>>,
+    pub sample_similarity: Option<Vec<Vec<f64>>>,
+
     pub feature_subsample: usize,
     pub sample_subsample: usize,
     pub input_features: usize,
@@ -234,6 +237,9 @@ impl Parameters {
             leaf_size_cutoff: 1,
             depth_cutoff: 1,
             dropout: DropMode::No,
+
+            feature_similarity: None,
+            sample_similarity: None,
 
             feature_subsample: 1,
             sample_subsample: 1,
@@ -289,17 +295,23 @@ impl Parameters {
                 }
                 "-c" | "-counts" => {
                     let single_count_array_file = args.next().expect("Error parsing count location!");
-                    let single_array = Some(read_counts(&single_count_array_file));
+                    let single_array = Some(read_matrix(&single_count_array_file));
                     arg_struct.input_count_array_file = single_count_array_file.clone();
                     arg_struct.input_array = single_array.clone();
                     arg_struct.output_count_array_file = single_count_array_file;
                     arg_struct.output_array = single_array;
                 },
                 "-ic" | "-input_counts" | "-input" => {
-                    arg_struct.input_array = Some(read_counts(&args.next().expect("Error parsing input count location!")));
+                    arg_struct.input_array = Some(read_matrix(&args.next().expect("Error parsing input count location!")));
                 }
                 "-oc" | "-output_counts" | "-output" => {
-                    arg_struct.output_array = Some(read_counts(&args.next().expect("Error parsing output count location!")));
+                    arg_struct.output_array = Some(read_matrix(&args.next().expect("Error parsing output count location!")));
+                }
+                "-feature_similarity" | "-f_sim" | "-feature_sim" => {
+                    arg_struct.feature_similarity = Some(read_matrix(&args.next().expect("Error parsing feature_similarity count location!")));
+                }
+                "-sample_similarity" | "-s_sim" | "-sample_sim" => {
+                    arg_struct.sample_similarity = Some(read_matrix(&args.next().expect("Error parsing sample_similarity count location!")));
                 }
                 "-m" | "-mode" | "-pm" | "-prediction_mode" | "-prediction" => {
                     arg_struct.prediction_mode = PredictionMode::read(&args.next().expect("Error reading prediction mode"));
@@ -725,7 +737,7 @@ pub enum TreeBackups {
     Trees(Vec<PredictiveTree>)
 }
 
-pub fn read_counts(location:&str) -> Vec<Vec<f64>> {
+pub fn read_matrix(location:&str) -> Vec<Vec<f64>> {
 
     let count_array_file = File::open(location).expect("Count file error!");
     let mut count_array_lines = io::BufReader::new(&count_array_file).lines();
@@ -1257,12 +1269,12 @@ pub mod primary_testing {
 
     #[test]
     fn test_read_counts_trivial() {
-        assert_eq!(read_counts("./testing/trivial.txt"),Vec::<Vec<f64>>::with_capacity(0))
+        assert_eq!(read_matrix("./testing/trivial.txt"),Vec::<Vec<f64>>::with_capacity(0))
     }
 
     #[test]
     fn test_read_counts_simple() {
-        assert_eq!(read_counts("./testing/simple.txt"), vec![vec![10.,5.,-1.,0.,-2.,10.,-3.,20.]])
+        assert_eq!(read_matrix("./testing/simple.txt"), vec![vec![10.,5.,-1.,0.,-2.,10.,-3.,20.]])
     }
 
     #[test]

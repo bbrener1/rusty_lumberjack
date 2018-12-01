@@ -6,6 +6,7 @@ import sys
 import os
 import random
 import glob
+import pickle
 
 import scipy.special
 from scipy.stats import linregress
@@ -20,7 +21,7 @@ from sklearn.cluster import DBSCAN
 from sklearn.manifold import MDS
 from sklearn.linear_model import Ridge,Lasso
 
-from hdbscan import HDBSCAN
+# from hdbscan import HDBSCAN
 
 from scipy.cluster import hierarchy as hrc
 from scipy.cluster.hierarchy import dendrogram,linkage
@@ -35,6 +36,9 @@ jaccard_index = jaccard_similarity_score
 from multiprocessing import Pool
 
 import copy
+
+sys.path.append("/Users/boris/haxx/python/")
+import gravity_clustering
 
 class Node:
 
@@ -76,6 +80,15 @@ class Node:
             for child in self.children:
                 leaves.append(child)
         return leaves
+
+    def stems(self):
+        stems = []
+        for child in self.children:
+            stems.extend(child.nodes())
+        for child in self.children:
+            if len(child.children) > 0:
+                stems.append(child)
+        return nodes
 
     def nodes_by_level(self):
         levels = [[self]]
@@ -197,29 +210,15 @@ class Node:
         return sorted_features,sorted_gains,sorted_dispersions,sorted_original_dispersions
 
     def aborting_sample_descent(self,sample):
-        # print("Own feature")
-        # print(self.feature)
         if self.feature is not None:
-            # print("In sample?")
-            # print(sample.keys())
             if self.feature in sample:
-                # print("Split")
-                # print(self.split)
-                # print("Sample Value:")
-                # print(sample[self.feature])
                 if sample[self.feature] <= self.split:
-                    # print("Left")
                     return self.children[0].aborting_sample_descent(sample)
                 else:
-                    # print("Right")
                     return self.children[1].aborting_sample_descent(sample)
             else:
                 return []
         else:
-            # print("TERMINUS")
-            # print(len(self.samples))
-            # print(self.samples)
-            # print("\n\n\n\n")
             return [self,]
 
     def predict_dictionary(self):
@@ -228,21 +227,18 @@ class Node:
     def predict_weighted_dictionary(self):
         return {x:(y,z) for x,y,z in zip(self.features,self.medians,self.weights)}
 
-    # def spaced_predictions(self):
-    #     fd = self.forest.truth_dictionary.feature_dictionary
-    #     predictions = np.zeros(len(self.forest.features))
-    #     for feature,median in zip(self.features,self.medians):
-    #         predictions[fd[feature]] = median
-    #     return predictions
-    #
-    # def spaced_weighted_predictions(self):
-    #     fd = self.forest.truth_dictionary.feature_dictionary
-    #     predictions = np.zeros(len(self.forest.features))
-    #     weights = np.zeros(len(self.forest.features))
-    #     for feature,median,weight in zip(self.features,self.medians,self.weights):
-    #         predictions[fd[feature]] = median * weight
-    #         weights[fd[feature]] = weight
-    #     return predictions,weights
+    def local_gain_dictionary(self):
+        return {x:y for x,y in zip(self.features,self.local_gains)}
+
+    def absolute_gain_dictionary(self):
+        return {x:y for x,y in zip(self.features,self.absolute_gains)}
+
+    def compare_to_sample(self,sample):
+        differences = []
+        for i,feature in enumerate(self.features):
+            if feature in sample:
+                differences.append(sample[feature] - self.medians[i])
+        return differences
 
 class Tree:
 
@@ -250,10 +246,11 @@ class Tree:
         self.root = Node(tree_json, self, forest)
         self.forest = forest
 
-    def nodes(self):
+    def nodes(self,root=True):
         nodes = []
         nodes.extend(self.root.nodes())
-        nodes.append(self.root)
+        if root:
+            nodes.append(self.root)
         return nodes
 
     def leaves(self):
@@ -261,6 +258,10 @@ class Tree:
         if len(leaves) < 1:
             leaves.append(self.root)
         return leaves
+
+    def stems(self):
+        stems = self.root.stems()
+        return stems
 
     def level(self,target):
         level_nodes = []
@@ -407,10 +408,18 @@ class Forest:
 
         self.trees = list(map(lambda x: Tree(x,self),trees))
 
-    def nodes(self):
+    def backup(self,location):
+        with open(location,mode='bw') as f:
+            pickle.dump(self,f)
+
+    def reconstitute(location):
+        with open(location,mode='br') as f:
+            return pickle.load(f)
+
+    def nodes(self,root=True):
         nodes = []
         for tree in self.trees:
-            nodes.extend(tree.nodes())
+            nodes.extend(tree.nodes(root=root))
         return nodes
 
     def leaves(self):
@@ -418,6 +427,12 @@ class Forest:
         for tree in self.trees:
             leaves.extend(tree.leaves())
         return leaves
+
+    def stems(self):
+        stems = []
+        for tree in self.trees:
+            stems.extend(tree.stems())
+        return stems
 
     def feature_leaves(self,feature):
         leaves = []
@@ -443,6 +458,22 @@ class Forest:
                 encoding[i,fd[feature]] = True
         return encoding
 
+    def absolute_gain_matrix(self,nodes):
+        gains = np.zeros((len(self.features),len(nodes)))
+        fd = self.truth_dictionary.feature_dictionary
+        for i,node in enumerate(nodes):
+            if node.absolute_gains is not None:
+                for feature,gain in zip(node.features,node.absolute_gains):
+                    gains[fd[feature],i] = gain
+        return gains
+
+    def local_gain_matrix(self,nodes):
+        gains = np.zeros((len(self.features),len(nodes)))
+        fd = self.truth_dictionary.feature_dictionary
+        for i,node in enumerate(nodes):
+            for feature,gain in zip(node.features,node.local_gains):
+                gains[fd[feature],i] = gain
+        return gains
 
     def level(self,target):
         level = []
@@ -452,7 +483,7 @@ class Forest:
 
     def load(location, prefix="/run.*.compact", header="/run.prediction_header",truth="run.prediction_truth"):
 
-        combined_tree_files = glob.glob(location + prefix)
+        combined_tree_files = sorted(glob.glob(location + prefix))
 
         print(combined_tree_files)
 
@@ -465,6 +496,18 @@ class Forest:
         header = np.loadtxt(location+header,dtype=str)
 
         first_forest = Forest(raw_forest[1:],counts,features=header)
+
+        first_forest.prototype = Tree(raw_forest[0],first_forest)
+
+        sample_encoding = first_forest.node_sample_encoding(first_forest.leaves())
+
+        if np.sum(np.sum(sample_encoding,axis=1) == 0) > 0:
+            print("WARNING, UNREPRESENTED SAMPLES")
+
+        feature_encoding = first_forest.node_feature_encoding(first_forest.leaves())
+
+        if np.sum(np.sum(feature_encoding,axis=0) == 0) > 0:
+            print("WARNING, UNREPRESENTED FEATURES")
 
         return first_forest
 
@@ -511,6 +554,7 @@ class Forest:
             for feature,feature_prediction in zip(node.features,node.medians):
                 predictions[i,fd[feature]] = feature_prediction
         return predictions
+
 
     def feature_weight_matrix(self,nodes):
         fd = self.truth_dictionary.feature_dictionary
@@ -560,58 +604,6 @@ class Forest:
             raise ValueError
         for node,weight_index,weight in zip(nodes,weight_indecies,weights):
             node.weights[weight_index] = weight
-
-    # def solve_linear(self,problem):
-    #
-    #         index,feature,feature_leaf_sample_encoding,truth,positive = problem
-    #
-    #         print(f"Solving weights: {index},{feature}")
-    #
-    #         if positive:
-    #             # weights,residuals = nnls(feature_leaf_sample_encoding,truth)
-    #             model = Lasso(alpha=0.001,positive=True).fit(feature_leaf_sample_encoding,truth)
-    #             weights = model.coef_
-    #         else:
-    #             weights = Ridge(alpha=5).fit(feature_leaf_sample_encoding,truth).coef_
-    #         # weights,residuals,rank,singular_values = np.linalg.lstsq(feature_leaf_sample_encoding,truth)
-    #
-    #         sum = np.sum(weights)
-    #
-    #         if sum > .01:
-    #             weights = weights / np.sum(weights)
-    #         else:
-    #             weights = np.ones(weights.shape)
-
-            # if not negative_weights:
-            #     weights[weights < 0] = 0
-
-            # print("SOLVED")
-            # print(np.corrcoef(truth,np.matmul(feature_leaf_sample_encoding,weights)))
-            # print(np.corrcoef(truth,np.matmul(feature_leaf_sample_encoding,np.ones(weights.shape))))
-            # print(truth)
-            # print(rank)
-            # print(residuals)
-
-            # self.set_feature_weights(feature_leaves,weights,feature)
-            # self.set_feature_weights_assisted(feature_leaves,leaf_feature_indecies,weights)
-            # return (feature,weights)
-
-    # def linear_problem_generator(self,features,forest_leaves,leaf_sample_encoding,leaf_feature_encoding,raw_prediction_matrix,leaf_feature_index_table,negative_weights):
-    #
-    #     for feature in features:
-    #         feature_index = self.truth_dictionary.feature_dictionary[feature]
-    #         # leaf_feature_index = leaf_feature_encoding
-    #         feature_leaf_indecies = np.arange(len(forest_leaves))[leaf_feature_encoding[:,feature_index]]
-    #         feature_leaves = [forest_leaves[x] for x in feature_leaf_indecies]
-    #         feature_leaf_sample_encoding = leaf_sample_encoding.T[feature_leaf_indecies].T.astype(dtype=float)
-    #         leaf_predictions = raw_prediction_matrix[feature_leaf_indecies][:,feature_index]
-    #         for i,prediction in enumerate(leaf_predictions):
-    #             feature_leaf_sample_encoding[:,i] *= prediction
-    #         leaf_feature_indecies = leaf_feature_index_table[feature_leaf_indecies][:,feature_index]
-    #
-    #         truth = self.counts[:,feature_index]
-    #
-    #         yield (feature_index,feature,feature_leaf_sample_encoding,truth,negative_weights)
 
 
     def weigh_leaves(self,positive=True):
@@ -693,70 +685,45 @@ class Forest:
 
         leaves = self.abort_sample_leaves(sample)
 
-        # print(len(leaves))
-        # for leaf in leaves:
-            # print(leaf.prerequisites)
-
         consolidated_predictions = self.raw_predict_nodes(leaves)
 
         single_prediction = np.zeros(len(fd))
 
         for feature,predictions in consolidated_predictions.items():
-            # print(feature)
-            # print(predictions)
-            # print(weights)
-            # prediction = sum([p * w for p,w in zip(predictions,weights)])
 
             single_prediction[fd[feature]] = np.mean(predictions)
-            # single_prediction[fd[feature]] = np.median(predictions)
-
-            # if prediction > 1000:
-            #     print("Weird prediction")
-            #     print(prediction)
-            #     print(predictions)
-            #     print(weights)
-
-            # print(single_prediction[fd[feature]])
 
         return single_prediction
 
     def abort_weighted_predict_sample(self,sample):
 
-        fd = self.truth_dictionary.feature_dictionary
-
         leaves = self.abort_sample_leaves(sample)
 
-        # print(len(leaves))
-        # for leaf in leaves:
-            # print(leaf.prerequisites)
+        return self.weighted_node_vector_prediction(leaves)
 
-        consolidated_predictions = self.weighted_predict_nodes(leaves)
-
+    def weighted_node_vector_prediction(self,nodes):
+        fd = self.truth_dictionary.feature_dictionary
+        consolidated_predictions = self.weighted_predict_nodes(nodes)
         single_prediction = np.zeros(len(fd))
 
         for feature,entry in consolidated_predictions.items():
             predictions,weights = entry
-            # print(feature)
-            # print(predictions)
-            # print(weights)
-            # prediction = sum([p * w for p,w in zip(predictions,weights)])
             prediction = sum([p * w for p,w in zip(predictions,weights)]) / sum(weights)
-            # prediction = np.median(predictions)
-
             if np.isfinite(prediction):
                 single_prediction[fd[feature]] = prediction
             else:
                 single_prediction[fd[feature]] = 0
 
-            if prediction > 1000:
-                print("Weird prediction")
-                print(prediction)
-                print(predictions)
-                print(weights)
-
-            # print(single_prediction[fd[feature]])
-
         return single_prediction
+
+    def raw_node_prediction(self,nodes):
+        fd = self.truth_dictionary.feature_dictionary
+        single_prediction = np.zeros(len(fd))
+        raw_predictions = self.raw_predict_nodes(nodes)
+        for feature,predictions in raw_predictions.items():
+            single_prediction[fd[feature]] = np.mean(predictions)
+
+        return predictions
 
     def predict_matrix(self,matrix,features=None,samples=None,weighted=True):
 
@@ -782,6 +749,164 @@ class Forest:
         sample = {feature:value for feature,value in zip(features,vector)}
         return self.abort_sample_leaves(sample)
 
+    def cluster_samples(self,override=False,*args,**kwargs):
+
+
+        leaves = self.leaves()
+        encoding = self.node_sample_encoding(leaves)
+
+        if hasattr(self,'sample_clusters') and not override:
+            print("Clustering has already been done")
+        else:
+            self.sample_labels = np.array(gravity_clustering.fit_predict(encoding,"fuzzy",*args,**kwargs))
+
+        cluster_set = set(self.sample_labels)
+        clusters = []
+        for cluster in cluster_set:
+            cells = np.arange(len(self.sample_labels))[self.sample_labels == cluster]
+            clusters.append(SampleCluster(self,cells,cluster))
+
+        self.sample_clusters = clusters
+
+        return self.sample_labels
+
+    def cluster_leaves(self,override=False,*args,**kwargs):
+
+        leaves = self.leaves()
+        encoding = self.node_sample_encoding(leaves).T
+
+        if hasattr(self,'leaf_clusters') and not override:
+            print("Clustering has already been done")
+        else:
+            self.leaf_labels = np.array(gravity_clustering.fit_predict(encoding,"fuzzy",*args,**kwargs))
+
+        cluster_set = set(self.leaf_labels)
+
+        clusters = []
+
+        for cluster in cluster_set:
+            leaf_index = np.arange(len(self.leaf_labels))[self.leaf_labels == cluster]
+            clusters.append(NodeCluster(self,[leaves[i] for i in leaf_index],cluster))
+
+        self.leaf_clusters = clusters
+
+        return self.leaf_labels
+
+    def cluster_features(self,*args,**kwargs):
+        gain_matrix = self.absolute_gain_matrix(self.leaves())
+        return gravity_clustering.fit_predict(gain_matrix,"fuzzy",*args,**kwargs)
+
+    def plot_counts(self,no_plot=False):
+
+        if not no_plot:
+            cell_sort = dendrogram(linkage(encoding,metric='cos',method='average'),no_plot=True)['leaves']
+            leaf_sort = dendrogram(linkage(encoding.T,metric='cos',method='average'),no_plot=True)['leaves']
+
+            plt.figure(figsize=(10,10))
+            plt.imshow(encoding[cell_sort].T[leaf_sort].T,cmap='binary')
+            plt.show()
+
+        return cell_sort,leaf_sort,self.counts
+
+    def cluster_splits(self,override=False,no_plot=False,*args,**kwargs):
+
+        nodes = self.nodes(root=False)
+
+        gain_matrix = self.local_gain_matrix(nodes).T+1
+
+        if hasattr(self,'split_clusters') and not override:
+            print("Clustering has already been done")
+        else:
+            self.split_labels = np.array(gravity_clustering.fit_predict(gain_matrix,"fuzzy",*args,**kwargs))
+
+        cluster_set = set(self.split_labels)
+        clusters = []
+        for cluster in cluster_set:
+            split_index = np.arange(len(self.split_labels))[self.split_labels == cluster]
+            clusters.append(NodeCluster(self,[nodes[i] for i in split_index],cluster))
+
+        # split_order = np.argsort(self.split_labels)
+        split_order = dendrogram(linkage(gain_matrix,metric='cos',method='average'),no_plot=True)['leaves']
+        feature_order = dendrogram(linkage(gain_matrix.T+1,metric='cosine',method='average'),no_plot=True)['leaves']
+
+        image = gain_matrix[split_order].T[feature_order].T
+        neg = image < 0
+        pos = image > 0
+        image[neg] = -1 * np.log(np.abs(image[neg]) + 1)
+        image[pos] = np.log(image[pos] + 1)
+
+        median = np.median(image)
+        range = np.max(image) - median
+
+
+        plt.figure(figsize=(10,10))
+        plt.imshow(image,aspect='auto',cmap='bwr',vmin=median-range,vmax=median+range)
+        plt.colorbar()
+        plt.show()
+
+        self.split_clusters = clusters
+
+        return self.split_labels,image
+
+
+    def filter_cells(cells,prerequisite):
+        filtered = []
+        feature,split,direction = prerequisite
+        if direction == '<':
+            for cell in cells:
+                if self.truth_dictionary.look(cell,feature) < split:
+                    filtered.append(cell)
+        if direction == '>':
+            for cell in cells:
+                if self.truth_dictionary.look(cell,feature) > split:
+                    filtered.append(cell)
+        return filtered
+
+    def plot_cell_clusters(self):
+        if not hasattr(self,'leaf_clusters'):
+            print("Warning, leaf clusters not detected")
+            return None
+        if not hasattr(self,'sample_clusters'):
+            print("Warning, cell clusters not detected")
+            return None
+
+        cluster_coordinates = np.zeros((len(self.cell_clusters)),len(self.features))
+        for i,cluster in enumerate(self.cell_clusters):
+            cluster_coordinates[i] = cluster.median_feature_values()
+
+        combined_coordinates = np.zeros((self.counts.shape[0]+len(cell_clusters),self.counts.shape[1]))
+
+        combined_coordinates[0] = self.counts
+
+        combined_coordinates[self.counts.shape[0]] = cluster_coordinates
+
+        transformed = TSNE().fit_transform(combined_coordinates)
+
+        highlight = np.ones(combined_coordinates.shape[0]) * 0.1
+        highlight[-1 * len(self.cell_clusters):] = 5
+
+        combined_labels = np.zeros(self.counts.shape[0]+len(cell_clusters))
+        combined_labels[0] = self.cell_labels
+        combined_labels[len(self.cell_labels)] = np.arange(len(self.cell_clusters))
+
+        plt.figure()
+        plt.title("TSNE-Transformed Cell Coordinates")
+        plt.scatter(transformed[:,0],transformed[:,1],s=highlight,c=combined_labels)
+        plt.show()
+
+
+    def tsne(self,no_plot=False):
+        if not hasattr(self,'tsne'):
+            self.tsne = TSNE().fit_transform(self.counts)
+
+        if not no_plot:
+            plt.figure()
+            plt.title("TSNE-Transformed Cell Coordinates")
+            plt.scatter(self.tsne[:,0],self.tsne[:,1],s=.1)
+            plt.show()
+
+        return self.tsne
+
 class TruthDictionary:
 
     def __init__(self,counts,header,samples=None):
@@ -802,6 +927,121 @@ class TruthDictionary:
 #         print(feature)
         return(self.counts[self.sample_dictionary[sample],self.feature_dictionary[feature]])
 
+class SampleCluster:
+
+    def __init__(self,forest,cells,id):
+        self.id = id
+        self.samples = cells
+        self.forest = forest
+
+    def median_feature_values(self):
+        return np.median(self.forest.counts[self.samples],axis=0)
+
+class NodeCluster:
+
+    def __init__(self,forest,nodes,id):
+        self.id = id
+        self.nodes = nodes
+        self.forest = forest
+
+    def encoding(self):
+        return self.forest.node_sample_encoding(self.nodes)
+
+    def mean_absolute_feature_gains(self):
+        mean_gains = np.zeros(len(self.forest.features))
+        node_gains = [node.absolute_gain_dictionary() for node in self.nodes]
+        stacked_gains = stack_dictionaries(node_gains)
+        print(list(stacked_gains.items())[:10])
+        for i,feature in enumerate(self.forest.features):
+            mean_gains[i] = np.mean(stacked_gains[feature])
+        return mean_gains
+
+    def ranked_mean_gains(self):
+        mean_gains = self.mean_absolute_feature_gains()
+        gain_order = np.argsort(mean_gains)
+        sorted_features = np.array(self.forest.features)[gain_order]
+        sorted_gains = mean_gains[gain_order]
+
+        plt.figure(figsize=(10,2))
+        plt.title("Features Gaining Information")
+        plt.scatter(np.arange(50),sorted_gains[-50:])
+        plt.xlim(0,50)
+        plt.xlabel("Gene Symbol")
+        plt.ylabel("Gain")
+        plt.xticks(np.arange(50),sorted_features[-50:],rotation='vertical')
+        plt.show()
+
+        return sorted_features,sorted_gains
+
+    def cluster_summary(self):
+        levels = [node.level for node in self.nodes]
+
+        plt.figure()
+        plt.title("Levels")
+        plt.hist(levels)
+        plt.show()
+
+        leaf_size = [len(node.samples) for node in self.nodes]
+
+        plt.figure()
+        plt.title("Leaf sizes")
+        plt.hist(leaf_size)
+        plt.show()
+
+    def cell_frequency(self):
+        encoding = self.encoding()
+        return np.sum(encoding,axis=1)/np.sum(encoding.flatten())
+
+    def prerequisites(self):
+        prerequisite_dictionary = {}
+        for node in self.nodes:
+            for prerequisite,split,sign in node.prerequisites:
+                if prerequisite not in prerequisite_dictionary:
+                    prerequisite_dictionary[prerequisite] = []
+                prerequisite_dictionary[prerequisite].append((split,sign))
+        return prerequisite_dictionary
+
+    def prerequisite_frequency(self):
+        prerequisites = list(self.prerequisites().items())
+        prerequisites.sort(key=lambda x: len(x[1]))
+        prerequisite_counts = [len(x[1]) for x in prerequisites][-50:]
+        prerequisite_labels = [x[0] for x in prerequisites][-50:]
+
+        plt.figure(figsize=(10,2))
+        plt.title("Prerequisites By Frequency")
+        plt.scatter(np.arange(len(prerequisite_counts)),prerequisite_counts)
+        plt.xlim(0,50)
+        plt.xlabel("Gene Symbol")
+        plt.ylabel("Frequency")
+        plt.xticks(np.arange(50),prerequisite_labels,rotation='vertical')
+        plt.show()
+
+        return prerequisites
+
+    # def mean_feature_predictions(self):
+    #     return self.forest.weighted_node_prediction(self.nodes)
+
+    def weighted_feature_predictions(self):
+        return self.forest.weighted_node_vector_prediction(self.nodes)
+
+    def increased_features(self):
+        initial_medians = self.forest.weighted_node_vector_prediction([self.forest.prototype.root])
+        leaf_medians = self.weighted_feature_predictions()
+        difference = leaf_medians - initial_medians
+        feature_order = np.argsort(difference)
+        ordered_features = np.array(self.forest.features)[feature_order]
+        ordered_difference = difference[feature_order]
+
+        plt.figure(figsize=(10,2))
+        plt.title("Upregulated Genes")
+        plt.scatter(np.arange(50),ordered_difference[-50:])
+        plt.xlim(0,50)
+        plt.xlabel("Gene Symbol")
+        plt.ylabel("Frequency")
+        plt.xticks(np.arange(50),ordered_features[-50:],rotation='vertical')
+        plt.show()
+
+        return ordered_features,ordered_difference
 
 ################################
 ################################
@@ -817,8 +1057,8 @@ class TruthDictionary:
 ################################
 
 from sklearn.cluster import AgglomerativeClustering
-import community
-import networkx as nx
+# import community
+# import networkx as nx
 
 def numpy_mad(mtx):
     medians = []
@@ -901,23 +1141,23 @@ def sample_tsne(nodes,samples):
     #     distances = coocurrence_matrix(encoding)
 
     return coordinates
-
-def node_hdbscan_samples(nodes,samples):
-
-    node_encoding = node_sample_encoding(nodes,samples)
-
-    pre_computed_distance = pdist(node_encoding,metric='cityblock')
-
-    clustering_model = HDBSCAN(min_cluster_size=50, metric='precomputed')
-
-#     plt.figure()
-#     plt.title("Dbscan observed distances")
-#     plt.hist(pre_computed_distance,bins=50)
-#     plt.show()
-
-    clusters = clustering_model.fit_predict(scipy.spatial.distance.squareform(pre_computed_distance))
-
-#     clusters = clustering_model.fit_predict(node_encoding)
+#
+# def node_hdbscan_samples(nodes,samples):
+#
+#     node_encoding = node_sample_encoding(nodes,samples)
+#
+#     pre_computed_distance = pdist(node_encoding,metric='cityblock')
+#
+#     clustering_model = HDBSCAN(min_cluster_size=50, metric='precomputed')
+#
+# #     plt.figure()
+# #     plt.title("Dbscan observed distances")
+# #     plt.hist(pre_computed_distance,bins=50)
+# #     plt.show()
+#
+#     clusters = clustering_model.fit_predict(scipy.spatial.distance.squareform(pre_computed_distance))
+#
+# #     clusters = clustering_model.fit_predict(node_encoding)
 
     return clusters
 
@@ -932,46 +1172,62 @@ def node_gain_table(nodes,forest):
             except:
                 print(node.absolute_gains)
     return node_gain_table
+#
+# def hacked_louvain(nodes,samples):
+#
+#     node_encoding = node_sample_encoding(nodes,len(samples))
+#     print("Louvain Encoding: {}".format(node_encoding.shape))
+#     pre_computed_distance = coocurrence_distance(node_encoding.T)
+#     print("Louvain Distances: {}".format(pre_computed_distance.shape))
+#     sample_graph = nx.from_numpy_matrix(pre_computed_distance)
+#     print("Louvain Cast To Graph")
+#     least_spanning_tree = nx.minimum_spanning_tree(sample_graph)
+#     print("Louvain Least Spanning Tree constructed")
+#     part_dict = community.best_partition(least_spanning_tree)
+#     print("Louvain Partition Done")
+#     clustering = np.zeros(len(part_dict))
+#     for i,sample in enumerate(samples):
+#         clustering[i] = part_dict[int(sample)]
+#     print("Louvain: {}".format(clustering.shape))
+#     return clustering
 
-def hacked_louvain(nodes,samples):
+# def embedded_hdbscan(coordinates):
+#
+#     clustering_model = HDBSCAN(min_cluster_size=50)
+#     clusters = clustering_model.fit_predict(coordinates)
+#     return clusters
+#
+# def sample_hdbscan(nodes,samples):
+#
+#     node_encoding = node_sample_encoding(nodes,samples)
+#     embedding_model = PCA(n_components=100)
+#     pre_computed_embedded = embedding_model.fit_transform(node_encoding.T)
+#     print("Sample HDBscan Encoding: {}".format(pre_computed_embedded.shape))
+# #     pre_computed_distance = coocurrence_distance(node_encoding)
+#     pre_computed_distance = scipy.spatial.distance.squareform(pdist(pre_computed_embedded,metric='correlation'))
+#     print("Sample HDBscan Distance Matrix: {}".format(pre_computed_distance.shape))
+# #     pre_computed_distance[pre_computed_distance == 0] += .000001
+#     pre_computed_distance[np.isnan(pre_computed_distance)] = 10000000
+#     clustering_model = HDBSCAN(min_samples=3,metric='precomputed')
+#     clusters = clustering_model.fit_predict(pre_computed_distance)
+#
+#     return clusters
 
-    node_encoding = node_sample_encoding(nodes,len(samples))
-    print("Louvain Encoding: {}".format(node_encoding.shape))
-    pre_computed_distance = coocurrence_distance(node_encoding.T)
-    print("Louvain Distances: {}".format(pre_computed_distance.shape))
-    sample_graph = nx.from_numpy_matrix(pre_computed_distance)
-    print("Louvain Cast To Graph")
-    least_spanning_tree = nx.minimum_spanning_tree(sample_graph)
-    print("Louvain Least Spanning Tree constructed")
-    part_dict = community.best_partition(least_spanning_tree)
-    print("Louvain Partition Done")
-    clustering = np.zeros(len(part_dict))
-    for i,sample in enumerate(samples):
-        clustering[i] = part_dict[int(sample)]
-    print("Louvain: {}".format(clustering.shape))
-    return clustering
-
-def embedded_hdbscan(coordinates):
-
-    clustering_model = HDBSCAN(min_cluster_size=50)
-    clusters = clustering_model.fit_predict(coordinates)
-    return clusters
-
-def sample_hdbscan(nodes,samples):
-
-    node_encoding = node_sample_encoding(nodes,samples)
-    embedding_model = PCA(n_components=100)
-    pre_computed_embedded = embedding_model.fit_transform(node_encoding.T)
-    print("Sample HDBscan Encoding: {}".format(pre_computed_embedded.shape))
-#     pre_computed_distance = coocurrence_distance(node_encoding)
-    pre_computed_distance = scipy.spatial.distance.squareform(pdist(pre_computed_embedded,metric='correlation'))
-    print("Sample HDBscan Distance Matrix: {}".format(pre_computed_distance.shape))
-#     pre_computed_distance[pre_computed_distance == 0] += .000001
-    pre_computed_distance[np.isnan(pre_computed_distance)] = 10000000
-    clustering_model = HDBSCAN(min_samples=3,metric='precomputed')
-    clusters = clustering_model.fit_predict(pre_computed_distance)
-
-    return clusters
+def cluster_labels_to_connectivity(labels):
+    samples = labels.shape[0]
+    clusters = list(set(labels))
+    cluster_masks = []
+    connectivity = np.zeros((samples,samples),dtype=bool)
+    for cluster in clusters:
+        cluster_masks.append(labels == cluster)
+    for cluster_mask in cluster_masks:
+        vertical_mask = np.zeros((samples,samples),dtype=bool)
+        horizontal_mask = np.zeros((samples,samples),dtype=bool)
+        vertical_mask[:,cluster_mask] = True
+        horizontal_mask[cluster_mask] = True
+        square_mask = np.logical_and(vertical_mask,horizontal_mask)
+        connectivity[square_mask] = True
+    return connectivity
 
 def sample_agglomerative(nodes,samples,n_clusters):
 
@@ -990,10 +1246,10 @@ def sample_agglomerative(nodes,samples,n_clusters):
 def stack_dictionaries(dictionaries):
     stacked = {}
     for dictionary in dictionaries:
-        for key,value in iter(dictionary):
+        for key,value in dictionary.items():
             if key not in stacked:
                 stacked[key] = []
-            stacked[entry].append(value)
+            stacked[key].append(value)
     return stacked
 
 def consolidate_entries(keys,dictionaries):

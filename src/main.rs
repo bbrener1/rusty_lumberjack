@@ -22,6 +22,7 @@ mod random_forest;
 mod tree_thread_pool;
 mod feature_thread_pool;
 mod split_thread_pool;
+mod randutils;
 
 use io::Parameters;
 use io::construct;
