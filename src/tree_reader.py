@@ -102,7 +102,7 @@ class Node:
     def descend(self,n):
         nodes = []
         if n > 0:
-            for child in self.children():
+            for child in self.children:
                 nodes.extend(child.descend(n-1))
             if len(nodes) < 1:
                 nodes.append(self)
@@ -202,13 +202,17 @@ class Node:
             counts = self.forest.counts
         return counts[self.sample_index()].T[self.feature_index()].T
 
-    def annotated_node_counts(self):
+    def sorted_node_counts(self):
         sample_index = self.sample_index()
         feature_index = self.feature_index()
         node_counts = self.forest.counts[sample_index].T[feature_index].T
-        samples = self.forest.samples[sample_index]
-        features = self.forest.features[feature_index]
-        return node_counts,samples,features
+        try:
+            sort_feature_index = self.forest.truth_dictionary.feature_dictionary[self.feature]
+            sort_order = np.argsort(self.forest.counts[:,sort_feature_index][sample_index])
+        except:
+            sort_order = np.arange(node_counts.shape[0])
+
+        return node_counts[sort_order]
 
     def ordered_node_counts(self,counts=None,truth_dictionary=None):
         if counts is None:
@@ -424,33 +428,39 @@ class Tree:
         self.recursive_plotting_repesentation(ax)
         fig.show()
 
-    def tree_movie_frame(self,location,level=0,sorted=True,):
+    def tree_movie_frame(self,location,level=0,sorted=True,previous_frame=None,split_lines=True):
         descent_nodes = self.descend(level)
         total_samples = sum([len(node.samples) for node in descent_nodes])
         heatmap = np.zeros((total_samples,len(self.root.features)))
         node_splits = []
         running_samples = 0
         for node in descent_nodes:
-            node_counts,samples,features = node.annotated_node_counts()
             if sorted:
-                split_feature_index = features.index(node.feature)
-                sample_order = np.argsort(node_counts[:,split_feature_index])
-                node_counts = node_counts[sample_order]
+                node_counts = node.sorted_node_counts()
+            else:
+                node_counts = node.node_counts()
             node_samples = node_counts.shape[0]
             heatmap[running_samples:running_samples+node_samples] = node_counts
             running_samples += node_samples
             node_splits.append(running_samples)
         plt.figure(figsize=(10,10))
-        plt.imshow(heatmap,aspect='auto')
-        for split in node_splits[:-1]:
-            plt.plot([0,split],[len(self.features),split])
+        if previous_frame is None:
+            plt.imshow(heatmap,aspect='auto')
+        else:
+            plt.imshow(previous_frame,aspect='auto')
+        if split_lines:
+            for split in node_splits[:-1]:
+                plt.plot([0,len(self.root.features)-1],[split,split],color='w')
         plt.savefig(location)
+        return heatmap
 
     def tree_movie(self,location):
         max_depth = max([leaf.level for leaf in self.leaves()])
+        previous_frame = None
         for i in range(max_depth):
-            tree_movie_frame(location+"."+str(i)+".a.png",level=i,sorted=False)
-            tree_movie_frame(location+"."+str(i)+".b.png",level=i,sorted=True)
+            self.tree_movie_frame(location+"."+str(i)+".a.png",level=i,sorted=False,previous_frame=previous_frame)
+            previous_frame = self.tree_movie_frame(location+"."+str(i)+".b.png",level=i,sorted=True)
+        self.tree_movie_frame(location+"."+str(i+1)+".b.png",level=i,sorted=True,split_lines=False)
 
     def summary(self, verbose=True):
         nodes = len(self.nodes)
@@ -480,6 +490,7 @@ class Tree:
         plt.colorbar()
         plt.show()
 
+        return heatmap
     # def cluster_distances(self):
     #     for leaf in self.leaves():
 
@@ -1120,7 +1131,7 @@ class SampleCluster:
         encoding = self.leaf_encoding()
         return np.sum(encoding,axis=0)
 
-    def leaf_cluster_frequency():
+    def leaf_cluster_frequency(self,plot=True):
         leaf_counts = self.leaf_counts()
         leaf_cluster_labels = self.forest.leaf_labels
         leaf_clusters = sorted(list(set(leaf_cluster_labels)))
@@ -1128,6 +1139,15 @@ class SampleCluster:
         for leaf_cluster in leaf_clusters:
             cluster_mask = leaf_cluster_labels == leaf_cluster
             leaf_cluster_counts.append(np.sum(leaf_counts[cluster_mask]))
+        if plot:
+            plt.figure()
+            plt.title(f"Distribution of Leaf Clusters in Cell Cluster {self.id}")
+            plt.bar(np.arange(len(leaf_clusters)),leaf_cluster_counts,)
+            plt.ylabel("Frequency")
+            plt.xlabel("Leaf Cluster")
+            plt.xticks(np.arange(len(leaf_clusters)),leaf_clusters)
+            plt.show()
+
         return leaf_clusters,leaf_cluster_counts
 
 class NodeCluster:
@@ -1225,10 +1245,23 @@ class NodeCluster:
         ax_cluster_frequency.set_xlabel("Cell Clusters")
         ax_cluster_frequency.set_ylabel("Frequency")
 
-        prereq_levels = self.prerequisites_by_level()
+        prereqs = self.average_prereq_freq_level()
 
-        ax_prereqs_by_level = fig.add_axes([.025,.5,.9,.2])
+        prereqs = [prereq for prereq in prereqs if prereq[0][:2] != "CG"]
+        prereqs = sorted(prereqs,key=lambda prereq: prereq[1][1])[::-1]
 
+        prereq_features = [prereq[0] for prereq in prereqs]
+        prereq_levels = [prereq[1][0] for prereq in prereqs]
+        prereq_frequencies = [prereq[1][1] * 10 for prereq in prereqs]
+
+        ax_path = fig.add_axes([.6,.025,.2,.95])
+        ax_path.set_title(f"The Path to Cluster {self.id}")
+        ax_path.scatter(prereq_levels[:50],np.arange(49,-1,-1),s=prereq_frequencies[:50])
+        ax_path.set_xlabel("Average Level of Decision")
+        # ax_path.set_xlim(max(prereq_levels[:20])*1.1,-0.01)
+        ax_path.set_yticks(np.arange(49,-1,-1))
+        ax_path.set_yticklabels(prereq_features[:50])
+        # ax_path.grid(axis='y')
 
         plt.show()
 
@@ -1279,6 +1312,20 @@ class NodeCluster:
                 except:
                     pass
         return levels
+
+    def average_prereq_freq_level(self):
+        prereq_dict = {}
+        for node in self.nodes:
+            for level,prerequisite in enumerate(node.prerequisites):
+                prereq_feature, split, prereq_sign = prerequisite
+                if prereq_feature not in prereq_dict:
+                    prereq_dict[prereq_feature] = [0,0]
+                prereq_dict[prereq_feature][0] += level
+                prereq_dict[prereq_feature][1] += 1
+        for prereq_feature in prereq_dict:
+            prereq_dict[prereq_feature][0] /= prereq_dict[prereq_feature][1]
+        sorted_prereqs = sorted(list(prereq_dict.items()),key=lambda prereq: prereq[1][0])
+        return sorted_prereqs
 
     def prerequisite_frequency(self,n=50,plot=True):
         prerequisites = list(self.prerequisites().items())
