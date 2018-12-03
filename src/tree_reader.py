@@ -90,6 +90,33 @@ class Node:
                 stems.append(child)
         return nodes
 
+    def sister(self):
+        if self.parent is None:
+            return None
+        else:
+            for child in self.parent.children:
+                if child is not self:
+                    return child
+            return None
+
+    def descend(self,n):
+        nodes = []
+        if n > 0:
+            for child in self.children():
+                nodes.extend(child.descend(n-1))
+            if len(nodes) < 1:
+                nodes.append(self)
+        else:
+            nodes.append(self)
+        return nodes
+
+    def ancestors(self):
+        ancestors = []
+        if self.parent is not None:
+            ancestors.append(parent)
+            ancestors.extend(self.parent.ancestors())
+        return ancestors
+
     def nodes_by_level(self):
         levels = [[self]]
         for child in self.children:
@@ -175,6 +202,14 @@ class Node:
             counts = self.forest.counts
         return counts[self.sample_index()].T[self.feature_index()].T
 
+    def annotated_node_counts(self):
+        sample_index = self.sample_index()
+        feature_index = self.feature_index()
+        node_counts = self.forest.counts[sample_index].T[feature_index].T
+        samples = self.forest.samples[sample_index]
+        features = self.forest.features[feature_index]
+        return node_counts,samples,features
+
     def ordered_node_counts(self,counts=None,truth_dictionary=None):
         if counts is None:
             counts = self.forest.counts
@@ -240,6 +275,30 @@ class Node:
                 differences.append(sample[feature] - self.medians[i])
         return differences
 
+    def tree_path_vector(self):
+        return np.array([0 if prerequisite[2] == '<' else 1 for prerequisite in self.prerequisites])
+
+    def leaf_distances(self):
+        leaves = self.leaves()
+        distances = np.zeros((len(leaves),len(leaves)))
+        for i in range(len(leaves)):
+            l1v = leaves[i].tree_path_vector()
+            for j in range(i,len(leaves)):
+                l2v = leaves[j].tree_path_vector()
+                distance = leaves[i].level + leaves[j].level
+                for l1,l2 in zip(l1v,l2v):
+                    if l1 == l2:
+                        distance -= 2
+                    else:
+                        break
+                distances[i,j] = distance
+                distances[j,i] = distance
+        return distances
+
+    # def cluster_distances(self):
+
+
+
 class Tree:
 
     def __init__(self, tree_json, forest):
@@ -269,6 +328,9 @@ class Tree:
             if node.level == target:
                 level_nodes.append(node)
         return level_nodes
+
+    def descend(self,level):
+        return self.root.descend(level)
 
     def seek(self,directions):
         if len(directions) > 0:
@@ -362,6 +424,33 @@ class Tree:
         self.recursive_plotting_repesentation(ax)
         fig.show()
 
+    def tree_movie_frame(self,location,level=0,sorted=True,):
+        descent_nodes = self.descend(level)
+        total_samples = sum([len(node.samples) for node in descent_nodes])
+        heatmap = np.zeros((total_samples,len(self.root.features)))
+        node_splits = []
+        running_samples = 0
+        for node in descent_nodes:
+            node_counts,samples,features = node.annotated_node_counts()
+            if sorted:
+                split_feature_index = features.index(node.feature)
+                sample_order = np.argsort(node_counts[:,split_feature_index])
+                node_counts = node_counts[sample_order]
+            node_samples = node_counts.shape[0]
+            heatmap[running_samples:running_samples+node_samples] = node_counts
+            running_samples += node_samples
+            node_splits.append(running_samples)
+        plt.figure(figsize=(10,10))
+        plt.imshow(heatmap,aspect='auto')
+        for split in node_splits[:-1]:
+            plt.plot([0,split],[len(self.features),split])
+        plt.savefig(location)
+
+    def tree_movie(self,location):
+        max_depth = max([leaf.level for leaf in self.leaves()])
+        for i in range(max_depth):
+            tree_movie_frame(location+"."+str(i)+".a.png",level=i,sorted=False)
+            tree_movie_frame(location+"."+str(i)+".b.png",level=i,sorted=True)
 
     def summary(self, verbose=True):
         nodes = len(self.nodes)
@@ -390,6 +479,10 @@ class Tree:
         im = plt.imshow(heatmap,aspect='auto')
         plt.colorbar()
         plt.show()
+
+    # def cluster_distances(self):
+    #     for leaf in self.leaves():
+
 
 class Forest:
 
@@ -440,6 +533,23 @@ class Forest:
             if feature in tree.root.features:
                 leaves.extend(tree.leaves)
         return leaves
+
+    def sample_leaves(self,sample):
+        leaves = self.leaves()
+        encoding = self.node_sample_encoding(leaves)
+        leaf_indecies = np.arange(len(leaves))[encoding[sample]]
+        sample_leaves = [leaves[i] for i in leaf_indecies]
+        return sample_leaves
+
+    def leaves_of_samples(self,samples):
+        sample_leaves_total = []
+        leaves = self.leaves()
+        encoding = self.node_sample_encoding(leaves)
+        for sample in samples:
+            leaf_indecies = np.arange(len(leaves))[encoding[sample]]
+            sample_leaves = [leaves[i] for i in leaf_indecies]
+            sample_leaves_total.extend(sample_leaves)
+        return sample_leaves_total
 
     def node_sample_encoding(self,nodes):
         encoding = np.zeros((len(self.samples),len(nodes)),dtype=bool)
@@ -789,6 +899,8 @@ class Forest:
             clusters.append(NodeCluster(self,[leaves[i] for i in leaf_index],cluster))
 
         self.leaf_clusters = clusters
+        for leaf,label in zip(leaves,self.leaf_labels):
+            leaf.leaf_cluster = label
 
         return self.leaf_labels
 
@@ -870,30 +982,47 @@ class Forest:
             print("Warning, cell clusters not detected")
             return None
 
-        cluster_coordinates = np.zeros((len(self.cell_clusters)),len(self.features))
-        for i,cluster in enumerate(self.cell_clusters):
+        cluster_coordinates = np.zeros((len(self.sample_clusters),len(self.features)))
+        for i,cluster in enumerate(self.sample_clusters):
             cluster_coordinates[i] = cluster.median_feature_values()
 
-        combined_coordinates = np.zeros((self.counts.shape[0]+len(cell_clusters),self.counts.shape[1]))
+        combined_coordinates = np.zeros((self.counts.shape[0]+len(self.sample_clusters),self.counts.shape[1]))
 
-        combined_coordinates[0] = self.counts
+        combined_coordinates[0:self.counts.shape[0]] = self.counts
 
-        combined_coordinates[self.counts.shape[0]] = cluster_coordinates
+        combined_coordinates[self.counts.shape[0]:] = cluster_coordinates
 
         transformed = TSNE().fit_transform(combined_coordinates)
 
-        highlight = np.ones(combined_coordinates.shape[0]) * 0.1
-        highlight[-1 * len(self.cell_clusters):] = 5
+        highlight = np.ones(combined_coordinates.shape[0])
+        highlight[len(self.sample_labels):] = [len(cluster.samples) for cluster in self.sample_clusters]
+        # for i,cluster in enumerate(self.sample_clusters):
+        #
+        #     highlight[self.counts.shape[0] + i:] = len(cluster.samples/10)
 
-        combined_labels = np.zeros(self.counts.shape[0]+len(cell_clusters))
-        combined_labels[0] = self.cell_labels
-        combined_labels[len(self.cell_labels)] = np.arange(len(self.cell_clusters))
+        combined_labels = np.zeros(self.counts.shape[0]+len(self.sample_clusters))
+        combined_labels[0:len(self.sample_labels)] = self.sample_labels
+        combined_labels[len(self.sample_labels):] = [cluster.id for cluster in self.sample_clusters]
 
-        plt.figure()
+        cluster_names = [cluster.id for cluster in self.sample_clusters]
+        cluster_coordiantes = transformed[len(self.sample_labels):]
+
+        plt.figure(figsize=(10,10))
         plt.title("TSNE-Transformed Cell Coordinates")
-        plt.scatter(transformed[:,0],transformed[:,1],s=highlight,c=combined_labels)
+        plt.scatter(transformed[:,0],transformed[:,1],s=highlight,c=combined_labels,cmap='rainbow')
+        for cluster,coordinates in zip(cluster_names,cluster_coordiantes):
+            plt.text(*coordinates,cluster,verticalalignment='center',horizontalalignment='center')
         plt.show()
 
+    # def cluster_distances(self):
+    #     for tree in self.trees:
+    #         pass
+
+    def sample_cluster_coordinate_matrix(self):
+        coordinates = np.zeros((len(self.sample_clusters),len(self.features)))
+        for i,sample_cluster in enumerate(self.sample_clusters):
+            coordinates[i] = sample_cluster.median_feature_values()
+        return coordinates
 
     def tsne(self,no_plot=False):
         if not hasattr(self,'tsne'):
@@ -929,13 +1058,77 @@ class TruthDictionary:
 
 class SampleCluster:
 
-    def __init__(self,forest,cells,id):
+    def __init__(self,forest,samples,id):
         self.id = id
-        self.samples = cells
+        self.samples = samples
         self.forest = forest
 
     def median_feature_values(self):
         return np.median(self.forest.counts[self.samples],axis=0)
+
+    def increased_features(self,n=50,plot=True):
+        initial_medians = self.forest.weighted_node_vector_prediction([self.forest.prototype.root])
+        current_medians = self.median_feature_values()
+
+        difference = current_medians - initial_medians
+        feature_order = np.argsort(difference)
+        ordered_features = np.array(self.forest.features)[feature_order]
+        ordered_difference = difference[feature_order]
+
+        if plot:
+            plt.figure(figsize=(10,2))
+            plt.title("Upregulated Genes")
+            plt.scatter(np.arange(n),ordered_difference[-n:])
+            plt.xlim(0,n)
+            plt.xlabel("Gene Symbol")
+            plt.ylabel("Frequency")
+            plt.xticks(np.arange(n),ordered_features[-n:],rotation='vertical')
+            plt.show()
+
+        return ordered_features,ordered_difference
+
+        return
+
+    def decreased_features(self,n=50,plot=True):
+        initial_medians = self.forest.weighted_node_vector_prediction([self.forest.prototype.root])
+        current_medians = self.median_feature_values()
+
+        difference = current_medians - initial_medians
+        feature_order = np.argsort(difference)
+        ordered_features = np.array(self.forest.features)[feature_order]
+        ordered_difference = difference[feature_order]
+
+        if plot:
+            plt.figure(figsize=(10,2))
+            plt.title("Upregulated Genes")
+            plt.scatter(np.arange(n),ordered_difference[:n])
+            plt.xlim(0,n)
+            plt.xlabel("Gene Symbol")
+            plt.ylabel("Frequency")
+            plt.xticks(np.arange(n),ordered_features[:n],rotation='vertical')
+            plt.show()
+
+        return ordered_features,ordered_difference
+
+    def leaf_encoding(self):
+        leaves = self.forest.leaves()
+        encoding = self.forest.node_sample_encoding(leaves)
+        encoding = encoding[self.samples]
+        return encoding
+
+    def leaf_counts(self):
+        encoding = self.leaf_encoding()
+        return np.sum(encoding,axis=0)
+
+    def leaf_cluster_frequency():
+        leaf_counts = self.leaf_counts()
+        leaf_cluster_labels = self.forest.leaf_labels
+        leaf_clusters = sorted(list(set(leaf_cluster_labels)))
+        leaf_cluster_counts = []
+        for leaf_cluster in leaf_clusters:
+            cluster_mask = leaf_cluster_labels == leaf_cluster
+            leaf_cluster_counts.append(np.sum(leaf_counts[cluster_mask]))
+        return leaf_clusters,leaf_cluster_counts
 
 class NodeCluster:
 
@@ -973,20 +1166,94 @@ class NodeCluster:
 
         return sorted_features,sorted_gains
 
-    def cluster_summary(self):
+    def biological_cluster_summary(self):
         levels = [node.level for node in self.nodes]
 
-        plt.figure()
-        plt.title("Levels")
-        plt.hist(levels)
-        plt.show()
+        fig = plt.figure(figsize=(20,10))
+
+        # fig.suptitle(f"Summary of Leaf Cluster {self.id}")
+
+        ax_levels = fig.add_axes([.875,.025,.1,.2])
+        ax_levels.set_title("Leaf Levels")
+        ax_levels.set_ylabel("Frequency")
+        ax_levels.hist(levels)
 
         leaf_size = [len(node.samples) for node in self.nodes]
 
-        plt.figure()
-        plt.title("Leaf sizes")
-        plt.hist(leaf_size)
+        ax_leaf_size = fig.add_axes([.875,.275,.1,.2])
+        ax_leaf_size.set_title("Leaf Sizes")
+        ax_leaf_size.hist(leaf_size)
+        ax_leaf_size.set_ylabel("Frequency")
+
+        ordered_features,ordered_difference = self.increased_features(plot=False)
+
+        range = max(np.abs(np.min(ordered_difference.flatten())),np.max(ordered_difference)) * 1.1
+
+        ax_downregulated = fig.add_axes([.025,.775,.2,.2])
+        ax_downregulated.set_title("Downregulated Genes")
+        ax_downregulated.set_ylabel("Mean downregulation (Log TPM)")
+        ax_downregulated.bar(np.arange(10),ordered_difference[:10])
+        ax_downregulated.set_ylim(-range,range)
+        ax_downregulated.set_xticks(np.arange(10))
+        ax_downregulated.set_xticklabels(ordered_features[:10],rotation=45,verticalalignment='top',horizontalalignment='right')
+
+        ax_upregulated = fig.add_axes([.25,.775,.2,.2])
+        ax_upregulated.set_title("Upregulated Genes")
+        ax_upregulated.set_ylabel("Mean upregulation (Log TPM)",labelpad=10)
+        ax_upregulated.yaxis.set_label_position('right')
+        ax_upregulated.bar(np.arange(10),ordered_difference[-10:])
+        ax_upregulated.set_ylim(-range,range)
+        ax_upregulated.set_xticks(np.arange(10))
+        ax_upregulated.set_xticklabels(ordered_features[-10:],rotation=45,verticalalignment='top',horizontalalignment='right')
+
+        ordered_prerequisites,prerequisite_counts = self.prerequisite_frequency(plot=False)
+
+        ax_prerequisites = fig.add_axes([.025,.425,.45,.2])
+        ax_prerequisites.set_title("Prerequisites By Frequency")
+        ax_prerequisites.bar(np.arange(10),prerequisite_counts[-10:])
+        ax_prerequisites.set_ylabel("Frequency")
+        ax_prerequisites.set_xticks(np.arange(10))
+        ax_prerequisites.set_xticklabels(ordered_prerequisites[-10:],rotation=45,verticalalignment='top',horizontalalignment='right')
+
+        cell_clusters,cell_cluster_frequency = self.cell_cluster_frequency(plot=False)
+
+        ax_cluster_frequency = fig.add_axes([.025,.025,.45,.2])
+        ax_cluster_frequency.set_title("Leaf Cluster/Cell Cluster Relation")
+        ax_cluster_frequency.bar(np.arange(len(cell_clusters)),cell_cluster_frequency)
+        ax_cluster_frequency.set_xticks(np.arange(len(cell_clusters)))
+        ax_cluster_frequency.set_xticklabels(cell_clusters)
+        ax_cluster_frequency.set_xlabel("Cell Clusters")
+        ax_cluster_frequency.set_ylabel("Frequency")
+
+        prereq_levels = self.prerequisites_by_level()
+
+        ax_prereqs_by_level = fig.add_axes([.025,.5,.9,.2])
+
+
         plt.show()
+
+    def cell_cluster_frequency(self,plot=True):
+        cell_cluster_labels = self.forest.sample_labels
+        cell_counts = self.cell_counts()
+        cell_clusters = sorted(list(set(cell_cluster_labels)))
+        cluster_counts = []
+        for cluster in cell_clusters:
+            cluster_mask = cell_cluster_labels == cluster
+            cluster_counts.append(np.sum(cell_counts[cluster_mask]))
+
+        if plot:
+            plt.figure()
+            plt.title("Frequency of cell clusters in leaf cluster")
+            plt.bar(np.arange(len(cell_clusters)),cluster_counts,tick_labels=cell_clusters)
+            plt.ylabel("Frequency")
+            plt.show()
+
+        return cell_clusters,cluster_counts
+
+
+    def cell_counts(self):
+        encoding = self.encoding()
+        return np.sum(encoding,axis=1)
 
     def cell_frequency(self):
         encoding = self.encoding()
@@ -1001,22 +1268,35 @@ class NodeCluster:
                 prerequisite_dictionary[prerequisite].append((split,sign))
         return prerequisite_dictionary
 
-    def prerequisite_frequency(self):
+    def prerequisites_by_level(self):
+        levels = []
+        max_depth = max([node.level for node in self.nodes])
+        for level in range(max_depth):
+            levels.append([])
+            for node in self.nodes:
+                try:
+                    levels[-1].append(node.prerequisites[level])
+                except:
+                    pass
+        return levels
+
+    def prerequisite_frequency(self,n=50,plot=True):
         prerequisites = list(self.prerequisites().items())
         prerequisites.sort(key=lambda x: len(x[1]))
-        prerequisite_counts = [len(x[1]) for x in prerequisites][-50:]
-        prerequisite_labels = [x[0] for x in prerequisites][-50:]
+        prerequisite_counts = [len(x[1]) for x in prerequisites]
+        prerequisite_labels = [x[0] for x in prerequisites]
 
-        plt.figure(figsize=(10,2))
-        plt.title("Prerequisites By Frequency")
-        plt.scatter(np.arange(len(prerequisite_counts)),prerequisite_counts)
-        plt.xlim(0,50)
-        plt.xlabel("Gene Symbol")
-        plt.ylabel("Frequency")
-        plt.xticks(np.arange(50),prerequisite_labels,rotation='vertical')
-        plt.show()
+        if plot:
+            plt.figure(figsize=(10,2))
+            plt.title("Prerequisites By Frequency")
+            plt.scatter(np.arange(n),prerequisite_counts[-n:])
+            plt.xlim(0,n)
+            plt.xlabel("Gene Symbol")
+            plt.ylabel("Frequency")
+            plt.xticks(np.arange(n),prerequisite_labels[-n:],rotation='vertical')
+            plt.show()
 
-        return prerequisites
+        return prerequisite_labels,prerequisite_counts
 
     # def mean_feature_predictions(self):
     #     return self.forest.weighted_node_prediction(self.nodes)
@@ -1024,7 +1304,7 @@ class NodeCluster:
     def weighted_feature_predictions(self):
         return self.forest.weighted_node_vector_prediction(self.nodes)
 
-    def increased_features(self):
+    def increased_features(self,n=50,plot=True):
         initial_medians = self.forest.weighted_node_vector_prediction([self.forest.prototype.root])
         leaf_medians = self.weighted_feature_predictions()
         difference = leaf_medians - initial_medians
@@ -1032,16 +1312,38 @@ class NodeCluster:
         ordered_features = np.array(self.forest.features)[feature_order]
         ordered_difference = difference[feature_order]
 
-        plt.figure(figsize=(10,2))
-        plt.title("Upregulated Genes")
-        plt.scatter(np.arange(50),ordered_difference[-50:])
-        plt.xlim(0,50)
-        plt.xlabel("Gene Symbol")
-        plt.ylabel("Frequency")
-        plt.xticks(np.arange(50),ordered_features[-50:],rotation='vertical')
-        plt.show()
+        if plot:
+            plt.figure(figsize=(10,2))
+            plt.title("Upregulated Genes")
+            plt.scatter(np.arange(n),ordered_difference[-n:])
+            plt.xlim(0,n)
+            plt.xlabel("Gene Symbol")
+            plt.ylabel("Frequency")
+            plt.xticks(np.arange(n),ordered_features[-n:],rotation='vertical')
+            plt.show()
 
         return ordered_features,ordered_difference
+
+    def decreased_features(self,n=50,plot=True):
+        initial_medians = self.forest.weighted_node_vector_prediction([self.forest.prototype.root])
+        leaf_medians = self.weighted_feature_predictions()
+        difference = leaf_medians - initial_medians
+        feature_order = np.argsort(difference)
+        ordered_features = np.array(self.forest.features)[feature_order]
+        ordered_difference = difference[feature_order]
+
+        if plot:
+            plt.figure(figsize=(10,2))
+            plt.title("Upregulated Genes")
+            plt.scatter(np.arange(n),ordered_difference[:n])
+            plt.xlim(0,n)
+            plt.xlabel("Gene Symbol")
+            plt.ylabel("Frequency")
+            plt.xticks(np.arange(n),ordered_features[:n],rotation='vertical')
+            plt.show()
+
+        return ordered_features,ordered_difference
+
 
 ################################
 ################################
