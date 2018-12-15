@@ -985,7 +985,7 @@ class Forest:
                     filtered.append(cell)
         return filtered
 
-    def plot_cell_clusters(self):
+    def plot_cell_clusters(self,colorize=True):
         if not hasattr(self,'leaf_clusters'):
             print("Warning, leaf clusters not detected")
             return None
@@ -1003,7 +1003,10 @@ class Forest:
 
         combined_coordinates[self.counts.shape[0]:] = cluster_coordinates
 
-        transformed = TSNE().fit_transform(combined_coordinates)
+        if not hasattr(self,'cluster_tsne'):
+            self.cluster_tsne = TSNE().fit_transform(combined_coordinates)
+
+        combined_coordinates = self.cluster_tsne
 
         highlight = np.ones(combined_coordinates.shape[0])
         highlight[len(self.sample_labels):] = [len(cluster.samples) for cluster in self.sample_clusters]
@@ -1012,8 +1015,9 @@ class Forest:
         #     highlight[self.counts.shape[0] + i:] = len(cluster.samples/10)
 
         combined_labels = np.zeros(self.counts.shape[0]+len(self.sample_clusters))
-        combined_labels[0:len(self.sample_labels)] = self.sample_labels
-        combined_labels[len(self.sample_labels):] = [cluster.id for cluster in self.sample_clusters]
+        if colorize:
+            combined_labels[0:len(self.sample_labels)] = self.sample_labels
+            combined_labels[len(self.sample_labels):] = [cluster.id for cluster in self.sample_clusters]
 
         cluster_names = [cluster.id for cluster in self.sample_clusters]
         cluster_coordiantes = transformed[len(self.sample_labels):]
@@ -1046,6 +1050,42 @@ class Forest:
             plt.show()
 
         return self.tsne
+
+    def average_prereq_freq_level(self,nodes):
+        prereq_dict = {}
+        for node in nodes:
+            for level,prerequisite in enumerate(node.prerequisites):
+                prereq_feature, split, prereq_sign = prerequisite
+                if prereq_feature not in prereq_dict:
+                    prereq_dict[prereq_feature] = [0,0]
+                prereq_dict[prereq_feature][0] += level
+                prereq_dict[prereq_feature][1] += 1
+        for prereq_feature in prereq_dict:
+            prereq_dict[prereq_feature][0] /= prereq_dict[prereq_feature][1]
+        sorted_prereqs = sorted(list(prereq_dict.items()),key=lambda prereq: prereq[1][0])
+        return sorted_prereqs
+
+    def prereq_summary(self):
+
+        leaves = self.leaves()
+        prereqs = self.average_prereq_freq_level(leaves)
+
+        # prereqs = [prereq for prereq in prereqs if prereq[0][:2] != "CG"]
+        prereqs = sorted(prereqs,key=lambda prereq: prereq[1][1])[::-1]
+
+        prereq_features = [prereq[0] for prereq in prereqs]
+        prereq_levels = [prereq[1][0] for prereq in prereqs]
+        prereq_frequencies = [prereq[1][1] for prereq in prereqs]
+
+        fig = plt.figure(figsize=(10,10))
+        ax = fig.add_axes([.6,.025,.2,.95])
+        ax.set_title("Prerequisite/Level Distribution")
+        ax.scatter(prereq_levels[:50],np.arange(49,-1,-1),s=prereq_frequencies[:50])
+        ax.set_xlabel("Average Level of Decision")
+        # ax.set_xlim(max(prereq_levels[:20])*1.1,-0.01)
+        ax.set_yticks(np.arange(49,-1,-1))
+        ax.set_yticklabels(prereq_features[:50])
+        # ax.grid(axis='y')
 
 class TruthDictionary:
 
@@ -1087,18 +1127,37 @@ class SampleCluster:
         ordered_difference = difference[feature_order]
 
         if plot:
-            plt.figure(figsize=(10,2))
+            plt.figure(figsize=(10,8))
             plt.title("Upregulated Genes")
             plt.scatter(np.arange(n),ordered_difference[-n:])
             plt.xlim(0,n)
             plt.xlabel("Gene Symbol")
-            plt.ylabel("Frequency")
-            plt.xticks(np.arange(n),ordered_features[-n:],rotation='vertical')
+            plt.ylabel("Increase (LogTPM)")
+            plt.xticks(np.arange(n),ordered_features[-n:],rotation=45,verticalalignment='top',horizontalalignment='right')
             plt.show()
 
         return ordered_features,ordered_difference
+        #
+        # initial_means = np.mean(self.forest.counts,axis=0)
+        # current_means = np.mean(self.forest.counts[self.samples],axis=0)
+        #
+        # difference = current_means - initial_means
+        # feature_order = np.argsort(difference)
+        # ordered_features = np.array(self.forest.features)[feature_order]
+        # ordered_difference = difference[feature_order]
+        #
+        # if plot:
+        #     plt.figure()
+        #     plt.title("Upregulated Genes")
+        #     plt.scatter(np.arange(n),ordered_difference[-n:])
+        #     plt.xlim(0,n)
+        #     plt.xlabel("Gene Symbol")
+        #     plt.ylabel("Frequency")
+        #     plt.xticks(np.arange(n),ordered_features[-n:],rotation='vertical')
+        #     plt.show()
+        #
+        # return ordered_features,ordered_difference
 
-        return
 
     def decreased_features(self,n=50,plot=True):
         initial_medians = self.forest.weighted_node_vector_prediction([self.forest.prototype.root])
@@ -1116,7 +1175,7 @@ class SampleCluster:
             plt.xlim(0,n)
             plt.xlabel("Gene Symbol")
             plt.ylabel("Frequency")
-            plt.xticks(np.arange(n),ordered_features[:n],rotation='vertical')
+            plt.xticks(np.arange(n),ordered_features[:n],rotation=45,verticalalignment='top',horizontalalignment='right')
             plt.show()
 
         return ordered_features,ordered_difference
@@ -1210,42 +1269,42 @@ class NodeCluster:
         range = max(np.abs(np.min(ordered_difference.flatten())),np.max(ordered_difference)) * 1.1
 
         ax_downregulated = fig.add_axes([.025,.775,.2,.2])
-        ax_downregulated.set_title("Downregulated Genes")
-        ax_downregulated.set_ylabel("Mean downregulation (Log TPM)")
+        ax_downregulated.set_title("Downregulated Genes",fontsize=20)
+        ax_downregulated.set_ylabel("Mean downregulation (Log TPM)",fontsize=10)
         ax_downregulated.bar(np.arange(10),ordered_difference[:10])
         ax_downregulated.set_ylim(-range,range)
         ax_downregulated.set_xticks(np.arange(10))
-        ax_downregulated.set_xticklabels(ordered_features[:10],rotation=45,verticalalignment='top',horizontalalignment='right')
+        ax_downregulated.set_xticklabels(ordered_features[:10],rotation=45,verticalalignment='top',horizontalalignment='right',fontsize=12)
 
         ax_upregulated = fig.add_axes([.25,.775,.2,.2])
-        ax_upregulated.set_title("Upregulated Genes")
-        ax_upregulated.set_ylabel("Mean upregulation (Log TPM)",labelpad=10)
+        ax_upregulated.set_title("Upregulated Genes",fontsize=20)
+        ax_upregulated.set_ylabel("Mean upregulation (Log TPM)",labelpad=10,fontsize=10)
         ax_upregulated.yaxis.set_label_position('right')
         ax_upregulated.bar(np.arange(10),ordered_difference[-10:])
         ax_upregulated.set_ylim(-range,range)
         ax_upregulated.set_xticks(np.arange(10))
-        ax_upregulated.set_xticklabels(ordered_features[-10:],rotation=45,verticalalignment='top',horizontalalignment='right')
+        ax_upregulated.set_xticklabels(ordered_features[-10:],rotation=45,verticalalignment='top',horizontalalignment='right',fontsize=12)
 
         ordered_prerequisites,prerequisite_counts = self.prerequisite_frequency(plot=False)
 
-        ax_prerequisites = fig.add_axes([.025,.425,.45,.2])
-        ax_prerequisites.set_title("Prerequisites By Frequency")
+        ax_prerequisites = fig.add_axes([.025,.41,.45,.2])
+        ax_prerequisites.set_title("Prerequisites By Frequency",fontsize=20)
         ax_prerequisites.bar(np.arange(10),prerequisite_counts[-10:])
-        ax_prerequisites.set_ylabel("Frequency")
+        ax_prerequisites.set_ylabel("Frequency",fontsize=15)
         ax_prerequisites.set_xticks(np.arange(10))
-        ax_prerequisites.set_xticklabels(ordered_prerequisites[-10:],rotation=45,verticalalignment='top',horizontalalignment='right')
+        ax_prerequisites.set_xticklabels(ordered_prerequisites[-10:],rotation=45,verticalalignment='top',horizontalalignment='right',fontsize=12)
 
         cell_clusters,cell_cluster_frequency = self.cell_cluster_frequency(plot=False)
 
         ax_cluster_frequency = fig.add_axes([.025,.025,.45,.2])
-        ax_cluster_frequency.set_title("Leaf Cluster/Cell Cluster Relation")
+        ax_cluster_frequency.set_title("Leaf Cluster/Cell Cluster Relation",fontsize=20)
         ax_cluster_frequency.bar(np.arange(len(cell_clusters)),cell_cluster_frequency)
         ax_cluster_frequency.set_xticks(np.arange(len(cell_clusters)))
-        ax_cluster_frequency.set_xticklabels(cell_clusters)
-        ax_cluster_frequency.set_xlabel("Cell Clusters")
-        ax_cluster_frequency.set_ylabel("Frequency")
+        ax_cluster_frequency.set_xticklabels(cell_clusters,fontsize=15)
+        ax_cluster_frequency.set_xlabel("Cell Clusters",fontsize=15)
+        ax_cluster_frequency.set_ylabel("Frequency",fontsize=15)
 
-        prereqs = self.average_prereq_freq_level()
+        prereqs = self.average_prereq_freq_level(plot=False)
 
         prereqs = [prereq for prereq in prereqs if prereq[0][:2] != "CG"]
         prereqs = sorted(prereqs,key=lambda prereq: prereq[1][1])[::-1]
@@ -1255,12 +1314,12 @@ class NodeCluster:
         prereq_frequencies = [prereq[1][1] * 10 for prereq in prereqs]
 
         ax_path = fig.add_axes([.6,.025,.2,.95])
-        ax_path.set_title(f"The Path to Cluster {self.id}")
+        ax_path.set_title(f"The Path to Cluster {self.id}",fontsize=20)
         ax_path.scatter(prereq_levels[:50],np.arange(49,-1,-1),s=prereq_frequencies[:50])
-        ax_path.set_xlabel("Average Level of Decision")
+        ax_path.set_xlabel("Average Level of Decision",fontsize=15)
         # ax_path.set_xlim(max(prereq_levels[:20])*1.1,-0.01)
         ax_path.set_yticks(np.arange(49,-1,-1))
-        ax_path.set_yticklabels(prereq_features[:50])
+        ax_path.set_yticklabels(prereq_features[:50],fontsize=14)
         # ax_path.grid(axis='y')
 
         plt.show()
@@ -1313,19 +1372,23 @@ class NodeCluster:
                     pass
         return levels
 
-    def average_prereq_freq_level(self):
-        prereq_dict = {}
-        for node in self.nodes:
-            for level,prerequisite in enumerate(node.prerequisites):
-                prereq_feature, split, prereq_sign = prerequisite
-                if prereq_feature not in prereq_dict:
-                    prereq_dict[prereq_feature] = [0,0]
-                prereq_dict[prereq_feature][0] += level
-                prereq_dict[prereq_feature][1] += 1
-        for prereq_feature in prereq_dict:
-            prereq_dict[prereq_feature][0] /= prereq_dict[prereq_feature][1]
-        sorted_prereqs = sorted(list(prereq_dict.items()),key=lambda prereq: prereq[1][0])
-        return sorted_prereqs
+    def average_prereq_freq_level(self,plot=True):
+        prereqs = self.forest.average_prereq_freq_level(self.nodes)
+
+        if plot:
+            sorted_prereqs = sorted(prereqs,key=lambda prereq: prereq[1][1])[::-1]
+            prereq_features = [prereq[0] for prereq in sorted_prereqs]
+            prereq_levels = [prereq[1][0] for prereq in sorted_prereqs]
+            prereq_frequencies = [prereq[1][1] * 10 for prereq in sorted_prereqs]
+
+            plt.figure(figsize=(4,10))
+            plt.title(f"The Path to Cluster {self.id}",fontsize=15)
+            plt.scatter(prereq_levels[:30],np.arange(29,-1,-1),s=prereq_frequencies[:30])
+            plt.xlabel("Average Level of Decision",fontsize=15)
+            plt.yticks(np.arange(29,-1,-1),prereq_features[:30],fontsize=15)
+            plt.show()
+
+        return prereqs
 
     def prerequisite_frequency(self,n=50,plot=True):
         prerequisites = list(self.prerequisites().items())

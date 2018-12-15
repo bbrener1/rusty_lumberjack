@@ -1001,13 +1001,42 @@ impl<T: Borrow<[Node]> + BorrowMut<[Node]> + Index<usize,Output=Node> + IndexMut
 
 impl RankVector<Vec<Node>> {
 
-    #[inline]
     pub fn derive(&self, indecies:&[usize]) -> RankVector<Vec<Node>> {
+        let stencil = Stencil::from_slice(indecies);
+        self.derive_stencil(&stencil)
+    }
 
-        let mut new_nodes: Vec<Node> = vec![Node::blank();indecies.len() + self.offset];
-        let mut index_map = HashMap::with_capacity(indecies.len());
-        let mut new_rank_order = Vec::with_capacity(indecies.len());
-        let mut derived_rank_order = Vec::with_capacity(indecies.len());
+    #[inline]
+    pub fn derive_stencil(&self, stencil: &Stencil) -> RankVector<Vec<Node>> {
+
+        let mut new_nodes: Vec<Node> = vec![Node::blank();stencil.len() + self.offset];
+        let filtered_rank_order: Vec<usize> = self.rank_order.as_ref().unwrap_or(&vec![])
+                                                        .iter()
+                                                        .cloned()
+                                                        .filter(|x| stencil.frequency.contains_key(x))
+                                                        .collect();
+
+        let mut rank_range: HashMap<usize,usize> = filtered_rank_order.iter()
+                                                        .scan(0,|acc,x|
+                                                            {
+                                                                let prev = *acc;
+                                                                *acc = *acc+stencil.frequency[x];
+                                                                Some((*x,prev))
+                                                            })
+                                                        .collect();
+
+        let old_dirty_set = self.dirty_set.clone().unwrap_or(HashSet::with_capacity(0));
+        let mut new_dirty_set: HashSet<usize> = HashSet::new();
+
+        let mut new_rank_order = vec![0;stencil.len()];
+
+        for (new_index,old_index) in stencil.indecies.iter().enumerate() {
+            new_rank_order[rank_range[old_index]] = new_index;
+            rank_range.entry(*old_index).and_modify(|x| *x += 1);
+            if old_dirty_set.contains(old_index) {
+                new_dirty_set.insert(new_index);
+            }
+        }
 
         let left = new_nodes.len() - 2;
         let right = new_nodes.len() -1;
@@ -1032,34 +1061,18 @@ impl RankVector<Vec<Node>> {
 
         let mut new_zones = [0;4];
 
-        let derived_set: HashSet<usize> = indecies.iter().cloned().collect();
-
-        index_map.extend(
-                (0..self.raw_len())
-                .filter(|x| derived_set.contains(x))
-                .enumerate()
-                .map(|(i,x)| (x,i))
-            );
-
-        for n in self.rank_order.as_ref().unwrap() {
-            if derived_set.contains(&n) {
-                derived_rank_order.push(*n);
-                new_rank_order.push(index_map[n]);
-            }
-        }
-
-        let new_dirty_set: HashSet<usize> = self.dirty_set.as_ref().unwrap().iter().filter(|x| derived_set.contains(x)).map(|y| index_map[y]).collect();
-
         let mut previous = left;
 
-        for (i,(&old_index,&new_index)) in derived_rank_order.iter().zip(new_rank_order.iter()).enumerate() {
+        for (rank,&new_index) in new_rank_order.iter().enumerate() {
+
+            let old_index = stencil.indecies[new_index];
 
             let data = self.nodes[old_index].data;
 
             let new_node = Node {
                 data: data,
                 index: new_index,
-                rank: i,
+                rank: rank,
                 previous: previous,
                 next: right,
                 zone: 2,
@@ -1072,6 +1085,7 @@ impl RankVector<Vec<Node>> {
             previous = new_index;
 
         }
+
 
         new_nodes[right].previous = previous;
 
@@ -1248,6 +1262,35 @@ impl<'a,T: Borrow<[Node]> + BorrowMut<[Node]> + Index<usize,Output=Node> + Index
         self.index = next;
         return Some(index)
     }
+}
+
+pub struct Stencil<'a> {
+    frequency: HashMap<usize,usize>,
+    indecies: &'a[usize]
+}
+
+impl<'a> Stencil<'a> {
+
+    pub fn from_slice(slice: &'a [usize]) -> Stencil<'a> {
+        let set: HashSet<usize> = slice.iter().cloned().collect();
+        let mut frequency: HashMap<usize,usize> = set.iter().map(|x| (*x,0)).collect();
+        for &i in slice.iter() {
+            frequency.entry(i).and_modify(|x| *x += 1);
+        }
+        Stencil {
+            frequency: frequency,
+            indecies: slice,
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        self.indecies.len()
+    }
+
+    pub fn unique_len(&self) -> usize {
+        self.frequency.len()
+    }
+
 }
 
 
@@ -1458,6 +1501,19 @@ mod rank_vector_tests {
         }
         assert_eq!(ordered_ssme,slow_ordered_ssme);
 
+    }
+
+    #[test]
+    fn derive_test() {
+        let mut vector = RankVector::<Vec<Node>>::link(&vec![10.,-3.,0.,5.,-2.,-1.,15.,20.],);
+        let kid1 = vector.derive(&vec![0,3,6,7]);
+        let kid2 = vector.derive(&vec![1,4,5]);
+        eprintln!("{:?}",kid1);
+        assert_eq!(kid1.median(),12.5);
+        assert_eq!(kid2.median(),-2.);
+        assert_eq!(kid1.ssme(),125.);
+        assert_eq!(kid1.var(),31.25);
+        assert_eq!(kid1.rank_order,Some(vec![1,0,2,3]));
     }
 
     // #[bench]

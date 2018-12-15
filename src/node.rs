@@ -11,6 +11,7 @@ use serde_json::Error;
 
 
 extern crate rand;
+use rand::Rng;
 use rank_table::RankTable;
 use rank_table::RankTableWrapper;
 use split_thread_pool::SplitMessage;
@@ -102,21 +103,16 @@ impl Node {
         //
         // println!("Starting to split");
 
-        for input_feature in self.input_features().clone().into_iter() {
+        for input_feature in 0..self.input_features().len() {
 
             let (tx,rx) = mpsc::channel();
 
-            let (draw_order,drop_set) = self.input_table.sort_by_feature(&input_feature);
+            let (draw_order,drop_set) = self.input_table.sort_by_feature(input_feature);
 
-            let mut weights = self.feature_weights.clone();
-
-            if let Some(input_index) = reference_table.feature_index(&input_feature) {
-                weights[*input_index] = 0.;
-            }
             //
             // println!("Passed to thread pool");
 
-            self.split_thread_pool.send(SplitMessage::Message((reference_table.clone(),draw_order,drop_set,weights),tx));
+            self.split_thread_pool.send(SplitMessage::Message((reference_table.clone(),draw_order,drop_set,self.feature_weights.clone()),tx));
 
             minimum_receivers.push((input_feature,rx));
 
@@ -138,7 +134,7 @@ impl Node {
 
         let (best_feature,split_index,split_sample_index,split_dispersion) = minima.iter().min_by(|a,b| (a.3).partial_cmp(&b.3).unwrap_or(Ordering::Greater)).unwrap().clone();
 
-        let split_order = self.input_table.sort_by_feature(&best_feature);
+        let split_order = self.input_table.sort_by_feature(best_feature);
 
         // if (split_order.0.len() - split_index < 3 || split_index < 3) && self.samples().len() > 20 {
         //     println!("{:?}", split_order);
@@ -154,9 +150,11 @@ impl Node {
 
         assert_eq!(split_sample_index,split_order.0[split_index]);
 
-        let split_value = self.input_table.feature_fetch(&best_feature,split_sample_index);
+        let split_value = self.input_table.feature_fetch(best_feature,split_sample_index);
 
-        self.feature = Some(best_feature.clone());
+        let best_feature_name = self.input_table.feature_names[best_feature].clone();
+
+        self.feature = Some(best_feature_name.clone());
         self.split = Some(split_value.clone());
 
         // println!("Best split: {:?}", (best_feature.clone(),split_index, split_value,split_dispersion));
@@ -164,7 +162,7 @@ impl Node {
         // println!("{:?}",self.output_table.full_ordered_values());
         // println!("{:?}",self.medians());
 
-        Some((best_feature.clone(),split_dispersion,split_value,split_order.0[..split_index].iter().cloned().collect(),split_order.0[split_index..].iter().cloned().collect()))
+        Some((best_feature_name,split_dispersion,split_value,split_order.0[..split_index].iter().cloned().collect(),split_order.0[split_index..].iter().cloned().collect()))
 
     }
 
@@ -260,14 +258,14 @@ impl Node {
             child
         }
 
-    pub fn derive_specified(&self, samples: &Vec<&String>, input_features: &Vec<&String>, output_features: &Vec<&String>, new_id: &str) -> Node {
+    pub fn derive_specified(&self, samples: &Vec<usize>, input_features: &Vec<usize>, output_features: &Vec<usize>, new_id: &str) -> Node {
 
         let mut new_input_table = self.input_table.derive_specified(&input_features,samples);
         let mut new_output_table = self.output_table.derive_specified(&output_features,samples);
 
         let medians = new_output_table.medians();
         let dispersions = new_output_table.dispersions();
-        let feature_weights = output_features.iter().map(|x| self.output_rank_table().feature_index(x).unwrap()).map(|y| self.feature_weights[*y]).collect();
+        let feature_weights = output_features.iter().map(|y| self.feature_weights[*y]).collect();
 
         let child = Node {
             // pool: self.pool.clone(),
@@ -304,33 +302,40 @@ impl Node {
 
         // let shuffle = rand::seq::sample_indices(&mut rng, self.output_table.features().len().max(self.input_table.features.len()), input_features.max(output_features));
 
-        let new_input_features = &rand::seq::sample_iter(&mut rng, self.input_features(), input_features).expect("Couldn't generate input features");
+        // let new_input_features = &rand::seq::sample_iter(&mut rng, self.input_features(), input_features).expect("Couldn't generate input features");
+        //
+        // let new_output_features = &&rand::seq::sample_iter(&mut rng, self.output_features(), output_features).expect("Couldn't generate output features");;
 
-        let new_output_features = &&rand::seq::sample_iter(&mut rng, self.output_features(), output_features).expect("Couldn't generate output features");;
+        // let new_samples = rand::seq::sample_iter(&mut rng, self.samples().iter(), samples).expect("Couldn't generate sample subsample");
+
+        let new_input_features = (0..input_features).map(|_| rng.gen_range(0,self.input_table.dimensions.0)).collect();
+
+        let new_output_features = (0..output_features).map(|_| rng.gen_range(0,self.output_table.dimensions.0)).collect();
+
+        let new_samples = (0..samples).map(|_| rng.gen_range(0,self.output_table.dimensions.1)).collect();
 
         // println!("Deriving a node:");
         // println!("Input features: {:?}", new_input_features);
         // println!("Output features: {:?}", new_output_features);
 
-        let new_samples = rand::seq::sample_iter(&mut rng, self.samples().iter(), samples).expect("Couldn't generate sample subsample");
 
-        self.derive_specified(&new_samples,new_input_features,new_output_features,new_id)
+        self.derive_specified(&new_samples,&new_input_features,&new_output_features,new_id)
     }
-
-    pub fn derive_known_split(&self,feature:&str,split:&f64) -> (Node,Node){
-        let (left_indecies,right_indecies) = self.input_table.split_indecies_by_feature(feature,split);
-
-        let mut left_child_id = self.id.clone();
-        let mut right_child_id = self.id.clone();
-        left_child_id.push_str(&format!("!F{}:S{}L",feature,split));
-        right_child_id.push_str(&format!("!F{}:S{}R",feature,split));
-
-        let left_child = self.derive(&left_indecies, &left_child_id);
-        let right_child = self.derive(&right_indecies, &right_child_id);
-
-        (left_child,right_child)
-
-    }
+    //
+    // pub fn derive_known_split(&self,feature:&str,split:&f64) -> (Node,Node){
+    //     let (left_indecies,right_indecies) = self.input_table.split_indecies_by_feature(feature,split);
+    //
+    //     let mut left_child_id = self.id.clone();
+    //     let mut right_child_id = self.id.clone();
+    //     left_child_id.push_str(&format!("!F{}:S{}L",feature,split));
+    //     right_child_id.push_str(&format!("!F{}:S{}R",feature,split));
+    //
+    //     let left_child = self.derive(&left_indecies, &left_child_id);
+    //     let right_child = self.derive(&right_indecies, &right_child_id);
+    //
+    //     (left_child,right_child)
+    //
+    // }
 
 
     pub fn report(&self,verbose:bool) {
@@ -596,81 +601,81 @@ impl Node {
             child.compute_absolute_gains(root_medians,root_dispersions);
         }
     }
-
-    pub fn cascading_interaction<'a>(&'a self,mut parents:Vec<(&'a Node,&'a str)>) -> Vec<(&'a str, &'a str, f64, &'a str, &'a str,f64,&'a str, f64)> {
-
-        let mut interactions: Vec<(&'a str, &'a str, f64, &'a str, &'a str,f64,&'a str, f64)> = Vec::new();
-
-        if let (&Some(ref feature),&Some(ref split)) = (&self.feature,&self.split) {
-
-            for &(parent,inequality) in parents.iter(){
-                let (left,right) = parent.derive_known_split(&feature,&split);
-
-                let interaction_gain: Vec<f64> =
-                self.children[0]
-                    .local_gains()
-                        .as_ref()
-                            .unwrap()
-                                .iter()
-                    .zip(
-                        left
-                            .local_gains()
-                                .as_ref()
-                                    .unwrap()
-                                        .iter()
-                        )
-                    .map(|x| *x.0 - *x.1)
-                        .collect();
-
-                for (interaction,int_feature) in interaction_gain.iter().zip(self.output_features()) {
-                    interactions.push((feature,"<",*split,parent.feature().as_ref().unwrap(),inequality,parent.split().clone().unwrap(),int_feature,*interaction));
-                }
-
-                let interaction_gain: Vec<f64> =
-                self.children[1]
-                    .local_gains()
-                        .as_ref()
-                            .unwrap()
-                                .iter()
-                    .zip(
-                        right
-                            .local_gains()
-                                .as_ref()
-                                    .unwrap()
-                                        .iter()
-                        )
-                    .map(|x| *x.0 - *x.1)
-                        .collect();
-
-                for (interaction,int_feature) in interaction_gain.iter().zip(self.output_features()) {
-                    interactions.push((feature,">",*split,parent.feature().as_ref().unwrap(),inequality,parent.split().clone().unwrap(),int_feature,*interaction));
-                }
-
-
-            }
-
-            let mut next = parents.clone();
-            next.push((&self,"<"));
-            interactions.extend(self.children[0].cascading_interaction(next));
-
-            let mut next = parents.clone();
-            next.push((&self,">"));
-            interactions.extend(self.children[1].cascading_interaction(next));
-
-        }
-
-        interactions
-
-    }
-
-    pub fn translate_interactions(&self) -> String {
-        let interactions = self.cascading_interaction(vec![]);
-        let mut report = String::new();
-        for line in interactions {
-            report.push_str(&format!("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n", line.0,line.1,line.2,line.3,line.4,line.5,line.6,line.7));
-        }
-        report
-    }
+    //
+    // pub fn cascading_interaction<'a>(&'a self,mut parents:Vec<(&'a Node,&'a str)>) -> Vec<(&'a str, &'a str, f64, &'a str, &'a str,f64,&'a str, f64)> {
+    //
+    //     let mut interactions: Vec<(&'a str, &'a str, f64, &'a str, &'a str,f64,&'a str, f64)> = Vec::new();
+    //
+    //     if let (&Some(ref feature),&Some(ref split)) = (&self.feature,&self.split) {
+    //
+    //         for &(parent,inequality) in parents.iter(){
+    //             let (left,right) = parent.derive_known_split(&feature,&split);
+    //
+    //             let interaction_gain: Vec<f64> =
+    //             self.children[0]
+    //                 .local_gains()
+    //                     .as_ref()
+    //                         .unwrap()
+    //                             .iter()
+    //                 .zip(
+    //                     left
+    //                         .local_gains()
+    //                             .as_ref()
+    //                                 .unwrap()
+    //                                     .iter()
+    //                     )
+    //                 .map(|x| *x.0 - *x.1)
+    //                     .collect();
+    //
+    //             for (interaction,int_feature) in interaction_gain.iter().zip(self.output_features()) {
+    //                 interactions.push((feature,"<",*split,parent.feature().as_ref().unwrap(),inequality,parent.split().clone().unwrap(),int_feature,*interaction));
+    //             }
+    //
+    //             let interaction_gain: Vec<f64> =
+    //             self.children[1]
+    //                 .local_gains()
+    //                     .as_ref()
+    //                         .unwrap()
+    //                             .iter()
+    //                 .zip(
+    //                     right
+    //                         .local_gains()
+    //                             .as_ref()
+    //                                 .unwrap()
+    //                                     .iter()
+    //                     )
+    //                 .map(|x| *x.0 - *x.1)
+    //                     .collect();
+    //
+    //             for (interaction,int_feature) in interaction_gain.iter().zip(self.output_features()) {
+    //                 interactions.push((feature,">",*split,parent.feature().as_ref().unwrap(),inequality,parent.split().clone().unwrap(),int_feature,*interaction));
+    //             }
+    //
+    //
+    //         }
+    //
+    //         let mut next = parents.clone();
+    //         next.push((&self,"<"));
+    //         interactions.extend(self.children[0].cascading_interaction(next));
+    //
+    //         let mut next = parents.clone();
+    //         next.push((&self,">"));
+    //         interactions.extend(self.children[1].cascading_interaction(next));
+    //
+    //     }
+    //
+    //     interactions
+    //
+    // }
+    //
+    // pub fn translate_interactions(&self) -> String {
+    //     let interactions = self.cascading_interaction(vec![]);
+    //     let mut report = String::new();
+    //     for line in interactions {
+    //         report.push_str(&format!("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n", line.0,line.1,line.2,line.3,line.4,line.5,line.6,line.7));
+    //     }
+    //     report
+    // }
 
     pub fn root_absolute_gains(&mut self) {
         for child in self.children.iter_mut() {
@@ -965,12 +970,15 @@ mod node_testing {
         let mut root = Node::feature_root(&vec![vec![10.,-3.,0.,5.,-2.,-1.,15.,20.]],&vec![vec![10.,-3.,0.,5.,-2.,-1.,15.,20.]], &vec!["one".to_string()],&vec!["two".to_string()], &(0..8).map(|x| x.to_string()).collect::<Vec<String>>()[..],blank_parameter(), None, SplitThreadPool::new(1));
 
         root.feature_parallel_derive();
+        //
+        // println!("{:?}", root.output_table.sort_by_feature("two"));
+        // println!("{:?}", root.clone().output_table.parallel_dispersion(&root.output_table.sort_by_feature("two").0,&root.output_table.sort_by_feature("two").1,FeatureThreadPool::new(1)));
 
-        println!("{:?}", root.output_table.sort_by_feature("two"));
-        println!("{:?}", root.clone().output_table.parallel_dispersion(&root.output_table.sort_by_feature("two").0,&root.output_table.sort_by_feature("two").1,FeatureThreadPool::new(1)));
+        assert_eq!(root.children[0].samples(),&vec!["1".to_string(),"3".to_string(),"4".to_string(),"5".to_string()]);
+        assert_eq!(root.children[1].samples(),&vec!["0".to_string(),"6".to_string(),"7".to_string()]);
 
-        assert_eq!(root.children[0].samples(),&vec!["1".to_string(),"4".to_string(),"5".to_string()]);
-        assert_eq!(root.children[1].samples(),&vec!["0".to_string(),"3".to_string(),"6".to_string(),"7".to_string()]);
+        // assert_eq!(root.children[0].samples(),&vec!["1".to_string(),"4".to_string(),"5".to_string()]);
+        // assert_eq!(root.children[1].samples(),&vec!["0".to_string(),"3".to_string(),"6".to_string(),"7".to_string()]);
     }
 
 }

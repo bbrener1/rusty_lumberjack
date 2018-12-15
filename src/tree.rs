@@ -69,7 +69,7 @@ impl<'a> Tree {
 
         self.report_summary()?;
         self.dump_data()?;
-        self.report_interactions()?;
+        // self.report_interactions()?;
 
         println!("Serializing to:");
         println!("{}",self.report_address);
@@ -155,7 +155,7 @@ impl<'a> Tree {
         self.root.root_absolute_gains();
     }
 
-    pub fn derive_specified(&self,samples:&Vec<&String>,input_features:&Vec<&String>,output_features:&Vec<&String>,iteration: usize) -> Tree {
+    pub fn derive_specified(&self,samples:&Vec<usize>,input_features:&Vec<usize>,output_features:&Vec<usize>,iteration: usize) -> Tree {
 
         let new_root = self.root.derive_specified(samples,input_features,output_features,"RT");
 
@@ -266,13 +266,13 @@ impl<'a> Tree {
         }
         Ok(())
     }
-
-    pub fn report_interactions(&self) -> Result<(),Error> {
-        let mut tree_dump = OpenOptions::new().create(true).append(true).open([&self.report_address,".interactions"].join(""))?;
-        // println!("{}",self.root.translate_interactions());
-        tree_dump.write(self.root.translate_interactions().as_bytes())?;
-        Ok(())
-    }
+    //
+    // pub fn report_interactions(&self) -> Result<(),Error> {
+    //     let mut tree_dump = OpenOptions::new().create(true).append(true).open([&self.report_address,".interactions"].join(""))?;
+    //     // println!("{}",self.root.translate_interactions());
+    //     tree_dump.write(self.root.translate_interactions().as_bytes())?;
+    //     Ok(())
+    // }
 
     pub fn dump_data(&self) -> Result<(),Error>{
         let mut tree_dump = OpenOptions::new().create(true).append(true).open([&self.report_address,".dump"].join(""))?;

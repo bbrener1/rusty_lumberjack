@@ -250,7 +250,7 @@ impl Parameters {
             averaging_mode: AveragingMode::Arithmetic,
             norm_mode: NormMode::L2,
             weighing_mode: WeighingMode::Flat,
-            dispersion_mode: DispersionMode::Variance,
+            dispersion_mode: DispersionMode::SSME,
             split_fraction_regularization: 1,
 
 
