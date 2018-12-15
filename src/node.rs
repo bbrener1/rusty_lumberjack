@@ -168,7 +168,7 @@ impl Node {
 
 
 
-    pub fn feature_parallel_derive(&mut self) -> Option<()> {
+    pub fn feature_parallel_derive(&mut self,prototype_opt:Option<&Node>) -> Option<()> {
 
         // println!("Feature parallel derive:");
         // println!("{},{},{},{}", self.input_features().len(),self.output_features().len(),self.input_table.samples().len(),self.output_table.samples().len());
@@ -182,8 +182,17 @@ impl Node {
             // println!("{:?}",&left_indecies);
             // println!("{:?}",&right_indecies);
 
-            let left_child = self.derive(&left_indecies, &left_child_id);
-            let right_child = self.derive(&right_indecies, &right_child_id);
+            let left_child;
+            let right_child;
+
+            if let Some(prototype) = prototype_opt {
+                left_child = self.derive_resampled(prototype, self.input_features().len(), self.output_features().len(), &left_indecies, &left_child_id);
+                right_child = self.derive_resampled(prototype, self.input_features().len(), self.output_features().len(), &right_indecies, &right_child_id);
+            }
+            else {
+                left_child = self.derive(&left_indecies, &left_child_id);
+                right_child = self.derive(&right_indecies, &right_child_id);
+            }
             // println!("{:?}",left_child.samples());
             // println!("{:?}", right_child.samples());
 
@@ -258,6 +267,17 @@ impl Node {
             child
         }
 
+    pub fn derive_resampled(&self,prototype:&Node, input_features: usize, output_features: usize, indecies:&Vec<usize>, new_id:&str) -> Node {
+
+        let mut rng = rand::thread_rng();
+
+        let new_input_features = (0..input_features).map(|_| rng.gen_range(0, prototype.input_table.dimensions.0)).collect();
+
+        let new_output_features = (0..output_features).map(|_| rng.gen_range(0, prototype.output_table.dimensions.0)).collect();
+
+        self.derive_specified(indecies,&new_input_features,&new_output_features,new_id)
+    }
+
     pub fn derive_specified(&self, samples: &Vec<usize>, input_features: &Vec<usize>, output_features: &Vec<usize>, new_id: &str) -> Node {
 
         let mut new_input_table = self.input_table.derive_specified(&input_features,samples);
@@ -266,6 +286,21 @@ impl Node {
         let medians = new_output_table.medians();
         let dispersions = new_output_table.dispersions();
         let feature_weights = output_features.iter().map(|y| self.feature_weights[*y]).collect();
+
+        let mut local_gains = Vec::with_capacity(dispersions.len());
+
+        for ((nd,nm),(od,om)) in dispersions.iter().zip(medians.iter()).zip(self.dispersions.iter().zip(self.medians.iter())) {
+            let mut old_cov = od/om;
+            if !old_cov.is_normal() {
+                old_cov = 0.;
+            }
+            let mut new_cov = nd/nm;
+            if !new_cov.is_normal() {
+                new_cov = 0.;
+            }
+            local_gains.push(old_cov-new_cov)
+            // local_gains.push((od/om)/(nd/nm));
+        }
 
         let child = Node {
             // pool: self.pool.clone(),
@@ -286,7 +321,7 @@ impl Node {
             medians: medians,
             feature_weights: feature_weights,
             dispersions: dispersions,
-            local_gains: None,
+            local_gains: Some(local_gains),
             absolute_gains: None
         };
 
@@ -969,7 +1004,7 @@ mod node_testing {
     fn node_test_simple() {
         let mut root = Node::feature_root(&vec![vec![10.,-3.,0.,5.,-2.,-1.,15.,20.]],&vec![vec![10.,-3.,0.,5.,-2.,-1.,15.,20.]], &vec!["one".to_string()],&vec!["two".to_string()], &(0..8).map(|x| x.to_string()).collect::<Vec<String>>()[..],blank_parameter(), None, SplitThreadPool::new(1));
 
-        root.feature_parallel_derive();
+        root.feature_parallel_derive(None);
         //
         // println!("{:?}", root.output_table.sort_by_feature("two"));
         // println!("{:?}", root.clone().output_table.parallel_dispersion(&root.output_table.sort_by_feature("two").0,&root.output_table.sort_by_feature("two").1,FeatureThreadPool::new(1)));

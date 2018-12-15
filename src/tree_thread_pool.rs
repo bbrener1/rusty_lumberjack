@@ -95,7 +95,7 @@ impl Worker{
                         };
                         println!("Tree Pool: Growing {}", tree_iter);
                         println!("{:?}",tree.dispersion_mode());
-                        tree.grow_branches();
+                        tree.grow_branches(&prototype);
                         println!("Tree Pool: Sending {}", tree_iter);
                         let p_tree = tree.strip_consume();
                         sender.send(p_tree).expect("Tree worker thread error");
