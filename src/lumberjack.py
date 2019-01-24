@@ -16,7 +16,6 @@ import subprocess as sp
 # path_to_tree_reader = Path(__file__).resolve()
 # sys.path.append(path_to_tree_reader)
 import tree_reader as tr
-import gravity_clustering
 
 import numpy as np
 # import matplotlib.pyplot as plt
@@ -80,8 +79,8 @@ def fit(input_counts,output_counts=None,header=None,**kwargs):
         np.savetxt(output + "tmp.i.header", np.arange(output_features,dtype=int),fmt='%u')
         np.savetxt(output + "tmp.o.header", np.arange(output_features,dtype=int),fmt='%u')
     else:
-        np.savetxt(output + "tmp.i.header", header,fmt="%str")
-        np.savetxt(output + "tmp.o.header", header,fmt="%str")
+        np.savetxt(output + "tmp.i.header", header,fmt="%s")
+        np.savetxt(output + "tmp.o.header", header,fmt="%s")
 
     print("CHECK TRUTH")
     print(tmp_dir.name)

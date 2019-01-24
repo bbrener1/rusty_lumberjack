@@ -37,12 +37,12 @@ pub struct Tree {
 
 impl<'a> Tree {
 
-    pub fn prototype_tree(inputs:&Vec<Vec<f64>>,outputs:&Vec<Vec<f64>>,sample_names:&[String],input_features: &[String],output_features:&[String], feature_weight_option: Option<Vec<f64>>, parameters: Arc<Parameters> ,report_address: String) -> Tree {
+    pub fn prototype_tree(inputs:&Vec<Vec<f64>>,outputs:&Vec<Vec<f64>>,sample_names:&[String],sample_indecies:&[usize],input_features: &[String],output_features:&[String], feature_weight_option: Option<Vec<f64>>, parameters: Arc<Parameters> ,report_address: String) -> Tree {
         // let pool = ThreadPool::new(processor_limit);
         let processor_limit = parameters.processor_limit;
         let split_thread_pool = SplitThreadPool::new(1);
         // let mut root = Node::root(counts,feature_names,sample_names,input_features,output_features,pool.clone());
-        let root = Node::feature_root(inputs,outputs,input_features,output_features,sample_names, parameters.clone() , feature_weight_option.clone() ,split_thread_pool.clone());
+        let root = Node::feature_root(inputs,outputs,input_features,output_features,sample_names,sample_indecies, parameters.clone() , feature_weight_option.clone() ,split_thread_pool.clone());
         let weights = feature_weight_option;
 
         Tree{
@@ -305,7 +305,7 @@ pub fn grow_branches(target:&mut Node, prototype:&Tree, size_limit:usize,depth_l
     if target.samples().len() > size_limit && level < depth_limit {
         if target.feature_parallel_derive(Some(&prototype.root)).is_some() {
             for child in target.children.iter_mut() {
-                grow_branches(child,prototype, size_limit, depth_limit, report_address, level+1);
+                grow_branches(child, prototype, size_limit, depth_limit, report_address, level+1);
             }
         }
     }

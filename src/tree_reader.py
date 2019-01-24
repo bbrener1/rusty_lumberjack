@@ -20,6 +20,7 @@ from sklearn.manifold import TSNE
 from sklearn.cluster import DBSCAN
 from sklearn.manifold import MDS
 from sklearn.linear_model import Ridge,Lasso
+from sklearn.decomposition import NMF
 
 # from hdbscan import HDBSCAN
 
@@ -37,17 +38,18 @@ from multiprocessing import Pool
 
 import copy
 
-sys.path.append("/Users/boris/haxx/python/")
-import gravity_clustering
+sys.path.append("/Users/boris/haxx/python/smooth_density_graph/")
+import smooth_density_graph as sdg
 
 class Node:
 
-    def __init__(self, node_json,tree,forest,parent=None,prerequisites=None,level=0):
+    def __init__(self, node_json,tree,forest,parent=None,lr=None,prerequisites=None,level=0):
         if prerequisites is None:
             prerequisites = []
         self.tree = tree
         self.forest = forest
         self.parent = parent
+        self.lr = lr
         self.level = level
         self.feature = node_json['feature']
         self.split = node_json['split']
@@ -59,10 +61,11 @@ class Node:
         self.local_gains = node_json['local_gains']
         self.absolute_gains = node_json['absolute_gains']
         self.children = []
+        self.child_clusters = ([],[])
         self.prerequisites = prerequisites
         if len(node_json['children']) > 0:
-            self.children.append(Node(node_json['children'][0],self.tree,self.forest,self,prerequisites = prerequisites + [(self.feature,self.split,'<')],level=level+1))
-            self.children.append(Node(node_json['children'][1],self.tree,self.forest,self,prerequisites = prerequisites + [(self.feature,self.split,'>')],level=level+1))
+            self.children.append(Node(node_json['children'][0],self.tree,self.forest,parent=self,lr=0,prerequisites = prerequisites + [(self.feature,self.split,'<')],level=level+1))
+            self.children.append(Node(node_json['children'][1],self.tree,self.forest,parent=self,lr=1,prerequisites = prerequisites + [(self.feature,self.split,'>')],level=level+1))
 
     def nodes(self):
         nodes = []
@@ -70,6 +73,16 @@ class Node:
             nodes.extend(child.nodes())
         for child in self.children:
             nodes.append(child)
+        return nodes
+
+    def cluster_nodes(self,cluster):
+        nodes = []
+        if cluster in self.child_clusters[0]:
+            nodes.extend(self.children[0].cluster_nodes(cluster))
+        if cluster in self.child_clusters[1]:
+            nodes.extend(self.children[1].cluster_nodes(cluster))
+        if self.cluster == cluster:
+            nodes.append(self)
         return nodes
 
     def leaves(self):
@@ -84,11 +97,11 @@ class Node:
     def stems(self):
         stems = []
         for child in self.children:
-            stems.extend(child.nodes())
+            stems.extend(child.stems())
         for child in self.children:
             if len(child.children) > 0:
                 stems.append(child)
-        return nodes
+        return stems
 
     def sister(self):
         if self.parent is None:
@@ -109,6 +122,12 @@ class Node:
         else:
             nodes.append(self)
         return nodes
+
+    def root(self):
+        if self.parent is not None:
+            return self.parent.root()
+        else:
+            return self
 
     def ancestors(self):
         ancestors = []
@@ -214,6 +233,16 @@ class Node:
 
         return node_counts[sort_order]
 
+    def total_feature_counts(self):
+        sample_index = self.sample_index()
+        counts = self.forest.counts[sample_index]
+        return counts
+
+    def total_feature_medians(self):
+        counts = self.total_feature_counts()
+        medians = np.median(counts,axis=0)
+        return medians
+
     def ordered_node_counts(self,counts=None,truth_dictionary=None):
         if counts is None:
             counts = self.forest.counts
@@ -247,6 +276,14 @@ class Node:
         sorted_original_dispersions = np.array(self.tree.root.dispersions)[gain_rankings]
 
         return sorted_features,sorted_gains,sorted_dispersions,sorted_original_dispersions
+
+    def ranked_error_vs_root(self):
+        error_change = self.total_error_vs_root()
+        gain_rankings = np.argsort(error_change)
+        sorted_gains = np.array(error_change[gain_rankings])
+        sorted_features = self.forest.features[gain_rankings]
+        sorted_error_change = error_change[gain_rankings]
+        return sorted_features,sorted_gains
 
     def aborting_sample_descent(self,sample):
         if self.feature is not None:
@@ -299,9 +336,63 @@ class Node:
                 distances[j,i] = distance
         return distances
 
+    def set_cluster(self,cluster):
+        self.cluster = cluster
+        if self.parent is not None:
+            self.parent.add_child_cluster(cluster,self.lr)
+
+    def add_child_cluster(self,cluster,lr):
+        self.child_clusters[lr].append(cluster)
+        if self.parent is not None:
+            self.parent.add_child_cluster(cluster,self.lr)
+
+    def find_cluster_divergence(self,cluster):
+        if self.parent is not None:
+            if cluster in self.parent.child_clusters[0] or cluster in self.parent.child_clusters[1]:
+                return self.parent
+            else:
+                return self.parent.find_cluster_divergence(cluster)
+        else:
+            return self
+
+
+    def total_error_vs_root(self):
+        own_medians = self.total_feature_medians()
+        root_medians = self.root().total_feature_medians()
+        counts = self.total_feature_counts()
+        own_error = np.zeros(len(own_medians))
+        root_error = np.zeros(len(root_medians))
+        for i in range(counts.shape[0]):
+            own_error += np.power((counts[i] - own_medians),2)
+            root_error += np.power((counts[i] - root_medians),2)
+        return own_error,root_error
+
     # def cluster_distances(self):
 
+    def total_error_vs_parent(self):
+        counts = self.total_feature_counts()
+        own_medians = self.total_feature_medians()
+        parent_medians = None
+        if self.parent is not None:
+            parent_medians = self.parent.total_feature_medians()
+        else:
+            parent_medians = self.total_feature_medians()
+        own_error = np.zeros(len(own_medians))
+        parent_error = np.zeros(len(parent_medians))
+        for i in range(counts.shape[0]):
+            own_error += np.power((counts[i] - own_medians),2)
+            parent_error += np.power((counts[i] - parent_medians),2)
+        return own_error,parent_error
 
+    def divergence_encoding(self):
+        clusters = [c.id for c in self.forest.leaf_clusters]
+        divergence = np.zeros((len(clusters),len(clusters)))
+        for lc in self.child_clusters[0]:
+            lci = clusters.index(lc)
+            for rc in self.child_clusters[1]:
+                rci = clusters.index(rc)
+                divergence[lci,rci] = 1
+        return divergence
 
 class Tree:
 
@@ -588,6 +679,26 @@ class Forest:
                     gains[fd[feature],i] = gain
         return gains
 
+    def total_absolute_error_matrix(self,nodes):
+        all_root_error = np.zeros((len(self.features),len(nodes)))
+        all_leaf_error = np.zeros((len(self.features),len(nodes)))
+        for i,node in enumerate(nodes):
+            leaf_error,root_error = node.total_error_vs_root()
+            all_leaf_error[:,i] = leaf_error
+            all_root_error[:,i] = root_error
+        return all_root_error-all_leaf_error,all_leaf_error,all_root_error
+
+
+    def total_local_error_matrix(self,nodes):
+        all_parent_error = np.zeros((len(self.features),len(nodes)))
+        all_node_error = np.zeros((len(self.features),len(nodes)))
+        for i,node in enumerate(nodes):
+            node_error,parent_error = node.total_error_vs_parent()
+            all_node_error[:,i] = node_error
+            all_parent_error[:,i] = parent_error
+        return all_parent_error-all_node_error,all_node_error,all_parent_error
+
+
     def local_gain_matrix(self,nodes):
         gains = np.zeros((len(self.features),len(nodes)))
         fd = self.truth_dictionary.feature_dictionary
@@ -676,7 +787,6 @@ class Forest:
                 predictions[i,fd[feature]] = feature_prediction
         return predictions
 
-
     def feature_weight_matrix(self,nodes):
         fd = self.truth_dictionary.feature_dictionary
         weights = np.zeros((len(nodes),len(fd)))
@@ -758,6 +868,8 @@ class Forest:
             truth = self.counts[:,feature_index]
 
             weights = Ridge(alpha=5).fit(feature_leaf_sample_encoding,truth).coef_
+            # weights = NMF().fit()
+
 
             if positive:
                 weights[weights < 0] = 0
@@ -870,16 +982,15 @@ class Forest:
         sample = {feature:value for feature,value in zip(features,vector)}
         return self.abort_sample_leaves(sample)
 
-    def cluster_samples(self,override=False,*args,**kwargs):
+    def cluster_samples_simple(self,override=False,*args,**kwargs):
 
-
-        leaves = self.leaves()
-        encoding = self.node_sample_encoding(leaves)
+        counts = self.counts
 
         if hasattr(self,'sample_clusters') and not override:
             print("Clustering has already been done")
+            return self.sample_labels
         else:
-            self.sample_labels = np.array(gravity_clustering.fit_predict(encoding,"fuzzy",*args,**kwargs))
+            self.sample_labels = np.array(sdg.fit_predict(counts,*args,**kwargs))
 
         cluster_set = set(self.sample_labels)
         clusters = []
@@ -891,15 +1002,58 @@ class Forest:
 
         return self.sample_labels
 
-    def cluster_leaves(self,override=False,*args,**kwargs):
+    def cluster_samples_encoding(self,override=False,*args,**kwargs):
+
+        leaves = self.leaves()
+        encoding = self.node_sample_encoding(leaves)
+
+        if hasattr(self,'sample_clusters') and not override:
+            print("Clustering has already been done")
+        else:
+            self.sample_labels = np.array(sdg.fit_predict(encoding,*args,**kwargs))
+
+        cluster_set = set(self.sample_labels)
+        clusters = []
+        for cluster in cluster_set:
+            cells = np.arange(len(self.sample_labels))[self.sample_labels == cluster]
+            clusters.append(SampleCluster(self,cells,cluster))
+
+        self.sample_clusters = clusters
+
+        return self.sample_labels
+
+    def cluster_samples_coocurrence(self,override=False,*args,**kwargs):
+        leaves = self.leaves()
+        encoding = self.node_sample_encoding(leaves)
+        coocurrence = coocurrence_matrix(encoding)
+
+        if hasattr(self,'sample_clusters') and not override:
+            print("Clustering has already been done")
+            return self.sample_labels
+        else:
+            self.sample_labels = np.array(sdg.fit_predict(coocurrence,precomputed=True,*args,**kwargs))
+
+        cluster_set = set(self.sample_labels)
+        clusters = []
+        for cluster in cluster_set:
+            cells = np.arange(len(self.sample_labels))[self.sample_labels == cluster]
+            clusters.append(SampleCluster(self,cells,cluster))
+
+        self.sample_clusters = clusters
+
+        return self.sample_labels
+
+
+    def cluster_leaf_samples(self,type="fuzzy",override=False,*args,**kwargs):
 
         leaves = self.leaves()
         encoding = self.node_sample_encoding(leaves).T
 
         if hasattr(self,'leaf_clusters') and not override:
             print("Clustering has already been done")
+            return self.leaf_labels
         else:
-            self.leaf_labels = np.array(gravity_clustering.fit_predict(encoding,"fuzzy",*args,**kwargs))
+            self.leaf_labels = np.array(sdg.fit_predict(encoding,*args,**kwargs))
 
         cluster_set = set(self.leaf_labels)
 
@@ -911,13 +1065,93 @@ class Forest:
 
         self.leaf_clusters = clusters
         for leaf,label in zip(leaves,self.leaf_labels):
-            leaf.leaf_cluster = label
+            leaf.set_cluster(label)
+
+        return self.leaf_labels
+
+    def cluster_leaf_gains(self,type="fuzzy",override=False,*args,**kwargs):
+
+        leaves = self.leaves()
+        gains = self.absolute_gain_matrix(leaves)
+
+        if hasattr(self,'leaf_clusters') and not override:
+            print("Clustering has already been done")
+            return self.leaf_labels
+        else:
+            self.leaf_labels = np.array(sdg.fit_predict(gains,*args,**kwargs))
+
+        cluster_set = set(self.leaf_labels)
+
+        clusters = []
+
+        for cluster in cluster_set:
+            leaf_index = np.arange(len(self.leaf_labels))[self.leaf_labels == cluster]
+            clusters.append(NodeCluster(self,[leaves[i] for i in leaf_index],cluster))
+
+        self.leaf_clusters = clusters
+        for leaf,label in zip(leaves,self.leaf_labels):
+            leaf.set_cluster(label)
+
+        return self.leaf_labels
+
+    def cluster_leaf_predictions(self,override=False,*args,**kwargs):
+
+        leaves = self.leaves()
+        predictions = self.raw_prediction_matrix(leaves)
+
+        if hasattr(self,'leaf_clusters') and not override:
+            print("Clustering has already been done")
+            return self.leaf_labels
+        else:
+            self.leaf_labels = np.array(sdg.fit_predict(predictions,*args,**kwargs))
+
+        cluster_set = set(self.leaf_labels)
+
+        clusters = []
+
+        for cluster in cluster_set:
+            leaf_index = np.arange(len(self.leaf_labels))[self.leaf_labels == cluster]
+            clusters.append(NodeCluster(self,[leaves[i] for i in leaf_index],cluster))
+
+        self.leaf_clusters = clusters
+        for leaf,label in zip(leaves,self.leaf_labels):
+            leaf.set_cluster(label)
+
+        return self.leaf_labels
+
+    def node_total_predictions(self,nodes):
+        meta_predictions = np.zeros((len(nodes),self.dim[1]))
+        for i,node in enumerate(nodes):
+            meta_predictions[i] = node.total_feature_medians()
+        return meta_predictions
+
+    def cluster_leaf_total_predictions(self,override=False,*args,**kwargs):
+
+        if hasattr(self,'leaf_clusters') and not override:
+            print("Clustering has already been done")
+            return self.leaf_labels
+        else:
+            leaves = self.leaves()
+            meta_predictions = self.node_total_predictions(leaves)
+            self.leaf_labels = np.array(sdg.fit_predict(meta_predictions,*args,**kwargs))
+
+        cluster_set = set(self.leaf_labels)
+
+        clusters = []
+
+        for cluster in cluster_set:
+            leaf_index = np.arange(len(self.leaf_labels))[self.leaf_labels == cluster]
+            clusters.append(NodeCluster(self,[leaves[i] for i in leaf_index],cluster))
+
+        self.leaf_clusters = clusters
+        for leaf,label in zip(leaves,self.leaf_labels):
+            leaf.set_cluster(label)
 
         return self.leaf_labels
 
     def cluster_features(self,*args,**kwargs):
         gain_matrix = self.absolute_gain_matrix(self.leaves())
-        return gravity_clustering.fit_predict(gain_matrix,"fuzzy",*args,**kwargs)
+        return sdg.fit_predict(gain_matrix,*args,**kwargs)
 
     def plot_counts(self,no_plot=False):
 
@@ -931,45 +1165,46 @@ class Forest:
 
         return cell_sort,leaf_sort,self.counts
 
-    def cluster_splits(self,override=False,no_plot=False,*args,**kwargs):
-
-        nodes = self.nodes(root=False)
-
-        gain_matrix = self.local_gain_matrix(nodes).T+1
-
-        if hasattr(self,'split_clusters') and not override:
-            print("Clustering has already been done")
-        else:
-            self.split_labels = np.array(gravity_clustering.fit_predict(gain_matrix,"fuzzy",*args,**kwargs))
-
-        cluster_set = set(self.split_labels)
-        clusters = []
-        for cluster in cluster_set:
-            split_index = np.arange(len(self.split_labels))[self.split_labels == cluster]
-            clusters.append(NodeCluster(self,[nodes[i] for i in split_index],cluster))
-
-        # split_order = np.argsort(self.split_labels)
-        split_order = dendrogram(linkage(gain_matrix,metric='cos',method='average'),no_plot=True)['leaves']
-        feature_order = dendrogram(linkage(gain_matrix.T+1,metric='cosine',method='average'),no_plot=True)['leaves']
-
-        image = gain_matrix[split_order].T[feature_order].T
-        neg = image < 0
-        pos = image > 0
-        image[neg] = -1 * np.log(np.abs(image[neg]) + 1)
-        image[pos] = np.log(image[pos] + 1)
-
-        median = np.median(image)
-        range = np.max(image) - median
-
-
-        plt.figure(figsize=(10,10))
-        plt.imshow(image,aspect='auto',cmap='bwr',vmin=median-range,vmax=median+range)
-        plt.colorbar()
-        plt.show()
-
-        self.split_clusters = clusters
-
-        return self.split_labels,image
+    # def cluster_splits(self,override=False,no_plot=False,*args,**kwargs):
+    #
+    #     nodes = self.nodes(root=False)
+    #
+    #     gain_matrix = self.local_gain_matrix(nodes).T+1
+    #
+    #     if hasattr(self,'split_clusters') and not override:
+    #         print("Clustering has already been done")
+    #         # return self.split_labels
+    #     else:
+    #         self.split_labels = np.array(sdg.fit_predict(gain_matrix,"fuzzy",*args,**kwargs))
+    #
+    #     cluster_set = set(self.split_labels)
+    #     clusters = []
+    #     for cluster in cluster_set:
+    #         split_index = np.arange(len(self.split_labels))[self.split_labels == cluster]
+    #         clusters.append(NodeCluster(self,[nodes[i] for i in split_index],cluster))
+    #
+    #     # split_order = np.argsort(self.split_labels)
+    #     split_order = dendrogram(linkage(gain_matrix,metric='cos',method='average'),no_plot=True)['leaves']
+    #     feature_order = dendrogram(linkage(gain_matrix.T+1,metric='cosine',method='average'),no_plot=True)['leaves']
+    #
+    #     image = gain_matrix[split_order].T[feature_order].T
+    #     neg = image < 0
+    #     pos = image > 0
+    #     image[neg] = -1 * np.log(np.abs(image[neg]) + 1)
+    #     image[pos] = np.log(image[pos] + 1)
+    #
+    #     median = np.median(image)
+    #     range = np.max(image) - median
+    #
+    #
+    #     plt.figure(figsize=(10,10))
+    #     plt.imshow(image,aspect='auto',cmap='bwr',vmin=median-range,vmax=median+range)
+    #     plt.colorbar()
+    #     plt.show()
+    #
+    #     self.split_clusters = clusters
+    #
+    #     return self.split_labels,image
 
 
     def filter_cells(cells,prerequisite):
@@ -993,20 +1228,20 @@ class Forest:
             print("Warning, cell clusters not detected")
             return None
 
-        cluster_coordinates = np.zeros((len(self.sample_clusters),len(self.features)))
+        tc = self.tsne(no_plot=True)
+
+        cluster_tc = np.zeros((len(self.sample_clusters),2))
+
         for i,cluster in enumerate(self.sample_clusters):
-            cluster_coordinates[i] = cluster.median_feature_values()
+            cluster_cell_mask = self.sample_labels == cluster.id
+            mean_coordinates = np.mean(tc[cluster_cell_mask],axis=0)
+            cluster_tc[i] = mean_coordinates
 
-        combined_coordinates = np.zeros((self.counts.shape[0]+len(self.sample_clusters),self.counts.shape[1]))
+        combined_coordinates = np.zeros((self.counts.shape[0]+len(self.sample_clusters),2))
 
-        combined_coordinates[0:self.counts.shape[0]] = self.counts
+        combined_coordinates[0:self.counts.shape[0]] = tc
 
-        combined_coordinates[self.counts.shape[0]:] = cluster_coordinates
-
-        if not hasattr(self,'cluster_tsne'):
-            self.cluster_tsne = TSNE().fit_transform(combined_coordinates)
-
-        combined_coordinates = self.cluster_tsne
+        combined_coordinates[self.counts.shape[0]:] = cluster_tc
 
         highlight = np.ones(combined_coordinates.shape[0])
         highlight[len(self.sample_labels):] = [len(cluster.samples) for cluster in self.sample_clusters]
@@ -1020,11 +1255,11 @@ class Forest:
             combined_labels[len(self.sample_labels):] = [cluster.id for cluster in self.sample_clusters]
 
         cluster_names = [cluster.id for cluster in self.sample_clusters]
-        cluster_coordiantes = transformed[len(self.sample_labels):]
+        cluster_coordiantes = combined_coordinates[len(self.sample_labels):]
 
         plt.figure(figsize=(10,10))
         plt.title("TSNE-Transformed Cell Coordinates")
-        plt.scatter(transformed[:,0],transformed[:,1],s=highlight,c=combined_labels,cmap='rainbow')
+        plt.scatter(combined_coordinates[:,0],combined_coordinates[:,1],s=highlight,c=combined_labels,cmap='rainbow')
         for cluster,coordinates in zip(cluster_names,cluster_coordiantes):
             plt.text(*coordinates,cluster,verticalalignment='center',horizontalalignment='center')
         plt.show()
@@ -1040,16 +1275,16 @@ class Forest:
         return coordinates
 
     def tsne(self,no_plot=False):
-        if not hasattr(self,'tsne'):
-            self.tsne = TSNE().fit_transform(self.counts)
+        if not hasattr(self,'tsne_coordinates'):
+            self.tsne_coordinates = TSNE().fit_transform(self.counts)
 
         if not no_plot:
             plt.figure()
             plt.title("TSNE-Transformed Cell Coordinates")
-            plt.scatter(self.tsne[:,0],self.tsne[:,1],s=.1)
+            plt.scatter(self.tsne_coordinates[:,0],self.tsne_coordinates[:,1],s=.1)
             plt.show()
 
-        return self.tsne
+        return self.tsne_coordinates
 
     def average_prereq_freq_level(self,nodes):
         prereq_dict = {}
@@ -1086,6 +1321,92 @@ class Forest:
         ax.set_yticks(np.arange(49,-1,-1))
         ax.set_yticklabels(prereq_features[:50])
         # ax.grid(axis='y')
+
+    def find_node_cluster_divergence(self,c1,c2):
+        c1_index = [c.id for c in self.leaf_clusters].index(c1)
+        c1_leaves = self.leaf_clusters[c1_index].nodes
+        divergent_nodes = []
+        distances = []
+        for i,leaf in enumerate(c1_leaves):
+            divergence = leaf.find_cluster_divergence(c2)
+            divergent_nodes.append(divergence)
+            distances.append(leaf.level - divergence.level)
+        average_distance = np.mean(distances)
+        if np.is_nan(average_distance):
+            average_distance = np.mean([l.level for l in c1_leaves])
+        return average_distance,divergent_nodes,distances
+
+    def node_cluster_distance_matrix(self):
+        n = len(self.leaf_clusters)
+        distances = np.zeros((n,n))
+        for i in range(len(self.leaf_clusters)):
+            for j in range(len(self.leaf_clusters)):
+                average_distance,_,_ = self.find_node_cluster_divergence(self.leaf_clusters[i].id,self.leaf_clusters[j].id)
+                distances[i,j] += average_distance
+                distances[j,i] += average_distance
+        return distances
+
+    def node_divergence_encoding(self,nodes):
+        encoding = np.zeros((len(nodes),len(self.leaf_clusters),len(self.leaf_clusters)))
+        for i,node in enumerate(nodes):
+            encoding[i] = node.divergence_encoding()
+        return encoding
+
+    def cluster_divergence(self,**kwargs):
+        leaves = self.leaves()
+        leaf_clusters = self.leaf_clusters
+        stems = self.stems()
+        # roots = [t.root for t in self.trees]
+        # nodes = roots + stems
+        nodes = stems
+        encoding = self.node_divergence_encoding(nodes)
+        flat_encoding = np.array([ed.flatten() for ed in encoding])
+        # reduced = PCA(n_components=10).fit_transform(flat_encoding)
+        labels = np.array(sdg.fit_predict(flat_encoding,**kwargs))
+        for i,label in enumerate(labels):
+            labels[i] = label + len(leaf_clusters)
+
+        cluster_set = set(labels)
+
+        clusters = []
+
+        for cluster in cluster_set:
+            cluster_node_index = np.arange(len(labels))[labels == cluster]
+            cluster_nodes = [nodes[i] for i in cluster_node_index]
+            print(np.sum(labels == cluster))
+            print(len(cluster_nodes))
+            clusters.append(NodeCluster(self,cluster_nodes,cluster))
+
+        self.divergence_clusters = clusters
+        self.divergence_labels = labels
+
+        # for node,label in zip(nodes,labels):
+        #     node.set_cluster(label)
+
+        return nodes,labels,flat_encoding
+
+    def reset_clusters(self):
+        try:
+            del self.sample_clusters
+            del self.sample_labels
+        except:
+            pass
+        try:
+            del self.leaf_clusters
+            del self.leaf_labels
+        except:
+            pass
+        try:
+            del self.split_clusters
+            del self.split_labels
+        except:
+            pass
+
+        for node in self.nodes():
+            node.child_clusters = ([],[])
+            if hasattr(node,'cluster'):
+                del node.cluster
+
 
 class TruthDictionary:
 
@@ -1209,6 +1530,8 @@ class SampleCluster:
 
         return leaf_clusters,leaf_cluster_counts
 
+
+
 class NodeCluster:
 
     def __init__(self,forest,nodes,id):
@@ -1227,6 +1550,15 @@ class NodeCluster:
         for i,feature in enumerate(self.forest.features):
             mean_gains[i] = np.mean(stacked_gains[feature])
         return mean_gains
+
+    def ranked_feature_error_gain(self):
+        nodes = self.nodes
+        total_error_gain_matrix = self.forest.total_absolute_error_matrix(nodes)[0].T
+        average_gains = np.mean(total_error_gain_matrix,axis=0)
+        gain_rankings = np.argsort(average_gains)
+        sorted_gains = average_gains[gain_rankings]
+        sorted_features = self.forest.features[gain_rankings]
+        return sorted_features,sorted_gains
 
     def ranked_mean_gains(self):
         mean_gains = self.mean_absolute_feature_gains()
@@ -1346,6 +1678,13 @@ class NodeCluster:
     def cell_counts(self):
         encoding = self.encoding()
         return np.sum(encoding,axis=1)
+
+    def plot_cell_counts(self,**kwargs):
+        counts = self.cell_counts()
+        plt.figure(figsize=(15,10))
+        plt.scatter(self.forest.tsne(no_plot=True)[:,0],self.forest.tsne(no_plot=True)[:,1],c=counts,**kwargs)
+        plt.colorbar()
+        plt.show()
 
     def cell_frequency(self):
         encoding = self.encoding()
@@ -1585,23 +1924,23 @@ def node_gain_table(nodes,forest):
                 print(node.absolute_gains)
     return node_gain_table
 #
-# def hacked_louvain(nodes,samples):
-#
-#     node_encoding = node_sample_encoding(nodes,len(samples))
-#     print("Louvain Encoding: {}".format(node_encoding.shape))
-#     pre_computed_distance = coocurrence_distance(node_encoding.T)
-#     print("Louvain Distances: {}".format(pre_computed_distance.shape))
-#     sample_graph = nx.from_numpy_matrix(pre_computed_distance)
-#     print("Louvain Cast To Graph")
-#     least_spanning_tree = nx.minimum_spanning_tree(sample_graph)
-#     print("Louvain Least Spanning Tree constructed")
-#     part_dict = community.best_partition(least_spanning_tree)
-#     print("Louvain Partition Done")
-#     clustering = np.zeros(len(part_dict))
-#     for i,sample in enumerate(samples):
-#         clustering[i] = part_dict[int(sample)]
-#     print("Louvain: {}".format(clustering.shape))
-#     return clustering
+def hacked_louvain(nodes,samples):
+
+    node_encoding = node_sample_encoding(nodes,len(samples))
+    print("Louvain Encoding: {}".format(node_encoding.shape))
+    pre_computed_distance = coocurrence_distance(node_encoding.T)
+    print("Louvain Distances: {}".format(pre_computed_distance.shape))
+    sample_graph = nx.from_numpy_matrix(pre_computed_distance)
+    print("Louvain Cast To Graph")
+    least_spanning_tree = nx.minimum_spanning_tree(sample_graph)
+    print("Louvain Least Spanning Tree constructed")
+    part_dict = community.best_partition(least_spanning_tree)
+    print("Louvain Partition Done")
+    clustering = np.zeros(len(part_dict))
+    for i,sample in enumerate(samples):
+        clustering[i] = part_dict[int(sample)]
+    print("Louvain: {}".format(clustering.shape))
+    return clustering
 
 # def embedded_hdbscan(coordinates):
 #

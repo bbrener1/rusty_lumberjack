@@ -28,7 +28,9 @@ impl Forest {
 
         let report_string = format!("{}.0",report_address).to_string();
 
-        let prototype_tree = Tree::prototype_tree(&input_array,&output_array,&parameters.sample_names,&parameters.input_feature_names,&parameters.output_feature_names,None, parameters.clone() ,report_string);
+        let sample_indecies: Vec<usize> = parameters.sample_names.iter().enumerate().map(|(i,x)| i).collect();
+
+        let prototype_tree = Tree::prototype_tree(&input_array,&output_array,&parameters.sample_names,&sample_indecies[..],&parameters.input_feature_names,&parameters.output_feature_names,None, parameters.clone() ,report_string);
 
         prototype_tree.serialize_compact();
 

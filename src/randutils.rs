@@ -1,7 +1,8 @@
 use rand::{Rng,ThreadRng,thread_rng};
 use std::cmp::Ordering;
 use std::f64;
-
+use std::mem::swap;
+use std::ops::Add;
 
 pub fn logit(p:f64) -> f64 {
     (p/(1.-p)).ln()

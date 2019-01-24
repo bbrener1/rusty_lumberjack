@@ -48,11 +48,11 @@ pub struct Node {
 
 impl Node {
 
-    pub fn feature_root<'a>(input_counts:&Vec<Vec<f64>>,output_counts:&Vec<Vec<f64>>,input_feature_names:&'a[String],output_feature_names:&'a[String],sample_names:&'a[String], parameters: Arc<Parameters> , feature_weight_option: Option<Vec<f64>>, split_thread_pool: mpsc::Sender<SplitMessage>) -> Node {
+    pub fn feature_root<'a>(input_counts:&Vec<Vec<f64>>,output_counts:&Vec<Vec<f64>>,input_feature_names:&'a[String],output_feature_names:&'a[String],sample_names:&'a[String],sample_indecies:&'a[usize], parameters: Arc<Parameters> , feature_weight_option: Option<Vec<f64>>, split_thread_pool: mpsc::Sender<SplitMessage>) -> Node {
 
-        let input_table = RankTable::new(input_counts,&input_feature_names,&sample_names,parameters.clone());
+        let input_table = RankTable::new(input_counts,&input_feature_names,&sample_names,&sample_indecies,parameters.clone());
 
-        let output_table = RankTable::new(output_counts,&output_feature_names,&sample_names,parameters.clone());
+        let output_table = RankTable::new(output_counts,&output_feature_names,&sample_names,&sample_indecies,parameters.clone());
 
         let feature_weights = feature_weight_option.unwrap_or(vec![1.;output_feature_names.len()]);
 
@@ -275,7 +275,9 @@ impl Node {
 
         let new_output_features = (0..output_features).map(|_| rng.gen_range(0, prototype.output_table.dimensions.0)).collect();
 
-        self.derive_specified(indecies,&new_input_features,&new_output_features,new_id)
+        let prototype_indecies = indecies.iter().map(|&i| self.input_table.sample_indecies[i]).collect();
+
+        prototype.derive_specified(&prototype_indecies,&new_input_features,&new_output_features,new_id)
     }
 
     pub fn derive_specified(&self, samples: &Vec<usize>, input_features: &Vec<usize>, output_features: &Vec<usize>, new_id: &str) -> Node {
@@ -289,16 +291,8 @@ impl Node {
 
         let mut local_gains = Vec::with_capacity(dispersions.len());
 
-        for ((nd,nm),(od,om)) in dispersions.iter().zip(medians.iter()).zip(self.dispersions.iter().zip(self.medians.iter())) {
-            let mut old_cov = od/om;
-            if !old_cov.is_normal() {
-                old_cov = 0.;
-            }
-            let mut new_cov = nd/nm;
-            if !new_cov.is_normal() {
-                new_cov = 0.;
-            }
-            local_gains.push(old_cov-new_cov)
+        for (nd,od) in dispersions.iter().zip(self.dispersions.iter()) {
+            local_gains.push(od-nd)
             // local_gains.push((od/om)/(nd/nm));
         }
 
@@ -613,27 +607,17 @@ impl Node {
         output
     }
 
-    pub fn compute_absolute_gains(&mut self, root_medians: &Vec<f64>,root_dispersions: &Vec<f64>) {
+    pub fn compute_absolute_gains(&mut self,root_dispersions: &Vec<f64>) {
 
         let mut absolute_gains = Vec::with_capacity(root_dispersions.len());
 
-        for ((nd,nm),(od,om)) in self.dispersions.iter().zip(self.medians.iter()).zip(root_dispersions.iter().zip(root_medians.iter())) {
-            let mut old_cov = od/om;
-            if !old_cov.is_normal() {
-                old_cov = 0.;
-            }
-            let mut new_cov = nd/nm;
-            if !new_cov.is_normal() {
-                new_cov = 0.;
-            }
-            absolute_gains.push(old_cov-new_cov)
-
+        for (nd,od) in self.dispersions.iter().zip(root_dispersions.iter()) {
+            absolute_gains.push(od-nd)
         }
-
         self.absolute_gains = Some(absolute_gains);
 
         for child in self.children.iter_mut() {
-            child.compute_absolute_gains(root_medians,root_dispersions);
+            child.compute_absolute_gains(root_dispersions);
         }
     }
     //
@@ -714,7 +698,7 @@ impl Node {
 
     pub fn root_absolute_gains(&mut self) {
         for child in self.children.iter_mut() {
-            child.compute_absolute_gains(&self.medians,&self.dispersions);
+            child.compute_absolute_gains(&self.dispersions);
         }
     }
 
@@ -988,21 +972,21 @@ mod node_testing {
 
     #[test]
     fn node_test_trivial_trivial() {
-        let mut root = Node::feature_root(&vec![], &vec![], &vec![][..], &vec![][..], &vec![][..], blank_parameter(), None, SplitThreadPool::new(1));
+        let mut root = Node::feature_root(&vec![], &vec![], &vec![][..], &vec![][..], &vec![][..],&vec![][..], blank_parameter(), None, SplitThreadPool::new(1));
         root.mads();
         root.medians();
     }
 
     #[test]
     fn node_test_trivial() {
-        let mut root = Node::feature_root(&vec![vec![]],&vec![vec![]], &vec!["one".to_string()][..], &vec!["a".to_string()][..], &vec!["1".to_string()][..],blank_parameter(),None, SplitThreadPool::new(1));
+        let mut root = Node::feature_root(&vec![vec![]],&vec![vec![]], &vec!["one".to_string()][..], &vec!["a".to_string()][..], &vec!["1".to_string()][..],&vec![1][..],blank_parameter(),None, SplitThreadPool::new(1));
         root.mads();
         root.medians();
     }
 
     #[test]
     fn node_test_simple() {
-        let mut root = Node::feature_root(&vec![vec![10.,-3.,0.,5.,-2.,-1.,15.,20.]],&vec![vec![10.,-3.,0.,5.,-2.,-1.,15.,20.]], &vec!["one".to_string()],&vec!["two".to_string()], &(0..8).map(|x| x.to_string()).collect::<Vec<String>>()[..],blank_parameter(), None, SplitThreadPool::new(1));
+        let mut root = Node::feature_root(&vec![vec![10.,-3.,0.,5.,-2.,-1.,15.,20.]],&vec![vec![10.,-3.,0.,5.,-2.,-1.,15.,20.]], &vec!["one".to_string()],&vec!["two".to_string()], &(0..8).map(|x| x.to_string()).collect::<Vec<String>>()[..],&vec![0,1,2,3,4,5,6,7][..],blank_parameter(), None, SplitThreadPool::new(1));
 
         root.feature_parallel_derive(None);
         //
