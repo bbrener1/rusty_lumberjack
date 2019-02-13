@@ -8,6 +8,8 @@ import random
 import glob
 import pickle
 
+from functools import reduce
+
 import scipy.special
 from scipy.stats import linregress
 from scipy.spatial.distance import jaccard
@@ -66,6 +68,29 @@ class Node:
         if len(node_json['children']) > 0:
             self.children.append(Node(node_json['children'][0],self.tree,self.forest,parent=self,lr=0,prerequisites = prerequisites + [(self.feature,self.split,'<')],level=level+1))
             self.children.append(Node(node_json['children'][1],self.tree,self.forest,parent=self,lr=1,prerequisites = prerequisites + [(self.feature,self.split,'>')],level=level+1))
+
+    def null():
+        null_dictionary = {}
+        null_dictionary['feature'] = None
+        null_dictionary['split'] = None
+        null_dictionary['features'] = []
+        null_dictionary['samples'] = []
+        null_dictionary['medians'] = []
+        null_dictionary['dispersions'] = []
+        null_dictionary['local_gains'] = None
+        null_dictionary['absolute_gains'] = None
+        null_dictionary['children'] = []
+        return Node(null_dictionary,None,None)
+
+    def test_node(feature,split,features,samples,medians,dispersions):
+        test_node = Node.null()
+        test_node.feature = feature
+        test_node.split = split
+        test_node.features.extend(features)
+        test_node.samples.extend(samples)
+        test_node.medians.extend(medians)
+        test_node.dispersions.extend(dispersions)
+        return test_node
 
     def nodes(self):
         nodes = []
@@ -164,7 +189,7 @@ class Node:
 
     def l2_fit(self,truth_dictionary):
         l2_sum = 0.0
-        samples = self.sample_index()
+        samples = self.sample_mask()
         sliced_counts = self.forest.counts[samples]
         for f,feature in enumerate(self.features):
             global_feature_index = truth_dictionary.feature_dictionary[feature]
@@ -193,49 +218,49 @@ class Node:
             d = max(child.depth(d+1),d)
         return d
 
-    def feature_index(self, truth_dictionary=None):
+    def feature_mask(self, truth_dictionary=None):
         if truth_dictionary is None:
             truth_dictionary = self.forest.truth_dictionary
-        feature_index = np.zeros(len(truth_dictionary.feature_dictionary),dtype=bool)
+        feature_mask = np.zeros(len(truth_dictionary.feature_dictionary),dtype=bool)
         for feature in self.features:
-            feature_index[truth_dictionary.feature_dictionary[feature]] = True
-        return feature_index
+            feature_mask[truth_dictionary.feature_dictionary[feature]] = True
+        return feature_mask
 
-    def sample_index(self, truth_dictionary=None):
+    def sample_mask(self, truth_dictionary=None):
         if truth_dictionary is None:
             truth_dictionary = self.forest.truth_dictionary
-        sample_index = np.zeros(len(truth_dictionary.sample_dictionary),dtype=bool)
+        sample_mask = np.zeros(len(truth_dictionary.sample_dictionary),dtype=bool)
         for sample in self.samples:
-            sample_index[truth_dictionary.sample_dictionary[sample]] = True
-        # if np.sum(sample_index) == 0:
+            sample_mask[truth_dictionary.sample_dictionary[sample]] = True
+        # if np.sum(sample_mask) == 0:
         #     print(self.samples)
         #     print(self.prerequisites)
         #     raise IndexError
-        return sample_index
+        return sample_mask
 
-    def feature_sample_boolean_index(self,truth_dictionary=None):
-        return self.sample_index(truth_dictionary),self.feature_index(truth_dictionary)
+    def feature_sample_mask(self,truth_dictionary=None):
+        return self.sample_mask(truth_dictionary),self.feature_mask(truth_dictionary)
 
     def node_counts(self,counts=None,truth_dictionary=None):
         if counts is None:
             counts = self.forest.counts
-        return counts[self.sample_index()].T[self.feature_index()].T
+        return counts[self.sample_mask()].T[self.feature_mask()].T
 
     def sorted_node_counts(self):
-        sample_index = self.sample_index()
-        feature_index = self.feature_index()
-        node_counts = self.forest.counts[sample_index].T[feature_index].T
+        sample_mask = self.sample_mask()
+        feature_mask = self.feature_mask()
+        node_counts = self.forest.counts[sample_mask].T[feature_mask].T
         try:
             sort_feature_index = self.forest.truth_dictionary.feature_dictionary[self.feature]
-            sort_order = np.argsort(self.forest.counts[:,sort_feature_index][sample_index])
+            sort_order = np.argsort(self.forest.counts[:,sort_feature_index][sample_mask])
         except:
             sort_order = np.arange(node_counts.shape[0])
 
         return node_counts[sort_order]
 
     def total_feature_counts(self):
-        sample_index = self.sample_index()
-        counts = self.forest.counts[sample_index]
+        sample_mask = self.sample_mask()
+        counts = self.forest.counts[sample_mask]
         return counts
 
     def total_feature_medians(self):
@@ -384,7 +409,7 @@ class Node:
             parent_error += np.power((counts[i] - parent_medians),2)
         return own_error,parent_error
 
-    def divergence_encoding(self):
+    def cluster_divergence_encoding(self):
         clusters = [c.id for c in self.forest.leaf_clusters]
         divergence = np.zeros((len(clusters),len(clusters)))
         for lc in self.child_clusters[0]:
@@ -392,6 +417,27 @@ class Node:
             for rc in self.child_clusters[1]:
                 rci = clusters.index(rc)
                 divergence[lci,rci] = 1
+        return divergence
+
+    def sample_divergence_encoding(self):
+        samples = len(self.forest.samples)
+        divergence = np.zeros((samples,samples,2))
+        child_samples = reduce(lambda x,y: x+y.samples, self.children,[])
+        for l,s1 in enumerate(child_samples):
+            s1i = self.forest.truth_dictionary.sample_dictionary[s1]
+            for s2 in child_samples[l:]:
+                s2i = self.forest.truth_dictionary.sample_dictionary[s2]
+                divergence[s1i,s2i,0] = 1
+                divergence[s2i,s1i,0] = 1
+        for child in self.children[:1]:
+            child_samples = child.samples
+            sister_samples = child.sister().samples
+            for s1 in child_samples:
+                s1i = self.forest.truth_dictionary.sample_dictionary[s1]
+                for s2 in sister_samples:
+                    s2i = self.forest.truth_dictionary.sample_dictionary[s2]
+                    divergence[s1i,s2i,1] = 1
+                    divergence[s2i,s1i,1] = 1
         return divergence
 
 class Tree:
@@ -602,6 +648,14 @@ class Forest:
         self.dim = counts.shape
 
         self.trees = list(map(lambda x: Tree(x,self),trees))
+
+        for i,node in enumerate(self.nodes()):
+            node.index = i
+
+    def test_forest(roots,counts,features=None,samples=None):
+        test_forest = Forest([],counts,features,samples)
+        test_trees = [Tree.test_tree(root,test_forest) for root in roots]
+        test_forest.trees = test_trees
 
     def backup(self,location):
         with open(location,mode='bw') as f:
@@ -1349,7 +1403,7 @@ class Forest:
     def node_divergence_encoding(self,nodes):
         encoding = np.zeros((len(nodes),len(self.leaf_clusters),len(self.leaf_clusters)))
         for i,node in enumerate(nodes):
-            encoding[i] = node.divergence_encoding()
+            encoding[i] = node.cluster_divergence_encoding()
         return encoding
 
     def cluster_divergence(self,**kwargs):
@@ -1830,7 +1884,7 @@ def nonzero_var_column(mtx):
 def sample_node_encoding(nodes,samples):
     encoding = np.zeros((len(nodes),samples),dtype=bool)
     for i,node in enumerate(nodes):
-        encoding[i] = node.sample_index()
+        encoding[i] = node.sample_mask()
     sample_encoding = encoding.T
     unrepresented = np.sum(sample_encoding,axis=1) == 0
     if np.sum(unrepresented) > 0:
