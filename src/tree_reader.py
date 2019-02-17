@@ -440,6 +440,14 @@ class Node:
                     divergence[s2i,s1i,1] = 1
         return divergence
 
+    def lr_encoding_vectors(self):
+        left = np.zeros(len(self.forest.samples),dtype=bool)
+        right = np.zeros(len(self.forest.samples),dtype=bool)
+        child_masks = [left,right]
+        for i,child in enumerate(self.children):
+            child_masks[i] = child.sample_mask()
+        return child_masks
+
 class Tree:
 
     def __init__(self, tree_json, forest):
@@ -682,6 +690,9 @@ class Forest:
         for tree in self.trees:
             stems.extend(tree.stems())
         return stems
+
+    def roots(self):
+        return [tree.root for tree in self.trees]
 
     def feature_leaves(self,feature):
         leaves = []
