@@ -20,11 +20,9 @@ class IHMM:
 
         self.alpha_e = 10
         self.beta_e = 10
-        self.gamma_e = 1
+        self.gamma_e = 10
 
-        self.oracle_counter = 1
-
-        self.hidden_state_counter = 1
+        self.oracle_counter = 0
 
         self.transition_model = None
         self.transition_oracle_model = None
@@ -35,6 +33,11 @@ class IHMM:
         self.hidden_states = []
         self.hidden_states.append(HiddenState.null(self))
         self.hidden_states.append(HiddenState.oracle(self))
+        for i in range(20):
+            self.hidden_states.append(HiddenState(self,[],i+2))
+
+        for node in self.forest.nodes():
+            node.hidden_state = 0
 
         self.nodes = forest.roots() + forest.stems()
 
@@ -42,7 +45,7 @@ class IHMM:
         self.total_nodes = len(forest.nodes())
 
         self.divergence_masks = np.zeros((self.total_nodes,self.total_samples,2),dtype=bool)
-        self.node_states = np.zeros(total_nodes,dtype=int)
+        self.node_states = np.zeros(self.total_nodes,dtype=int)
 
         for node in self.nodes:
             node.hidden_state = 1
@@ -50,39 +53,116 @@ class IHMM:
             self.divergence_masks[node.index,:,0] = left
             self.divergence_masks[node.index,:,1] = right
 
+        self.recompute_transition_matrix()
 
+    def recompute_transition_matrix(self):
+
+        new_transition_matrix = self.beta * np.ones((len(self.hidden_states),len(self.hidden_states)))
+        new_transition_matrix[np.identity(len(self.hidden_states),dtype=bool)] += self.alpha
+        new_transition_matrix[:,1] += self.gamma
+
+        for node in self.nodes:
+            node_state = node.hidden_state
+            if node.parent is not None:
+                parent_state = node.parent.hidden_state
+                new_transition_matrix[parent_state,node_state] += 1
+            else:
+                new_transition_matrix[0,node_state] += 1
+            for child in node.children:
+                child_state = child.hidden_state
+                new_transition_matrix[node_state,child_state] += 1
+
+        self.transition_matrix = new_transition_matrix
+
+    def recompute_states(self,state_assignments):
+        new_states = []
+        new_state_dict = {}
+        for i,state in enumerate(list(set(state_assignments))):
+            new_states.append(HiddenState(self,[],i))
+            new_state_dict[i] = state
+
+        node_assignments = [[] for new_state in new_states]
+        for i,assignment in state_assignments:
+            node_assignments[new_state_dict[assignment]].push(self.nodes[i])
+
+        for state,nodes in zip(new_states,node_assignments):
+            state.assign_nodes()
+            state.recalculate_local_log_odds()
+
+        self.hidden_states = new_states
 
     def sample_states(self):
 
-        resampled_states = {state: [] for state in self.hidden_states}
+        resampled_states = {state: [] for state in self.hidden_states[1:]}
 
         for i,node in enumerate(self.nodes):
             resampled_states[self.sample_node_state(node)].append(node)
 
         for state,nodes in resampled_states.items():
-            state.reassign_nodes(nodes)
+            state.clear_nodes()
+            index = self.hidden_states.index(state)
+            print(index)
+            print(len(nodes))
+            if len(nodes) < 1:
+                if index > 1:
+                    print("Deleting")
+                    print(index)
+                    self.hidden_states.pop(self.hidden_states.index(state))
 
-    # def sample_node_slice(self):
-    #
-    #     resampled_states = {state: [] for state in self.hidden_states}
-    #
-    #     for i,node in enumerate(self.nodes):
-    #         resampled_states[self.sample_node_state(node)].append(node)
-    #
-    #     for state,nodes in resampled_states.items():
-    #         state.reassign_nodes(nodes)
+        for i,state in enumerate(self.hidden_states):
+            state.index = i
+
+        for state,nodes in resampled_states.items():
+            state.assign_nodes(nodes)
+            state.recalculate_local_log_odds()
+
+        self.recompute_transition_matrix()
+
+
+    def sample_node_slice(self,k):
+
+        resampled_states = {state: [] for state in self.hidden_states}
+
+        resampled_nodes = random.sample(self.nodes,k)
+
+        for i,node in enumerate(resampled_nodes):
+            node_state = self.hidden_states[node.hidden_state]
+            node_state.remove_nodes([node])
+            resampled_states[self.sample_node_state(node)].append(node)
+
+        for state,nodes in resampled_states.items():
+            state.assign_nodes(nodes)
+
+        for state in self.hidden_states:
+            index = self.hidden_states.index(state)
+            print(index)
+            print(len(nodes))
+            if len(state.nodes) < 1:
+                if index > 1:
+                    print("Deleting")
+                    print(index)
+                    self.hidden_states.pop(self.hidden_states.index(state))
+
+
+        for i,state in enumerate(self.hidden_states):
+            state.index = i
+
+        for state in self.hidden_states:
+            state.recalculate_local_log_odds()
+
+        self.recompute_transition_matrix()
 
 
     def sample_node_state(self,node):
-        print("Sampling node state")
+        # print("Sampling node state")
         parent,divergence = self.node_description(node)
         state_log_odds = np.zeros(len(self.hidden_states))
-        print(state_log_odds)
+        # print(state_log_odds)
         for i,state in enumerate(self.hidden_states):
             state_log_odds[i] = state.log_odds(parent,divergence)
         print(state_log_odds)
         state_odds = np.exp2(state_log_odds)
-        print(state_odds)
+        # print(state_odds)
         new_state = random.choices(self.hidden_states,weights=state_odds)[0]
         print(new_state)
         return new_state
@@ -99,13 +179,11 @@ class HiddenState:
 
 
 
-    def __init__(self,model,nodes):
-
-        ihmm.hidden_state_counter += 1
+    def __init__(self,model,nodes,index):
 
         self.ihmm = model
 
-        self.index = self.ihmm.hidden_state_counter
+        self.index = index
 
         self.nodes = nodes
 
@@ -113,6 +191,7 @@ class HiddenState:
 
         self.sample_log_odds = np.zeros(samples)
 
+        self.odds_valid = False
 
     def null(model):
         return NullState(model)
@@ -124,7 +203,11 @@ class HiddenState:
         return expit(self.sample_log_odds)
 
     def log_odds_given_parent(self,parent_state):
-        return 0
+        transitions = self.ihmm.transition_matrix[parent_state]
+        to_self = transitions[self.index]
+        to_other = np.sum(transitions) - to_self
+        log_odds = np.log2(to_self/to_other)
+        return log_odds
 
     def log_odds_given_divergence(self,divergence):
 
@@ -135,9 +218,9 @@ class HiddenState:
 
         return max((ls - rs),(rs -ls))
 
-    def log_odds_given_dp_prior(self):
-        occurrence = len(self.nodes) + self.ihmm.gamma
-        total = self.ihmm.total_nodes + (self.ihmm.gamma * len(self.ihmm.hidden_states - 1)) + self.ihmm.oracle_counter
+    def log_odds_dp_prior(self):
+        occurrence = len(self.nodes) + self.ihmm.gamma_e
+        total = self.ihmm.total_nodes + (self.ihmm.gamma_e * (len(self.ihmm.hidden_states) - 1)) + self.ihmm.oracle_counter
         return np.log2(occurrence / total)
 
     def best_vector(self,divergence):
@@ -159,15 +242,25 @@ class HiddenState:
         log_odds += self.log_odds_dp_prior()
         return log_odds
 
-    def reassign_nodes(self,nodes):
-        self.nodes = nodes
+    def remove_nodes(self,nodes):
+        for node in nodes:
+            ni = self.nodes.index(node)
+            self.nodes.pop(ni)
+        self.odds_valid = False
+
+    def clear_nodes(self):
+        self.nodes = []
+        self.odds_valid = False
+
+    def assign_nodes(self,nodes):
+        self.nodes = self.nodes + nodes
         for node in self.nodes:
             node.hidden_state = self.index
-        self.recalculate_local_log_odds()
+        self.odds_valid = False
 
     def recalculate_local_log_odds(self):
         left = self.ihmm.alpha_e * np.ones(self.sample_log_odds.shape)
-        right = self.ihmm.beta_e * np.ones(self.sample_log_odds.shape)
+        right = (self.ihmm.beta_e + self.ihmm.alpha_e) * np.ones(self.sample_log_odds.shape)
         for node in self.nodes:
             _,divergence = self.ihmm.node_description(node)
             flip = self.best_vector(divergence)
@@ -178,6 +271,7 @@ class HiddenState:
         total = left + right
         new_log_odds = np.log2((left/total)/(right/total))
         self.sample_log_odds = new_log_odds
+        self.odds_valid = True
 
     def node_mask(self):
         node_mask = np.zeros(len(self.ihmm.nodes),dtype=bool)
@@ -186,6 +280,8 @@ class HiddenState:
         return node_mask
 
     def node_odds(self):
+        if not self.odds_valid:
+            self.recalculate_local_log_odds()
         odds = []
         for node in self.nodes:
             odds.append(self.log_odds(*self.ihmm.node_description(node)))
@@ -228,11 +324,13 @@ class OracleState(HiddenState):
         self.sample_log_odds = np.zeros(samples)
 
     def reassign_nodes(self,nodes):
+        self.ihmm.oracle_counter = len(nodes)
         if len(nodes) > 0:
-            self.ihmm.oracle_counter += 1
-        new_state = HiddenState(self.ihmm,nodes,len(self.ihmm.hidden_states))
-        self.ihmm.hidden_states.append(new_state)
+            new_state = HiddenState(self.ihmm,[],len(self.ihmm.hidden_states))
+            new_state.reassign_nodes(nodes)
+            self.ihmm.hidden_states.append(new_state)
 
     def log_odds(self,parent_state,divergence):
-
-        return np.log2(self.ihmm.gamma / self.ihmm.total_nodes + (self.ihmm.gamma * len(self.ihmm.hidden_states)) + self.ihmm.oracle_counter
+        occurrence = self.ihmm.gamma_e + self.ihmm.oracle_counter
+        total = (self.ihmm.gamma_e * len(self.ihmm.hidden_states)) + self.ihmm.oracle_counter + self.ihmm.total_nodes
+        return np.log2(occurrence / total)
