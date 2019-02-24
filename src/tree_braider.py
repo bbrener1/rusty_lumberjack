@@ -7,28 +7,20 @@ from functools import reduce
 from scipy.misc import comb as nCk
 from tree_reader import Node as TreeReaderNode
 
-from scipy.special import logit,expit
+from scipy.special import logit,expit,gamma_f
 
 class IHMM:
-    def __init__(self,forest):
+    def __init__(self,forest,alpha=1,beta=1,gamma=1,alpha_e=.5,beta_e=.5,gamma_e=.5,start_states=20):
 
         self.forest = forest
 
-        self.alpha = 1
-        self.beta = 1
-        self.gamma = 1
+        self.alpha = alpha
+        self.beta = beta
+        self.gamma = gamma
 
-        self.alpha_e = 10
-        self.beta_e = 10
-        self.gamma_e = 10
-
-        self.oracle_counter = 0
-
-        self.transition_model = None
-        self.transition_oracle_model = None
-
-        self.emission_model = None
-        self.emission_oracle_model = None
+        self.alpha_e = alpha_e
+        self.beta_e = beta_e
+        self.gamma_e = gamma_e
 
         self.start_states = 20
 
@@ -37,6 +29,7 @@ class IHMM:
         self.hidden_states.append(HiddenState.oracle(self))
 
         node_states = np.zeros(len(self.forest.nodes()),dtype=int)
+
         for node in self.forest.nodes():
             node.hidden_state = 0
 
@@ -64,9 +57,37 @@ class IHMM:
         self.recompute_states(self.node_states)
         self.recompute_transition_matrix()
 
+    def resample_alpha_beta_prior(self):
+
+        alpha = self.alpha
+        beta = self.beta
+
+        log_scaling_factor = 0
+
+        for state in self.hidden_states:
+            transitions = self.transition_matrix[state.index]
+            non_zero_transitions = np.sum(transitions > 1)
+            first_scale = (np.powi(beta,non_zero_transitions) * gamma_f(alpha + beta)) / gamma_f(alpha)
+            second_scale = gamma_f(transitions[state.index]) / gamma_f(np.sum(transitions))
+            log_scaling_factor += np.log2(first_scale)
+            log_scaling_factor += no.log2(second_scale)
+
+        linear_scaling_factor = np.exp2(log_scaling_factor)
+
+        self.alpha = np.random.gamma(1,1/linear_scaling_factor)
+        self.beta = np.random.gamma(1,1/linear_scaling_factor)
+
+    def resample_gamma_prior(self):
+
+        gamma = self.gamma
+
+        scaling_factor = (np.powi(gamma,len(self.hidden_states)) * gamma_f(gamma)) / gamma(np.sum(self.oracle_indicator))
+
+        self.gamma = np.random.gamma(1,1/scaling_factor)
+
     def recompute_transition_matrix(self):
 
-        new_transition_matrix = self.beta * np.ones((len(self.hidden_states),len(self.hidden_states)))
+        new_transition_matrix = np.ones((len(self.hidden_states),len(self.hidden_states)))
         new_transition_matrix[np.identity(len(self.hidden_states),dtype=bool)] += self.alpha
         new_transition_matrix[:,1] += self.gamma
 
@@ -75,14 +96,40 @@ class IHMM:
             for node in state.nodes:
                 if node.parent is not None:
                     parent_state = node.parent.hidden_state
-                    new_transition_matrix[parent_state,node_state] += 1
+                    new_transition_matrix[node_state,parent_state] += 1
                 else:
-                    new_transition_matrix[0,node_state] += 1
+                    new_transition_matrix[node_state,0] += 1
                 for child in node.children:
                     child_state = child.hidden_state
-                    new_transition_matrix[node_state,child_state] += 1
+                    new_transition_matrix[child_state,node_state] += 1
 
         self.transition_matrix = new_transition_matrix
+
+    def recompute_oracle_indicator(self):
+
+        oracle_transition_log_odds = self.oracle_indicator
+
+        new_oracle_indicator = np.ones(len(self.hidden_states))
+
+        for i,s1 in enumerate(self.hidden_states):
+
+            state_oracle_log_odds = np.log2(self.beta / (np.sum(new_transition_matrix[i])))
+
+            log_odds_oracle_given_state = oracle_transition_log_odds + state_oracle_log_odds
+
+            odds_oracle_given_state = np.exp2(log_odds_oracle_given_state)
+
+            probability_oracle_given_state = odds_to_probability(odds_oracle_given_state)
+
+            for j,s2 in enumerate(self.hidden_states):
+
+                total_transitions = new_transition_matrix[i,j]
+
+                new_oracle_indicator[i] += np.random.binomial(total_transitions,probability_oracle_given_state[j])
+
+        self.oracle_indicator = new_oracle_indicator
+
+        pass
 
     def recompute_states(self,state_assignments):
 
@@ -153,6 +200,12 @@ class IHMM:
 
         self.recompute_transition_matrix()
 
+        self.recompute_oracle_indicator()
+
+        self.resample_alpha_beta_prior()
+
+        self.resample_gamma_prior()
+
 
     def sample_node_slice(self,k):
 
@@ -167,14 +220,19 @@ class IHMM:
 
         self.recompute_transition_matrix()
 
+        self.recompute_oracle_indicator()
+
+        self.resample_alpha_beta_prior()
+
+        self.resample_gamma_prior()
 
     def sample_node_state(self,node):
         # print("Sampling node state")
-        parent,divergence = self.node_description(node)
+        parent,children,divergence = self.node_description(node)
         state_log_odds = np.zeros(len(self.hidden_states))
         # print(state_log_odds)
         for i,state in enumerate(self.hidden_states):
-            state_log_odds[i] = state.log_odds(parent,divergence)
+            state_log_odds[i] = state.log_odds(parent,children,divergence)
         # print(state_log_odds)
         state_odds = np.exp2(state_log_odds)
         # print(state_odds)
@@ -187,8 +245,11 @@ class IHMM:
         parent = 0
         if node.parent is not None:
             parent = node.parent.hidden_state
+        child_states = [0,0]
+        for i,child in enumerate(node.children):
+            child_states[i] = child.hidden_state
         divergence = (self.divergence_masks[node.index,:,0],self.divergence_masks[node.index,:,1])
-        return parent,divergence
+        return parent,child_states,divergence
 
 
 class HiddenState:
@@ -219,7 +280,15 @@ class HiddenState:
         return expit(self.sample_log_odds)
 
     def log_odds_given_parent(self,parent_state):
-        transitions = self.ihmm.transition_matrix[parent_state]
+        # transitions = self.ihmm.parent_transition_matrix[parent_state]
+        # to_self = transitions[self.index]
+        # to_other = np.sum(transitions) - to_self
+        # log_odds = np.log2(to_self/to_other)
+        # return log_odds
+        return 0
+
+    def log_odds_given_child(self,child_state):
+        transitions = self.ihmm.transition_matrix[child_state]
         to_self = transitions[self.index]
         to_other = np.sum(transitions) - to_self
         log_odds = np.log2(to_self/to_other)
@@ -236,8 +305,9 @@ class HiddenState:
 
     def log_odds_dp_prior(self):
         occurrence = len(self.nodes) + self.ihmm.gamma_e
-        total = self.ihmm.total_nodes + (self.ihmm.gamma_e * (len(self.ihmm.hidden_states) - 1)) + self.ihmm.oracle_counter
+        total = self.ihmm.total_nodes - len(self.nodes) + (self.ihmm.gamma_e * (len(self.ihmm.hidden_states) - 1)) + self.ihmm.oracle_counter
         return np.log2(occurrence / total)
+        # return 0
 
     def best_vector(self,divergence):
 
@@ -251,9 +321,11 @@ class HiddenState:
         else:
             return 1
 
-    def log_odds(self,parent_state,divergence):
+    def log_odds(self,parent_state,children,divergence):
         log_odds = 0
         log_odds += self.log_odds_given_parent(parent_state)
+        for child in children:
+            log_odds += self.log_odds_given_child(child)
         log_odds += self.log_odds_given_divergence(divergence)
         log_odds += self.log_odds_dp_prior()
         return log_odds
@@ -279,7 +351,7 @@ class HiddenState:
         left = self.ihmm.alpha_e * np.ones(self.sample_log_odds.shape)
         right = (self.ihmm.beta_e + self.ihmm.alpha_e) * np.ones(self.sample_log_odds.shape)
         for node in self.nodes:
-            _,divergence = self.ihmm.node_description(node)
+            _,_,divergence = self.ihmm.node_description(node)
             flip = self.best_vector(divergence)
             if flip:
                 divergence = [divergence[1],divergence[0]]
@@ -322,7 +394,7 @@ class NullState(HiddenState):
         if len(nodes) > 0:
             raise Exception("Assigned null state to a node!")
 
-    def log_odds(self,parent_state,divergence):
+    def log_odds(self,parent_state,children,divergence):
 
         return float('-inf')
 
@@ -346,9 +418,25 @@ class OracleState(HiddenState):
             node.hidden_state = self.index
             self.ihmm.node_states[node.index] = self.index
 
-        self.ihmm.oracle_counter = len(nodes)
-
-    def log_odds(self,parent_state,divergence):
-        occurrence = self.ihmm.gamma_e + self.ihmm.oracle_counter
-        total = (self.ihmm.gamma_e * len(self.ihmm.hidden_states)) + self.ihmm.oracle_counter + self.ihmm.total_nodes
+    def log_odds(self,parent_state,children,divergence):
+        occurrence = self.ihmm.gamma
+        total = self.ihmm.total_transitions + self.ihmm.gamma
         return np.log2(occurrence / total)
+
+
+
+def draw_beta_binomial(n,a,b):
+    beta_draw = np.random.beta()
+    binomial_draw = np.random.binomial(n,beta_draw)
+    return binomial_draw
+
+
+def odds_to_log_odds(odds):
+    sum = np.sum(odds)
+    counter_odds = sum - odds
+    return np.log2(odds/counter_odds)
+
+def odds_to_probability(odds):
+    sum = np.sum(odds)
+    return odds/sum
+##
