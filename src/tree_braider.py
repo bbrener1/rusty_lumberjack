@@ -7,7 +7,8 @@ from functools import reduce
 from scipy.misc import comb as nCk
 from tree_reader import Node as TreeReaderNode
 
-from scipy.special import logit,expit,gamma_f
+from scipy.special import logit,expit
+from scipy.special import gamma as gamma_f
 
 class IHMM:
     def __init__(self,forest,alpha=1,beta=1,gamma=1,alpha_e=.5,beta_e=.5,gamma_e=.5,start_states=20):
@@ -44,6 +45,7 @@ class IHMM:
 
         self.divergence_masks = np.zeros((self.total_nodes,self.total_samples,2),dtype=bool)
         self.node_states = node_states
+        self.oracle_indicator = np.ones(start_states+2)
 
         for node in self.nodes:
             # node.hidden_state = 1
@@ -67,12 +69,20 @@ class IHMM:
         for state in self.hidden_states:
             transitions = self.transition_matrix[state.index]
             non_zero_transitions = np.sum(transitions > 1)
-            first_scale = (np.powi(beta,non_zero_transitions) * gamma_f(alpha + beta)) / gamma_f(alpha)
-            second_scale = gamma_f(transitions[state.index]) / gamma_f(np.sum(transitions))
-            log_scaling_factor += np.log2(first_scale)
-            log_scaling_factor += no.log2(second_scale)
+
+            first_log_scaling_factor = non_zero_transitions * np.log2(beta)
+
+            stirling_numerator = stirling_falling_factorial(alpha + beta, alpha)
+            stirling_denomenator = stirling_falling_factorial(np.sum(transitions),transitions[state.index])
+
+            log_scaling_factor += first_log_scaling_factor
+            log_scaling_factor += stirling_numerator
+            log_scaling_factor -= stirling_numerator
 
         linear_scaling_factor = np.exp2(log_scaling_factor)
+
+        print("Recomputed a/b scale")
+        print(linear_scaling_factor)
 
         self.alpha = np.random.gamma(1,1/linear_scaling_factor)
         self.beta = np.random.gamma(1,1/linear_scaling_factor)
@@ -81,7 +91,15 @@ class IHMM:
 
         gamma = self.gamma
 
-        scaling_factor = (np.powi(gamma,len(self.hidden_states)) * gamma_f(gamma)) / gamma(np.sum(self.oracle_indicator))
+        log_numerator = len(self.hidden_state) * np.log2(gamma)
+        stirling_denomenator = stirling_falling_factorial(np.sum(self.oracle_indicator) + gamma, gamma)
+
+        log_scaling_factor = log_numerator - stirling_denomenator
+
+        scaling_factor = np.exp2(log_scaling_factor)
+
+        print("Recomputed g scale")
+        print(scaling_factor)
 
         self.gamma = np.random.gamma(1,1/scaling_factor)
 
@@ -104,6 +122,7 @@ class IHMM:
                     new_transition_matrix[child_state,node_state] += 1
 
         self.transition_matrix = new_transition_matrix
+        self.total_transitions = np.sum(new_transition_matrix)
 
     def recompute_oracle_indicator(self):
 
@@ -113,7 +132,7 @@ class IHMM:
 
         for i,s1 in enumerate(self.hidden_states):
 
-            state_oracle_log_odds = np.log2(self.beta / (np.sum(new_transition_matrix[i])))
+            state_oracle_log_odds = np.log2(self.beta / (np.sum(self.transition_matrix[i])))
 
             log_odds_oracle_given_state = oracle_transition_log_odds + state_oracle_log_odds
 
@@ -123,7 +142,7 @@ class IHMM:
 
             for j,s2 in enumerate(self.hidden_states):
 
-                total_transitions = new_transition_matrix[i,j]
+                total_transitions = self.transition_matrix[i,j]
 
                 new_oracle_indicator[i] += np.random.binomial(total_transitions,probability_oracle_given_state[j])
 
@@ -303,12 +322,6 @@ class HiddenState:
 
         return max((ls - rs),(rs -ls))
 
-    def log_odds_dp_prior(self):
-        occurrence = len(self.nodes) + self.ihmm.gamma_e
-        total = self.ihmm.total_nodes - len(self.nodes) + (self.ihmm.gamma_e * (len(self.ihmm.hidden_states) - 1)) + self.ihmm.oracle_counter
-        return np.log2(occurrence / total)
-        # return 0
-
     def best_vector(self,divergence):
 
         dl,dr = divergence
@@ -327,7 +340,6 @@ class HiddenState:
         for child in children:
             log_odds += self.log_odds_given_child(child)
         log_odds += self.log_odds_given_divergence(divergence)
-        log_odds += self.log_odds_dp_prior()
         return log_odds
 
     def remove_nodes(self,nodes):
@@ -440,3 +452,8 @@ def odds_to_probability(odds):
     sum = np.sum(odds)
     return odds/sum
 ##
+
+def stirling_falling_factorial(a,b):
+    sequence = np.arange(a,b)
+    log_sequence = np.log2(sequence)
+    return np.sum(log_sequence)
