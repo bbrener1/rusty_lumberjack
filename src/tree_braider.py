@@ -58,50 +58,124 @@ class IHMM:
 
         self.recompute_states(self.node_states)
         self.recompute_transition_matrix()
+        self.recompute_oracle_indicator()
+        self.establish_alpha_beta_prior()
+        self.resample_gamma_prior()
+
+    def establish_alpha_beta_prior(self):
+
+        # self_transition = self.transition_matrix[np.identity(self.transition_matrix.shape[0],dtype=bool)]
+        # self.alpha = np.mean(self_transition)
+
+        self.beta = np.mean(self.transition_matrix)
+
+    # def resample_alpha_beta_prior(self):
+    #
+    #     alpha = self.alpha
+    #     beta = self.beta
+    #
+    #     log_scaling_factor = 0
+    #
+    #     for state in self.hidden_states:
+    #         transitions = self.transition_matrix[state.index]
+    #         non_zero_transitions = np.sum(transitions > 1)
+    #
+    #         first_log_scaling_factor = non_zero_transitions * np.log2(beta)
+    #
+    #         stirling_numerator = stirling_falling_factorial(alpha + beta, alpha)
+    #         stirling_denomenator = stirling_falling_factorial(np.sum(transitions),transitions[state.index])
+    #
+    #         log_scaling_factor += first_log_scaling_factor
+    #         log_scaling_factor += stirling_numerator
+    #         log_scaling_factor -= stirling_denomenator
+    #
+    #     linear_scaling_factor = np.exp2(log_scaling_factor)
+    #
+    #     print("Log a/b scaling_factor")
+    #     print(log_scaling_factor)
+    #
+    #     print("Recomputed a/b scale")
+    #     print(linear_scaling_factor)
+    #
+    #     self.alpha = np.random.gamma(1,1/linear_scaling_factor)
+    #     self.beta = np.random.gamma(1,1/linear_scaling_factor)
+
+    # def resample_alpha_beta_prior(self):
+    #
+    #     alpha = self.alpha
+    #     beta = self.beta
+    #
+    #     log_scaling_factor = 0
+    #
+    #     for state in self.hidden_states:
+    #         transitions = self.transition_matrix[state.index]
+    #         non_zero_transitions = np.sum(transitions > 1)
+    #
+    #         first_log_scaling_factor = non_zero_transitions * np.log2(beta)
+    #
+    #         stirling_numerator = stirling_gamma(alpha + beta) + stirling_gamma(transitions[state.index])
+    #
+    #         stirling_denomenator = stirling_gamma(np.sum(transitions)) + stirling_gamma(alpha)
+    #
+    #         log_scaling_factor += first_log_scaling_factor
+    #         log_scaling_factor += stirling_numerator
+    #         log_scaling_factor -= stirling_denomenator
+    #
+    #     linear_scaling_factor = np.exp2(log_scaling_factor)
+    #
+    #     print("Log a/b scaling_factor")
+    #     print(log_scaling_factor)
+    #
+    #     print("Recomputed a/b scale")
+    #     print(linear_scaling_factor)
+    #
+    #     self.alpha = np.random.gamma(1,1/linear_scaling_factor)
+    #     self.beta = np.random.gamma(1,1/linear_scaling_factor)
 
     def resample_alpha_beta_prior(self):
 
-        alpha = self.alpha
+        # alpha = self.alpha
         beta = self.beta
 
-        log_scaling_factor = 0
+        # self_transition = self.transition_matrix[np.identity(self.transition_matrix.shape[0],dtype=bool)]
+        # alpha_scale = np.mean(self_transition)
 
-        for state in self.hidden_states:
-            transitions = self.transition_matrix[state.index]
-            non_zero_transitions = np.sum(transitions > 1)
-
-            first_log_scaling_factor = non_zero_transitions * np.log2(beta)
-
-            stirling_numerator = stirling_falling_factorial(alpha + beta, alpha)
-            stirling_denomenator = stirling_falling_factorial(np.sum(transitions),transitions[state.index])
-
-            log_scaling_factor += first_log_scaling_factor
-            log_scaling_factor += stirling_numerator
-            log_scaling_factor -= stirling_numerator
-
-        linear_scaling_factor = np.exp2(log_scaling_factor)
+        beta_scale = np.sum(self.oracle_indicator) / len(self.oracle_indicator)
 
         print("Recomputed a/b scale")
-        print(linear_scaling_factor)
+        # print(alpha_scale)
+        print(beta_scale)
 
-        self.alpha = np.random.gamma(1,1/linear_scaling_factor)
-        self.beta = np.random.gamma(1,1/linear_scaling_factor)
+        # self.alpha = np.random.gamma(1,alpha_scale)
+        self.beta = np.random.gamma(1,beta_scale)
+
+
+    # def resample_gamma_prior(self):
+    #
+    #     gamma = self.gamma
+    #
+    #     log_numerator = len(self.hidden_states) * np.log2(gamma)
+    #     stirling_denomenator = stirling_falling_factorial(np.sum(self.oracle_indicator) + gamma, gamma)
+    #
+    #     log_scaling_factor = log_numerator - stirling_denomenator
+    #
+    #     print("Log g scaling_factor")
+    #     print(log_scaling_factor)
+    #
+    #     scaling_factor = np.exp2(log_scaling_factor)
+    #
+    #     print("Recomputed g scale")
+    #     print(scaling_factor)
+    #
+    #     self.gamma = np.random.gamma(1,1/scaling_factor)
 
     def resample_gamma_prior(self):
 
         gamma = self.gamma
 
-        log_numerator = len(self.hidden_state) * np.log2(gamma)
-        stirling_denomenator = stirling_falling_factorial(np.sum(self.oracle_indicator) + gamma, gamma)
+        oracle_total = np.sum(self.oracle_indicator)
 
-        log_scaling_factor = log_numerator - stirling_denomenator
-
-        scaling_factor = np.exp2(log_scaling_factor)
-
-        print("Recomputed g scale")
-        print(scaling_factor)
-
-        self.gamma = np.random.gamma(1,1/scaling_factor)
+        self.gamma = np.random.gamma(1,oracle_total / len(self.hidden_states))
 
     def recompute_transition_matrix(self):
 
@@ -123,6 +197,9 @@ class IHMM:
 
         self.transition_matrix = new_transition_matrix
         self.total_transitions = np.sum(new_transition_matrix)
+
+        # print("Recomputed Transition Matrix")
+        # print(self.transition_matrix)
 
     def recompute_oracle_indicator(self):
 
@@ -152,10 +229,10 @@ class IHMM:
 
     def recompute_states(self,state_assignments):
 
-        print("All assignments")
-        print(state_assignments)
-        print("set")
-        print(sorted(list(set(state_assignments))))
+        # print("All assignments")
+        # print(state_assignments)
+        # print("set")
+        # print(sorted(list(set(state_assignments))))
 
         new_states = self.hidden_states[:2]
         new_state_map = [0,1]
@@ -172,10 +249,10 @@ class IHMM:
 
         new_states = new_states + [HiddenState(self,[],i + 2) for i in range(len(new_state_map[2:]))]
 
-        print(len(new_state_reverse_map))
-
-        print("BLANK HIDDEN STATES")
-        print([ns.index for ns in new_states])
+        # print(len(new_state_reverse_map))
+        #
+        # print("BLANK HIDDEN STATES")
+        # print([ns.index for ns in new_states])
 
         node_assignments = [[] for new_state in new_states]
 
@@ -196,16 +273,16 @@ class IHMM:
         for state in new_states:
             state.recalculate_local_log_odds()
 
-        print("HIDDEN STATES REASSIGNED 2")
-        print([ns.index for ns in new_states])
+        # print("HIDDEN STATES REASSIGNED 2")
+        # print([ns.index for ns in new_states])
 
         self.hidden_states = new_states
 
-        print("HIDDEN STATES MEMORIZED")
-        print([hs.index for hs in self.hidden_states])
-
-        print("All nodes")
-        print([n.hidden_state for n in self.nodes])
+        # print("HIDDEN STATES MEMORIZED")
+        # print([hs.index for hs in self.hidden_states])
+        #
+        # print("All nodes")
+        # print([n.hidden_state for n in self.nodes])
 
 
     def sample_states(self):
@@ -455,5 +532,10 @@ def odds_to_probability(odds):
 
 def stirling_falling_factorial(a,b):
     sequence = np.arange(a,b)
+    log_sequence = np.log2(sequence)
+    return np.sum(log_sequence)
+
+def stirling_gamma(a):
+    sequence = np.arange(1,a)
     log_sequence = np.log2(sequence)
     return np.sum(log_sequence)
