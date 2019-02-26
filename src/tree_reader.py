@@ -1387,6 +1387,14 @@ class Forest:
         ax.set_yticklabels(prereq_features[:50])
         # ax.grid(axis='y')
 
+    def node_feature_summary(self,nodes):
+
+        feature_counts = count_list_elements([n.feature for n in nodes])
+
+        feature_counts = list(feature_counts)
+
+        return sorted(feature_counts,key=lambda x: x[1])[::-1]
+
     def find_node_cluster_divergence(self,c1,c2):
         c1_index = [c.id for c in self.leaf_clusters].index(c1)
         c1_leaves = self.leaf_clusters[c1_index].nodes
@@ -2079,3 +2087,11 @@ def consolidate_entries(keys,dictionaries):
 
 def empty_list_dictionary(keys):
     return {key:[] for key in keys}
+
+def count_list_elements(elements):
+    dict = {}
+    for element in elements:
+        if element not in dict:
+            dict[element] = 0
+        dict[element] += 1
+    return dict

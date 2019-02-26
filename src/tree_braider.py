@@ -59,129 +59,49 @@ class IHMM:
         self.recompute_states(self.node_states)
         self.recompute_transition_matrix()
         self.recompute_oracle_indicator()
-        self.establish_alpha_beta_prior()
+        self.resample_alpha_beta_prior()
         self.resample_gamma_prior()
-
-    def establish_alpha_beta_prior(self):
-
-        # self_transition = self.transition_matrix[np.identity(self.transition_matrix.shape[0],dtype=bool)]
-        # self.alpha = np.mean(self_transition)
-
-        self.beta = np.mean(self.transition_matrix)
-
-    # def resample_alpha_beta_prior(self):
-    #
-    #     alpha = self.alpha
-    #     beta = self.beta
-    #
-    #     log_scaling_factor = 0
-    #
-    #     for state in self.hidden_states:
-    #         transitions = self.transition_matrix[state.index]
-    #         non_zero_transitions = np.sum(transitions > 1)
-    #
-    #         first_log_scaling_factor = non_zero_transitions * np.log2(beta)
-    #
-    #         stirling_numerator = stirling_falling_factorial(alpha + beta, alpha)
-    #         stirling_denomenator = stirling_falling_factorial(np.sum(transitions),transitions[state.index])
-    #
-    #         log_scaling_factor += first_log_scaling_factor
-    #         log_scaling_factor += stirling_numerator
-    #         log_scaling_factor -= stirling_denomenator
-    #
-    #     linear_scaling_factor = np.exp2(log_scaling_factor)
-    #
-    #     print("Log a/b scaling_factor")
-    #     print(log_scaling_factor)
-    #
-    #     print("Recomputed a/b scale")
-    #     print(linear_scaling_factor)
-    #
-    #     self.alpha = np.random.gamma(1,1/linear_scaling_factor)
-    #     self.beta = np.random.gamma(1,1/linear_scaling_factor)
-
-    # def resample_alpha_beta_prior(self):
-    #
-    #     alpha = self.alpha
-    #     beta = self.beta
-    #
-    #     log_scaling_factor = 0
-    #
-    #     for state in self.hidden_states:
-    #         transitions = self.transition_matrix[state.index]
-    #         non_zero_transitions = np.sum(transitions > 1)
-    #
-    #         first_log_scaling_factor = non_zero_transitions * np.log2(beta)
-    #
-    #         stirling_numerator = stirling_gamma(alpha + beta) + stirling_gamma(transitions[state.index])
-    #
-    #         stirling_denomenator = stirling_gamma(np.sum(transitions)) + stirling_gamma(alpha)
-    #
-    #         log_scaling_factor += first_log_scaling_factor
-    #         log_scaling_factor += stirling_numerator
-    #         log_scaling_factor -= stirling_denomenator
-    #
-    #     linear_scaling_factor = np.exp2(log_scaling_factor)
-    #
-    #     print("Log a/b scaling_factor")
-    #     print(log_scaling_factor)
-    #
-    #     print("Recomputed a/b scale")
-    #     print(linear_scaling_factor)
-    #
-    #     self.alpha = np.random.gamma(1,1/linear_scaling_factor)
-    #     self.beta = np.random.gamma(1,1/linear_scaling_factor)
+        self.recompute_transition_odds()
 
     def resample_alpha_beta_prior(self):
 
-        # alpha = self.alpha
-        beta = self.beta
+        k = len(self.hidden_states)
 
-        # self_transition = self.transition_matrix[np.identity(self.transition_matrix.shape[0],dtype=bool)]
-        # alpha_scale = np.mean(self_transition)
+        sums = np.sum(self.transition_matrix,axis=1)
 
-        beta_scale = np.sum(self.oracle_indicator) / len(self.oracle_indicator)
+        log_sequence = np.log2(np.arange(1,np.max(sums)))
 
-        print("Recomputed a/b scale")
-        # print(alpha_scale)
-        print(beta_scale)
+        likelihood_sequence = np.zeros(log_sequence.shape)
 
-        # self.alpha = np.random.gamma(1,alpha_scale)
-        self.beta = np.random.gamma(1,beta_scale)
+        for i,state in enumerate(self.hidden_states):
+            transitions = self.transition_matrix[i]
+            total = int(np.sum(transitions))
+            non_zero = int(np.sum(transitions > 1))
+            l2ls = np.vectorize(lambda b: non_zero * log_sequence[b] - np.sum(log_sequence[b:total]))
+            likelihood_sequence += l2ls(np.arange(log_sequence.shape[0],dtype=int))
 
+        self.beta = np.argmax(likelihood_sequence)+1
 
-    # def resample_gamma_prior(self):
-    #
-    #     gamma = self.gamma
-    #
-    #     log_numerator = len(self.hidden_states) * np.log2(gamma)
-    #     stirling_denomenator = stirling_falling_factorial(np.sum(self.oracle_indicator) + gamma, gamma)
-    #
-    #     log_scaling_factor = log_numerator - stirling_denomenator
-    #
-    #     print("Log g scaling_factor")
-    #     print(log_scaling_factor)
-    #
-    #     scaling_factor = np.exp2(log_scaling_factor)
-    #
-    #     print("Recomputed g scale")
-    #     print(scaling_factor)
-    #
-    #     self.gamma = np.random.gamma(1,1/scaling_factor)
 
     def resample_gamma_prior(self):
 
-        gamma = self.gamma
+        oracle_total = int(np.sum(self.oracle_indicator))
 
-        oracle_total = np.sum(self.oracle_indicator)
+        log_sequence = np.log2(np.arange(oracle_total,oracle_total*2))
 
-        self.gamma = np.random.gamma(1,oracle_total / len(self.hidden_states))
+        k = len(self.hidden_states)
+
+        l2l = np.vectorize(lambda g: k * np.log2(g) - np.sum(log_sequence[g:oracle_total+g]))
+
+        likelihood_sequence = l2l(np.arange(1,log_sequence.shape[0],dtype=int))
+
+        self.gamma = np.argmax(likelihood_sequence)+1
+
+        pass
 
     def recompute_transition_matrix(self):
 
         new_transition_matrix = np.ones((len(self.hidden_states),len(self.hidden_states)))
-        new_transition_matrix[np.identity(len(self.hidden_states),dtype=bool)] += self.alpha
-        new_transition_matrix[:,1] += self.gamma
 
         for i,state in enumerate(self.hidden_states):
             node_state = i
@@ -203,7 +123,7 @@ class IHMM:
 
     def recompute_oracle_indicator(self):
 
-        oracle_transition_log_odds = self.oracle_indicator
+        oracle_transition_log_odds = odds_to_log_odds(self.oracle_indicator)
 
         new_oracle_indicator = np.ones(len(self.hidden_states))
 
@@ -223,9 +143,32 @@ class IHMM:
 
                 new_oracle_indicator[i] += np.random.binomial(total_transitions,probability_oracle_given_state[j])
 
+        new_oracle_indicator[1] = self.gamma
+
         self.oracle_indicator = new_oracle_indicator
 
         pass
+
+    def recompute_transition_odds(self):
+
+        transition_odds = np.zeros(self.transition_matrix.shape)
+
+        oracle_state_log_odds = odds_to_log_odds(self.oracle_indicator)
+
+        for i,state in enumerate(self.hidden_states):
+
+            transitions = self.transition_matrix[i]
+
+            direct_log_odds = odds_to_log_odds(direct_odds)
+
+            transition_odds[i] += direct_log_odds
+
+            oracle_log_odds = self.ihmm.beta / np.sum(transitions)
+
+            transition_odds += (oracle_state_log_odds - oracle_log_odds)
+
+        self.transition_odds = transition_odds
+
 
     def recompute_states(self,state_assignments):
 
@@ -251,8 +194,8 @@ class IHMM:
 
         # print(len(new_state_reverse_map))
         #
-        # print("BLANK HIDDEN STATES")
-        # print([ns.index for ns in new_states])
+        print("BLANK HIDDEN STATES")
+        print([ns.index for ns in new_states])
 
         node_assignments = [[] for new_state in new_states]
 
@@ -273,10 +216,18 @@ class IHMM:
         for state in new_states:
             state.recalculate_local_log_odds()
 
-        # print("HIDDEN STATES REASSIGNED 2")
-        # print([ns.index for ns in new_states])
+        print("HIDDEN STATES REASSIGNED 2")
+        print([ns.index for ns in new_states])
+        print([len(ns.nodes) for ns in new_states])
 
         self.hidden_states = new_states
+
+        new_oracle_indicator = np.ones(len(self.hidden_states))
+
+        for state,i in new_state_reverse_map.items():
+            new_oracle_indicator[i] = self.oracle_indicator[state]
+
+        self.oracle_indicator = new_oracle_indicator
 
         # print("HIDDEN STATES MEMORIZED")
         # print([hs.index for hs in self.hidden_states])
@@ -302,6 +253,8 @@ class IHMM:
 
         self.resample_gamma_prior()
 
+        self.recompute_transition_odds()
+
 
     def sample_node_slice(self,k):
 
@@ -321,6 +274,8 @@ class IHMM:
         self.resample_alpha_beta_prior()
 
         self.resample_gamma_prior()
+
+        self.recompute_transition_odds()
 
     def sample_node_state(self,node):
         # print("Sampling node state")
@@ -372,6 +327,7 @@ class HiddenState:
     def oracle(model):
         return OracleState(model)
 
+
     def lr_finite(self):
         return expit(self.sample_log_odds)
 
@@ -383,12 +339,16 @@ class HiddenState:
         # return log_odds
         return 0
 
+    # def log_odds_given_child(self,child_state):
+    #     transitions = self.ihmm.transition_matrix[child_state]
+    #     to_self = transitions[self.index]
+    #     to_other = np.sum(transitions) - to_self
+    #     log_odds = np.log2(to_self/to_other)
+    #     return log_odds
+
     def log_odds_given_child(self,child_state):
-        transitions = self.ihmm.transition_matrix[child_state]
-        to_self = transitions[self.index]
-        to_other = np.sum(transitions) - to_self
-        log_odds = np.log2(to_self/to_other)
-        return log_odds
+
+        return self.ihmm.transition_odds[child_state,self.index]
 
     def log_odds_given_divergence(self,divergence):
 
@@ -507,10 +467,20 @@ class OracleState(HiddenState):
             node.hidden_state = self.index
             self.ihmm.node_states[node.index] = self.index
 
+    def log_odds_given_child(self,child_state):
+        transitions = self.ihmm.transition_matrix[child_state]
+        total = np.sum(transitions)
+        log_odds_oracle = np.log2(self.ihmm.beta / (1 + total - self.ihmm.beta))
+
+        log_odds_given_oracle = np.log2(self.ihmm.gamma / np.sum(self.ihmm.oracle_indicator))
+
+        return log_odds_oracle + log_odds_given_oracle
+
     def log_odds(self,parent_state,children,divergence):
-        occurrence = self.ihmm.gamma
-        total = self.ihmm.total_transitions + self.ihmm.gamma
-        return np.log2(occurrence / total)
+        log_odds = 0
+        for child in children:
+            log_odds += self.log_odds_given_child(child)
+        return log_odds
 
 
 
@@ -531,7 +501,7 @@ def odds_to_probability(odds):
 ##
 
 def stirling_falling_factorial(a,b):
-    sequence = np.arange(a,b)
+    sequence = np.arange(min(a,b),max(a,b))
     log_sequence = np.log2(sequence)
     return np.sum(log_sequence)
 
