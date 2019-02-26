@@ -85,7 +85,7 @@ class IHMM:
 
     def resample_gamma_prior(self):
 
-        oracle_total = int(np.sum(self.oracle_indicator))
+        oracle_total = int(np.sum(self.oracle_indicator) - self.gamma)
 
         log_sequence = np.log2(np.arange(oracle_total,oracle_total*2))
 
@@ -123,7 +123,11 @@ class IHMM:
 
     def recompute_oracle_indicator(self):
 
-        oracle_transition_log_odds = odds_to_log_odds(self.oracle_indicator)
+        oracle_indicator = self.oracle_indicator
+
+        # oracle_indicator[1] = 1
+
+        oracle_transition_log_odds = odds_to_log_odds(oracle_indicator)
 
         new_oracle_indicator = np.ones(len(self.hidden_states))
 
@@ -151,7 +155,7 @@ class IHMM:
 
     def recompute_transition_odds(self):
 
-        transition_odds = np.zeros(self.transition_matrix.shape)
+        transition_log_odds = np.zeros(self.transition_matrix.shape)
 
         oracle_state_log_odds = odds_to_log_odds(self.oracle_indicator)
 
@@ -159,15 +163,15 @@ class IHMM:
 
             transitions = self.transition_matrix[i]
 
-            direct_log_odds = odds_to_log_odds(direct_odds)
+            direct_log_odds = odds_to_log_odds(transitions)
 
-            transition_odds[i] += direct_log_odds
+            transition_log_odds[i] += direct_log_odds
 
-            oracle_log_odds = self.ihmm.beta / np.sum(transitions)
+            oracle_log_odds = self.beta / np.sum(transitions)
 
-            transition_odds += (oracle_state_log_odds - oracle_log_odds)
+            transition_log_odds[i] += (oracle_state_log_odds - oracle_log_odds)
 
-        self.transition_odds = transition_odds
+        self.transition_odds = transition_log_odds
 
 
     def recompute_states(self,state_assignments):
@@ -470,7 +474,11 @@ class OracleState(HiddenState):
     def log_odds_given_child(self,child_state):
         transitions = self.ihmm.transition_matrix[child_state]
         total = np.sum(transitions)
-        log_odds_oracle = np.log2(self.ihmm.beta / (1 + total - self.ihmm.beta))
+        # print("Oracle Debug")
+        # print(transitions)
+        # print(total)
+
+        log_odds_oracle = np.log2(self.ihmm.beta / (1 + total + self.ihmm.alpha))
 
         log_odds_given_oracle = np.log2(self.ihmm.gamma / np.sum(self.ihmm.oracle_indicator))
 
