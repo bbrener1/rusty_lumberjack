@@ -10,6 +10,8 @@ from tree_reader import Node as TreeReaderNode
 from scipy.special import logit,expit
 from scipy.special import gamma as gamma_f
 
+import multiprocessing as mp
+
 class IHMM:
     def __init__(self,forest,alpha=1,beta=1,gamma=1,alpha_e=.5,beta_e=.5,gamma_e=.5,start_states=20):
 
@@ -37,7 +39,7 @@ class IHMM:
         self.nodes = forest.roots() + forest.stems()
 
         for node in self.nodes:
-            node.hidden_state = random.randint(1,self.start_states)
+            node.hidden_state = random.randint(1,start_states)
             node_states[node.index] = node.hidden_state
 
         self.total_samples = len(forest.samples)
@@ -46,6 +48,7 @@ class IHMM:
         self.divergence_masks = np.zeros((self.total_nodes,self.total_samples,2),dtype=bool)
         self.node_states = node_states
         self.oracle_indicator = np.ones(start_states+2)
+
 
         for node in self.nodes:
             # node.hidden_state = 1
@@ -69,31 +72,36 @@ class IHMM:
 
         sums = np.sum(self.transition_matrix,axis=1)
 
-        log_sequence = np.log2(np.arange(1,np.max(sums)))
+        max_sum = int(np.max(sums))
 
-        likelihood_sequence = np.zeros(log_sequence.shape)
+        log_sequence = np.log2(np.arange(1,max_sum*2))
+
+        likelihood_sequence = np.zeros(max_sum)
 
         for i,state in enumerate(self.hidden_states):
             transitions = self.transition_matrix[i]
             total = int(np.sum(transitions))
             non_zero = int(np.sum(transitions > 1))
-            l2ls = np.vectorize(lambda b: non_zero * log_sequence[b] - np.sum(log_sequence[b:total]))
-            likelihood_sequence += l2ls(np.arange(log_sequence.shape[0],dtype=int))
+            l2ls = lambda b: (non_zero * log_sequence[b] - np.sum(log_sequence[b:total+b]))
+            likelihood_sequence += np.array([l2ls(b) for b in range(max_sum)])
 
         self.beta = np.argmax(likelihood_sequence)+1
 
+        print("Beta resampled")
+        print(self.beta)
+        print(len(likelihood_sequence))
 
     def resample_gamma_prior(self):
 
         oracle_total = int(np.sum(self.oracle_indicator) - self.gamma)
 
-        log_sequence = np.log2(np.arange(oracle_total,oracle_total*2))
+        log_sequence = np.log2(np.arange(1,oracle_total*2))
 
         k = len(self.hidden_states)
 
-        l2l = np.vectorize(lambda g: k * np.log2(g) - np.sum(log_sequence[g:oracle_total+g]))
+        l2l = lambda g: (k * np.log2(g) - np.sum(log_sequence[g:oracle_total+g]))
 
-        likelihood_sequence = l2l(np.arange(1,log_sequence.shape[0],dtype=int))
+        likelihood_sequence = np.array([l2l(g) for g in range(oracle_total)])
 
         self.gamma = np.argmax(likelihood_sequence)+1
 
@@ -281,6 +289,19 @@ class IHMM:
 
         self.recompute_transition_odds()
 
+    def sample_states_parallel(self):
+
+        resampled_states = None
+
+        with mp.Pool() as p:
+            node_descriptions = [(i,*self.node_description(n)) for i,n in enumerate(self.nodes)]
+            resampled_results = p.map_async(self.sample_node_state_discrete,node_descriptions)
+
+        resampled_states = np.array(resampled_results.get())
+
+        return resampled_states
+
+
     def sample_node_state(self,node):
         # print("Sampling node state")
         parent,children,divergence = self.node_description(node)
@@ -306,6 +327,37 @@ class IHMM:
         divergence = (self.divergence_masks[node.index,:,0],self.divergence_masks[node.index,:,1])
         return parent,child_states,divergence
 
+    def gather_sample_log_odds(self):
+
+        sample_log_odds = np.zeros((len(self.hidden_states),self.total_samples))
+
+        for i,state in enumerate(self.hidden_states):
+            sample_log_odds[i] = state.sample_log_odds
+
+        self.sample_log_odds = sample_log_odds
+
+    def discrete_sample_odds(sample_log_odds,divergence):
+
+        dl,dr = divergence
+
+        ll = np.sum(sample_log_odds[:,dl])
+        lr = np.sum(sample_log_odds[:,dr])
+
+        straight = ll - lr
+
+        flipped = lr - ll
+
+        return np.maximum(straight,flipped)
+
+    def discrete_child_odds(transfer_odds,children):
+
+        state_log_odds = np.zeros(len(self.hidden_states))
+
+        for cs in children:
+            state_log_odds += transfer_odds[cs]
+
+    def discrete_log_odds(transfer_odds,sample_odds,):
+        pass
 
 class HiddenState:
 
@@ -361,7 +413,7 @@ class HiddenState:
         ls = np.sum(self.sample_log_odds[dl])
         rs = np.sum(self.sample_log_odds[dr])
 
-        return max((ls - rs),(rs -ls))
+        return max((ls - rs),(rs - ls))
 
     def best_vector(self,divergence):
 
@@ -382,6 +434,7 @@ class HiddenState:
             log_odds += self.log_odds_given_child(child)
         log_odds += self.log_odds_given_divergence(divergence)
         return log_odds
+
 
     def remove_nodes(self,nodes):
         for node in nodes:
