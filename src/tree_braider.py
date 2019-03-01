@@ -289,18 +289,6 @@ class IHMM:
 
         self.recompute_transition_odds()
 
-    def sample_states_parallel(self):
-
-        resampled_states = None
-
-        with mp.Pool() as p:
-            node_descriptions = [(i,*self.node_description(n)) for i,n in enumerate(self.nodes)]
-            resampled_results = p.map_async(self.sample_node_state_discrete,node_descriptions)
-
-        resampled_states = np.array(resampled_results.get())
-
-        return resampled_states
-
 
     def sample_node_state(self,node):
         # print("Sampling node state")
@@ -326,38 +314,6 @@ class IHMM:
             child_states[i] = child.hidden_state
         divergence = (self.divergence_masks[node.index,:,0],self.divergence_masks[node.index,:,1])
         return parent,child_states,divergence
-
-    def gather_sample_log_odds(self):
-
-        sample_log_odds = np.zeros((len(self.hidden_states),self.total_samples))
-
-        for i,state in enumerate(self.hidden_states):
-            sample_log_odds[i] = state.sample_log_odds
-
-        self.sample_log_odds = sample_log_odds
-
-    def discrete_sample_odds(sample_log_odds,divergence):
-
-        dl,dr = divergence
-
-        ll = np.sum(sample_log_odds[:,dl])
-        lr = np.sum(sample_log_odds[:,dr])
-
-        straight = ll - lr
-
-        flipped = lr - ll
-
-        return np.maximum(straight,flipped)
-
-    def discrete_child_odds(transfer_odds,children):
-
-        state_log_odds = np.zeros(len(self.hidden_states))
-
-        for cs in children:
-            state_log_odds += transfer_odds[cs]
-
-    def discrete_log_odds(transfer_odds,sample_odds,):
-        pass
 
 class HiddenState:
 
@@ -453,9 +409,13 @@ class HiddenState:
             self.ihmm.node_states[node.index] = self.index
         self.odds_valid = False
 
-    def recalculate_local_log_odds(self):
+    def recalculate_local_log_odds(self,pool):
         left = self.ihmm.alpha_e * np.ones(self.sample_log_odds.shape)
         right = (self.ihmm.beta_e + self.ihmm.alpha_e) * np.ones(self.sample_log_odds.shape)
+
+        nodes = self.nodes
+        pool.map()
+
         for node in self.nodes:
             _,_,divergence = self.ihmm.node_description(node)
             flip = self.best_vector(divergence)
