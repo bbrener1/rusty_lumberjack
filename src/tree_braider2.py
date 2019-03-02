@@ -144,21 +144,7 @@ class IHMM():
 
     def sweep(self):
 
-        print("Sweep debug")
-
-        print(self.hidden_states)
-        print(self.node_states)
-        print(list(np.sum(self.state_masks,axis=1)))
-
-        self.node_states = self.clean_state_indeces(self.node_states)
-        self.update_node_relations()
-        self.state_masks = self.recompute_state_masks(self.node_states)
-        self.state_sample_log_odds = self.recompute_state_sample_log_odds(self.hidden_states,self.total_samples,self.alpha_e,self.beta_e,self.state_masks,self.state_sample_log_odds,self.divergence_l,self.divergence_r)
-        self.transition_counts = self.recompute_transition_counts(self.live_mask,self.oracle_indicator_l,self.oracle_indicator_r,self.hidden_states,self.node_states,self.child_state_l,self.child_state_r)
-        self.oracle_transition_matrix = self.recompute_oracle_transition_matrix(self.hidden_states,self.oracle_indicator_l,self.oracle_indicator_r,self.node_states,self.child_state_l,self.child_state_r)
-        self.oracle_transition_counts = self.recompute_oracle_transition_counts(self.oracle_transition_matrix)
-
-        self.sample_hypers()
+        self.establish_parameters()
 
         ### The above methods establish a description of the current state.
 
@@ -193,6 +179,10 @@ class IHMM():
         self.oracle_odds_given_child_l = np.tile(self.direct_state_odds_given_child_l[-1],(self.hidden_states + 1,1))
         self.oracle_odds_given_child_r = np.tile(self.direct_state_odds_given_child_r[-1],(self.hidden_states + 1,1))
 
+        # print("ORACLE_ODDS_DEBUG")
+        # print(self.oracle_odds_given_child_l.shape)
+        # print(self.oracle_odds_given_child_r.shape)
+
         ### THIS IS IMPORTANT ###
         ## We NOW set the bottom rows to zero, so that it will be filled in with the odds of a novel state momentarily
         self.direct_state_odds_given_child_l[-1] = 0
@@ -207,6 +197,11 @@ class IHMM():
 
         self.state_odds_given_oracle_l = self.oracle_odds_given_child_l * self.oracle_odds
         self.state_odds_given_oracle_r = self.oracle_odds_given_child_r * self.oracle_odds
+
+
+        # print("ORACLE_ODDS_DEBUG2")
+        # print(self.state_odds_given_oracle_l.shape)
+        # print(self.state_odds_given_oracle_r.shape)
 
         ## Finally we combine the odds and transform them into log form
         ## NOTE the final row is now the odds of a novel state, because it is the odds of visiting the oracle multiplied by the odds of obtaining a new state from the oracle
@@ -223,16 +218,51 @@ class IHMM():
 
         ## Finally we want to combine all log odds and sample the resulting distribution
 
-        self.state_log_odds = self.state_log_odds_given_divergence + self.state_log_odds_given_child_l + self.state_log_odds_given_child_l
+        self.state_log_odds = self.state_log_odds_given_divergence + self.state_log_odds_given_child_l + self.state_log_odds_given_child_r
 
         new_node_states[self.live_mask],new_state_indicator[self.live_mask] = self.sample_states(self.live_mask,self.state_log_odds)
 
+        # print("ORACLE_INDICATOR_DEBUG")
+        # print(new_node_states.shape)
+        # print(self.direct_state_odds_given_child_l.shape)
+        # print(self.direct_state_odds_given_child_r.shape)
+        # print(self.state_odds_given_oracle_l.shape)
+        # print(self.state_odds_given_oracle_r.shape)
+
         new_oracle_indicator_l,new_oracle_indicator_r = self.sample_oracle_indicator(new_node_states,self.direct_state_odds_given_child_l,self.direct_state_odds_given_child_r,self.state_odds_given_oracle_l,self.state_odds_given_oracle_r)
+
+        # print(new_oracle_indicator_l.shape)
+        # print(new_oracle_indicator_r.shape)
+
 
         self.node_states = new_node_states
         self.oracle_indicator_l = new_oracle_indicator_l
         self.oracle_indicator_r = new_oracle_indicator_r
 
+    def max_likelihood_sweep(self):
+
+        self.sweep()
+        new_node_states = np.zeros(self.node_states.shape[0])
+        new_node_states[self.live_mask] = np.argmax(self.state_log_odds[:,self.live_mask],axis=0)
+        self.node_states = new_node_states
+        self.establish_parameters()
+
+    def establish_parameters(self):
+        print("Sweep debug")
+
+        print(self.hidden_states)
+        print(self.node_states)
+        print(list(np.sum(self.state_masks,axis=1)))
+
+        self.node_states = self.clean_state_indeces(self.node_states)
+        self.update_node_relations()
+        self.state_masks = self.recompute_state_masks(self.node_states)
+        self.state_sample_log_odds,self.state_raw_sample_odds = self.recompute_state_sample_log_odds(self.hidden_states,self.total_samples,self.alpha_e,self.beta_e,self.state_masks,self.state_sample_log_odds,self.divergence_l,self.divergence_r)
+        self.transition_counts = self.recompute_transition_counts(self.live_mask,self.oracle_indicator_l,self.oracle_indicator_r,self.hidden_states,self.node_states,self.child_state_l,self.child_state_r)
+        self.oracle_transition_matrix = self.recompute_oracle_transition_matrix(self.hidden_states,self.oracle_indicator_l,self.oracle_indicator_r,self.node_states,self.child_state_l,self.child_state_r)
+        self.oracle_transition_counts = self.recompute_oracle_transition_counts(self.oracle_transition_matrix)
+
+        self.sample_hypers()
 
     def sample_hypers(self):
 
@@ -258,16 +288,16 @@ class IHMM():
 
         log_sequence = np.log2(np.arange(1,max_sum*2))
 
-        likelihood_sequence = np.zeros(max_sum)
+        likelihood_sequence = np.zeros(max_sum)[1:]
 
         for i in range(self.hidden_states):
             transitions = self.transition_counts[i]
             total = int(sums[i])
             non_zero = int(np.sum(transitions > 0))
             l2ls = lambda b: (non_zero * log_sequence[b] - np.sum(log_sequence[b:total+b]))
-            likelihood_sequence += np.array([l2ls(b) for b in range(max_sum)])
+            likelihood_sequence += np.array([l2ls(b) for b in range(1,max_sum)])
 
-        self.beta = np.argmax(likelihood_sequence)+1
+        self.beta = np.argmax(likelihood_sequence)
 
     def recompute_gamma(self):
 
@@ -339,6 +369,7 @@ class IHMM():
         print("Recomputing Sample Log Odds")
 
         new_state_sample_log_odds = np.zeros((states,samples))
+        new_raw_sample_odds = np.zeros((states,samples))
 
         sample_totals = np.sum(divergence_l,axis=0) + np.sum(divergence_r,axis=0)
 
@@ -418,7 +449,7 @@ class IHMM():
             state_total = l_total + r_total
 
             # ext_l = sample_totals - l_total + (2 * alpha_e)
-            ext_total = sample_totals - state_total + (2* beta_e)
+            ext_total = sample_totals - state_total + (2* beta_e) / states
 
             ## The new log odds are now ready to be computed:
 
@@ -433,10 +464,14 @@ class IHMM():
             # new_state_sample_log_odds[i] = np.log2(l_total/r_total)
 
             new_state_sample_log_odds[i] = np.log2(l_total + ext_total/r_total + ext_total)
+            new_raw_sample_odds[i] = np.log2(l_total/r_total)
+            # posterior_probability = (l_total/(l_total + r_total))
+            # posterior_odds = (posterior_probability / (1 - posterior_probability))
+            # new_state_sample_log_odds[i] = np.log2(posterior_odds)
 
         # print(new_state_sample_log_odds)
 
-        return new_state_sample_log_odds
+        return new_state_sample_log_odds,new_raw_sample_odds
 
     def recompute_transition_counts(self,live_mask,oracle_indicator_l,oracle_indicator_r,states,node_states,child_state_l,child_state_r):
 
@@ -627,10 +662,19 @@ class IHMM():
 
     def sample_oracle_indicator(self,node_state,direct_state_odds_l,direct_state_odds_r,oracle_state_odds_l,oracle_state_odds_r):
 
+        # print("Oracle sampler debug")
+
         state_mask = np.equal(np.tile(np.arange(direct_state_odds_l.shape[0]),(direct_state_odds_l.shape[1],1)).T,np.tile(node_state,(direct_state_odds_l.shape[0],1)))
+
+        # print(node_state)
+        # print(np.sum(state_mask,axis=0))
+        # print(np.sum(state_mask,axis=1))
 
         direct_state_odds_l = direct_state_odds_l[state_mask]
         direct_state_odds_r = direct_state_odds_r[state_mask]
+
+        # print(direct_state_odds_l.shape)
+        # print(direct_state_odds_r.shape)
 
         oracle_state_odds_l = oracle_state_odds_l[state_mask]
         oracle_state_odds_r = oracle_state_odds_r[state_mask]
@@ -654,31 +698,60 @@ class IHMM():
         return states + 1
 
     def lr_finite(self,state):
-        return expit(self.state_sample_log_odds[state])
+        return expit(self.state_raw_sample_odds[state])
 
-    def raw_transition_matrix(self):
+    def state_node_odds(self,state):
 
-        states = self.hidden_states
+        state_mask = self.state_masks[state]
 
-        new_transition_counts = np.zeros((states,states))
+        return self.state_log_odds[state,state_mask]
 
-        # transition_mask = np.logical_and(live_mask,np.logical_not(oracle_indicator))
+    def pad_root_transitions(self):
+        for node in self.nodes:
+            if node.parent is None:
+                self.transition_counts[node.index,0] += 1
 
-        transition_mask = self.live_mask
+    def most_likely_parent_to_child(self):
 
-        for ps,csl in zip(self.node_states[transition_mask],self.child_state_l[transition_mask]):
-            # print(csl)
-            # print(ps)
-            new_transition_counts[csl,ps] += 1
+        self.pad_root_transitions()
 
-        for ps,csr in zip(self.node_states[transition_mask],self.child_state_r[transition_mask]):
-            # print(csr)
-            # print(ps)
-            new_transition_counts[csr,ps] += 1
+        most_likely_transition_matrix = np.zeros((self.hidden_states,self.hidden_states))
 
-        print(new_transition_counts)
+        for hidden_state,transitions in enumerate(self.transition_counts):
 
-        return new_transition_counts
+            most_likely_parent = np.argmax(transitions)
+            most_likely_transition_matrix[hidden_state,most_likely_parent] += 1
+
+        return most_likely_transition_matrix.T
+
+
+
+    #
+    #
+    #
+    # def raw_transition_matrix(self):
+    #
+    #     states = self.hidden_states
+    #
+    #     new_transition_counts = np.zeros((states,states))
+    #
+    #     # transition_mask = np.logical_and(live_mask,np.logical_not(oracle_indicator))
+    #
+    #     transition_mask = self.live_mask
+    #
+    #     for ps,csl in zip(self.node_states[transition_mask],self.child_state_l[transition_mask]):
+    #         # print(csl)
+    #         # print(ps)
+    #         new_transition_counts[csl,ps] += 1
+    #
+    #     for ps,csr in zip(self.node_states[transition_mask],self.child_state_r[transition_mask]):
+    #         # print(csr)
+    #         # print(ps)
+    #         new_transition_counts[csr,ps] += 1
+    #
+    #     print(new_transition_counts)
+    #
+    #     return new_transition_counts
 
 
 

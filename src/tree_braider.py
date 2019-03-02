@@ -12,8 +12,12 @@ from scipy.special import gamma as gamma_f
 
 import multiprocessing as mp
 
+from itertools import repeat
+
 class IHMM:
     def __init__(self,forest,alpha=1,beta=1,gamma=1,alpha_e=.5,beta_e=.5,gamma_e=.5,start_states=20):
+
+        self.pool = mp.Pool()
 
         self.forest = forest
 
@@ -252,18 +256,40 @@ class IHMM:
 
         resampled_states = self.node_states
 
-        for node in self.nodes:
-            resampled_states[node.index] = self.sample_node_state(node)
+        print("Sampling node states")
+
+        # for node in self.nodes:
+        #     resampled_states[node.index] = self.sample_node_state(node)
+
+        state_odds = []
+
+        for state in self.hidden_states:
+            state_odds.append(state.log_odds_nodes([self.node_description(n) for n in self.nodes]))
+
+        state_odds = np.array(state_odds).T
+
+        for node,node_state_odds in zip(self.nodes,state_odds):
+            resampled_states[node.index] = self.sample_node_state_precomputed(node_state_odds).index
+
+        print("Computing States")
 
         self.recompute_states(resampled_states)
 
+        print("Computing Transition Matrix")
+
         self.recompute_transition_matrix()
 
+        print("Computing Oracle Indicator")
+
         self.recompute_oracle_indicator()
+
+        print("Sampling Prior Parameters")
 
         self.resample_alpha_beta_prior()
 
         self.resample_gamma_prior()
+
+        print("Recomputing Transition Odds")
 
         self.recompute_transition_odds()
 
@@ -304,6 +330,9 @@ class IHMM:
         # print(new_state)
 
         return new_state.index
+
+    def sample_node_state_precomputed(self,state_odds):
+        return random.choices(self.hidden_states,weights=np.exp2(state_odds))[0]
 
     def node_description(self,node):
         parent = 0
@@ -409,24 +438,55 @@ class HiddenState:
             self.ihmm.node_states[node.index] = self.index
         self.odds_valid = False
 
-    def recalculate_local_log_odds(self,pool):
+    def recalculate_local_log_odds(self):
         left = self.ihmm.alpha_e * np.ones(self.sample_log_odds.shape)
         right = (self.ihmm.beta_e + self.ihmm.alpha_e) * np.ones(self.sample_log_odds.shape)
 
-        nodes = self.nodes
-        pool.map()
+        divergences = [self.ihmm.node_description(node)[2] for node in self.nodes]
 
-        for node in self.nodes:
-            _,_,divergence = self.ihmm.node_description(node)
-            flip = self.best_vector(divergence)
-            if flip:
-                divergence = [divergence[1],divergence[0]]
-            left += divergence[0]
-            right += divergence[1]
+        # print("Log odds debug")
+        #
+        # print(len(divergences))
+        # print(np.array(divergences).shape)
+
+        model = self.sample_log_odds
+        flipped = np.array(self.ihmm.pool.map(HiddenState.best_vector_discrete,zip(divergences,repeat(model))))
+
+        # print(f"flipped:{flipped.shape}")
+        # print(left.shape)
+        # print(right.shape)
+        #
+        # print(flipped)
+
+        left += np.sum(flipped[:,0,:],axis=0)
+        right += np.sum(flipped[:,1,:],axis=0)
+
+
+        # for node in self.nodes:
+        #     _,_,divergence = self.ihmm.node_description(node)
+        #     flip = self.best_vector(divergence)
+        #     if flip:
+        #         divergence = [divergence[1],divergence[0]]
+        #     left += divergence[0]
+        #     right += divergence[1]
         total = left + right
         new_log_odds = np.log2((left/total)/(right/total))
         self.sample_log_odds = new_log_odds
         self.odds_valid = True
+
+    def best_vector_discrete(task):
+
+        divergence,model = task
+
+        dl,dr = divergence
+
+        ls = np.sum(model[dl])
+        rs = np.sum(model[dr])
+
+        if (ls - rs) > (rs - ls):
+            return [dl,dr]
+        else:
+            return [dr,dl]
 
     def node_mask(self):
         node_mask = np.zeros(len(self.ihmm.nodes),dtype=bool)
@@ -442,6 +502,35 @@ class HiddenState:
             odds.append(self.log_odds(*self.ihmm.node_description(node)))
         return odds
 
+    def log_odds_nodes(self,nodes):
+
+        sample_log_odds = self.sample_log_odds
+        transition_odds = self.ihmm.transition_odds[:,self.index]
+
+        log_odds = self.ihmm.pool.map(HiddenState.log_odds_discrete,zip(nodes,repeat(sample_log_odds),repeat(transition_odds)))
+
+        return log_odds
+
+    def log_odds_discrete(task):
+
+        node,sample_log_odds,transition_odds = task
+
+        parent_state,children,divergence = node
+        log_odds = 0
+
+        for child_state in children:
+            log_odds += transition_odds[child_state]
+
+        dl,dr = divergence
+
+        ls = np.sum(sample_log_odds[dl])
+        rs = np.sum(sample_log_odds[dr])
+
+        log_odds += max((ls - rs),(rs - ls))
+
+        return log_odds
+
+
 class NullState(HiddenState):
 
     def __init__(self,model):
@@ -455,6 +544,10 @@ class NullState(HiddenState):
         samples = len(self.ihmm.forest.samples)
 
         self.sample_log_odds = np.zeros(samples)
+
+    def recalculate_local_log_odds(self):
+
+        pass
 
     def assign_nodes(self,nodes):
         if len(nodes) > 0:
@@ -477,6 +570,10 @@ class OracleState(HiddenState):
         samples = len(self.ihmm.forest.samples)
 
         self.sample_log_odds = np.zeros(samples)
+
+    def recalculate_local_log_odds(self):
+
+        pass
 
     def assign_nodes(self,nodes):
         self.nodes = self.nodes + nodes
