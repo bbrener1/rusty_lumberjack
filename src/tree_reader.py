@@ -1391,8 +1391,9 @@ class Forest:
 
         feature_counts = count_list_elements([n.feature for n in nodes])
 
-        feature_counts = list(feature_counts)
+        feature_counts = list(feature_counts.items())
 
+        # return sorted(feature_counts)[::-1]
         return sorted(feature_counts,key=lambda x: x[1])[::-1]
 
     def find_node_cluster_divergence(self,c1,c2):
@@ -1479,6 +1480,10 @@ class Forest:
             node.child_clusters = ([],[])
             if hasattr(node,'cluster'):
                 del node.cluster
+
+    def plot_sample_feature_split(left,right):
+        left_counts = self.counts[left]
+        right_counts = self.counts[right]
 
 
 class TruthDictionary:

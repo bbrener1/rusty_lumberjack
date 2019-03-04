@@ -16,6 +16,9 @@ import multiprocessing as mp
 
 import matplotlib.pyplot as plt
 
+import pickle
+
+
 ## This model contains several interdependent variables:
 
 ##  - Hidden state sequence for nodes
@@ -171,8 +174,8 @@ class IHMM():
 
         ## Next we establish the odds of a given state or the oracle given its children
 
-        self.direct_state_odds_given_child_l = self.compute_state_log_odds_given_child_direct_transition(self.beta,self.transition_counts,self.child_state_l)
-        self.direct_state_odds_given_child_r = self.compute_state_log_odds_given_child_direct_transition(self.beta,self.transition_counts,self.child_state_r)
+        self.direct_state_odds_given_child_l = self.compute_state_odds_given_child_direct_transition(self.beta,self.transition_counts,self.child_state_l)
+        self.direct_state_odds_given_child_r = self.compute_state_odds_given_child_direct_transition(self.beta,self.transition_counts,self.child_state_r)
 
         ## We extract the odds of visiting the oracle for each given node and tile them
 
@@ -214,6 +217,10 @@ class IHMM():
         self.state_log_odds_given_child_l = np.log2(self.state_odds_given_child_l)
         self.state_log_odds_given_child_r = np.log2(self.state_odds_given_child_r)
 
+        #THIS IS A TEMPORARY HACK FOR AN UNSTRUCTURED DP MIXTURE MODEL:
+
+        # self.state_log_odds_given_child_l = np.log2(self.oracle_odds)
+        # self.state_log_odds_given_child_r = np.log2(self.oracle_odds)
 
 
         ## Finally we want to combine all log odds and sample the resulting distribution
@@ -233,7 +240,8 @@ class IHMM():
 
         # print(new_oracle_indicator_l.shape)
         # print(new_oracle_indicator_r.shape)
-
+        # print(new_oracle_indicator_l)
+        # print(new_oracle_indicator_r)
 
         self.node_states = new_node_states
         self.oracle_indicator_l = new_oracle_indicator_l
@@ -297,7 +305,7 @@ class IHMM():
             l2ls = lambda b: (non_zero * log_sequence[b] - np.sum(log_sequence[b:total+b]))
             likelihood_sequence += np.array([l2ls(b) for b in range(1,max_sum)])
 
-        self.beta = np.argmax(likelihood_sequence)
+        self.beta = np.argmax(likelihood_sequence) + 1
 
     def recompute_gamma(self):
 
@@ -587,7 +595,7 @@ class IHMM():
 
         return np.maximum(f,r)
 
-    def compute_state_log_odds_given_child_direct_transition(self,beta,transition_counts,node_child_states):
+    def compute_state_odds_given_child_direct_transition(self,beta,transition_counts,node_child_states):
 
         ## Here we have to start considering the potential fact that an oracle may be sampled
         ## Since this is the first transition, for simplicity we will simply compute the odds of a direct transition and an oracle transition of any kind
@@ -633,7 +641,7 @@ class IHMM():
         # print("draws")
         # print(draws)
 
-        draw_index = np.sum(descending_odds[:,live_mask] < np.tile(draws,(descending_odds.shape[0],1)),axis=0) + 1
+        draw_index = np.sum(descending_odds[:,live_mask] < np.tile(draws,(descending_odds.shape[0],1)),axis=0)
 
         new_state_indicator = draw_index >= descending_odds.shape[0]-1
 
@@ -669,6 +677,10 @@ class IHMM():
         # print(node_state)
         # print(np.sum(state_mask,axis=0))
         # print(np.sum(state_mask,axis=1))
+        #
+        # print("problem_node_state")
+        # print(np.tile(np.arange(direct_state_odds_l.shape[0]),(direct_state_odds_l.shape[1],1))[np.sum(state_mask,axis=0) == 0])
+        # print(node_state[np.sum(state_mask,axis=0) == 0])
 
         direct_state_odds_l = direct_state_odds_l[state_mask]
         direct_state_odds_r = direct_state_odds_r[state_mask]
@@ -706,26 +718,75 @@ class IHMM():
 
         return self.state_log_odds[state,state_mask]
 
-    def pad_root_transitions(self):
+    def pad_root_transitions(self,raw_counts):
         for node in self.nodes:
             if node.parent is None:
-                self.transition_counts[node.index,0] += 1
+                raw_counts[self.node_states[node.index],0] += 1
+        return raw_counts
 
     def most_likely_parent_to_child(self):
 
-        self.pad_root_transitions()
+        raw_counts = self.raw_transition_counts()
+
+        raw_counts = self.pad_root_transitions(raw_counts)
 
         most_likely_transition_matrix = np.zeros((self.hidden_states,self.hidden_states))
 
-        for hidden_state,transitions in enumerate(self.transition_counts):
-
+        for hidden_state,transitions in enumerate(raw_counts[1:]):
+            print(hidden_state)
+            print(transitions)
             most_likely_parent = np.argmax(transitions)
-            most_likely_transition_matrix[hidden_state,most_likely_parent] += 1
+            print(most_likely_parent)
+            most_likely_transition_matrix[hidden_state+1,most_likely_parent] += 1
 
         return most_likely_transition_matrix.T
 
+    def raw_transition_counts(self):
 
+        print("Recomputing Transition Counts")
 
+        states = self.hidden_states
+
+        transition_mask = self.live_mask
+
+        new_transition_counts = np.zeros((states,states))
+
+        # transition_mask = live_mask
+
+        for ps,csl in zip(self.node_states[transition_mask],self.child_state_l[transition_mask]):
+            # print(csl)
+            # print(ps)
+            new_transition_counts[csl,ps] += 1
+
+        for ps,csr in zip(self.node_states[transition_mask],self.child_state_r[transition_mask]):
+            # print(csr)
+            # print(ps)
+            new_transition_counts[csr,ps] += 1
+
+        # print(new_transition_counts)
+
+        return new_transition_counts
+
+    def backup(self,location):
+        self.pool = None
+        with open(location,mode='bw') as f:
+            pickle.dump(self,f)
+
+    def reconstitute(location):
+        with open(location,mode='br') as f:
+            braider = pickle.load(f)
+            braider.pool = mp.Pool()
+            return braider
+
+    def hidden_state_to_nodes(self,hidden_state):
+        node_indices = np.arange(self.total_nodes)[self.state_masks[hidden_state]]
+        return [self.nodes[ni] for ni in node_indices]
+
+    def state_lr_samples(self,hidden_state):
+        finite = self.lr_finite(hidden_state)
+        left = np.arange(self.total_samples)[finite < .5]
+        right = np.arange(self.total_samples)[finite >= .5]
+        return left,right
     #
     #
     #
