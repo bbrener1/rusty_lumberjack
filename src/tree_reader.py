@@ -1322,12 +1322,12 @@ class Forest:
         cluster_names = [cluster.id for cluster in self.sample_clusters]
         cluster_coordiantes = combined_coordinates[len(self.sample_labels):]
 
-        plt.figure(figsize=(10,10))
+        plt.figure(figsize=(5,5))
         plt.title("TSNE-Transformed Cell Coordinates")
         plt.scatter(combined_coordinates[:,0],combined_coordinates[:,1],s=highlight,c=combined_labels,cmap='rainbow')
         for cluster,coordinates in zip(cluster_names,cluster_coordiantes):
             plt.text(*coordinates,cluster,verticalalignment='center',horizontalalignment='center')
-        plt.show()
+        plt.savefig("./tmp.delete.png",dpi=500)
 
     # def cluster_distances(self):
     #     for tree in self.trees:
@@ -1481,9 +1481,38 @@ class Forest:
             if hasattr(node,'cluster'):
                 del node.cluster
 
-    def plot_sample_feature_split(left,right):
+    def plot_sample_feature_split(self,gradient,plot_n=20):
+
+        left = gradient < .5
+        right = gradient >= .5
+
+        sample_sort = np.argsort(gradient)
+
         left_counts = self.counts[left]
         right_counts = self.counts[right]
+
+        left_mean_features = np.mean(left_counts,axis=0)
+        right_mean_features = np.mean(right_counts,axis=0)
+
+        sort_up_left = np.argsort(left_mean_features - right_mean_features)
+        sort_up_right = np.argsort(right_mean_features - left_mean_features)
+
+        features_up_left = self.features[sort_up_left]
+        features_up_right = self.features[sort_up_right]
+
+        plt.figure(figsize=(5,8))
+        plt.suptitle("Divergence of Features",fontsize=20)
+        ax1 = plt.subplot(211)
+        ax1.imshow(self.counts[sample_sort].T[sort_up_right][-plot_n:],aspect='auto')
+        ax1.set_yticks(np.arange(plot_n))
+        ax1.set_yticklabels(features_up_right[-plot_n:],fontsize=14)
+        ax1.tick_params(axis='x',labelbottom=False)
+        ax2 = plt.subplot(212)
+        ax2.imshow(self.counts[sample_sort].T[sort_up_left][-plot_n:],aspect='auto')
+        ax2.set_yticks(np.arange(plot_n))
+        ax2.set_yticklabels(features_up_left[-plot_n:],fontsize=14)
+        ax2.tick_params(axis='y',labelleft=False,labelright=True)
+        plt.show()
 
 
 class TruthDictionary:
