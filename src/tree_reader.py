@@ -642,26 +642,29 @@ class Tree:
 
 class Forest:
 
-    def __init__(self,trees,counts,features=None,samples=None):
-        if features is None:
-            features = list(map(lambda x: str(x),range(counts.shape[1])))
+    def __init__(self,trees,input,output,input_features=None,output_features=None,samples=None):
+        if input_features is None:
+            input_features = [str(i) for i in range(input.shape[1])]
+        if output_features is None:
+            output_features = [str(i) for i in range(output.shape[1])]
         if samples is None:
-            samples = list(map(lambda x: str(x),range(counts.shape[0])))
-        self.truth_dictionary = TruthDictionary(counts,features,samples)
+            samples = [str(i) for i in range(input.shape[0])]
+        self.truth_dictionary = TruthDictionary(output,output_features,samples)
 
-        self.counts = counts
-        self.features = features
+        self.input = input
+        self.output = output
         self.samples = samples
 
-        self.dim = counts.shape
+        self.input_dim = input.shape
+        self.output_dim = output.shape
 
         self.trees = list(map(lambda x: Tree(x,self),trees))
 
         for i,node in enumerate(self.nodes()):
             node.index = i
 
-    def test_forest(roots,counts,features=None,samples=None):
-        test_forest = Forest([],counts,features,samples)
+    def test_forest(roots,inputs,outputs,samples=None):
+        test_forest = Forest([],inputs,outputs,samples)
         test_trees = [Tree.test_tree(root,test_forest) for root in roots]
         test_forest.trees = test_trees
 
@@ -745,8 +748,8 @@ class Forest:
         return gains
 
     def total_absolute_error_matrix(self,nodes):
-        all_root_error = np.zeros((len(self.features),len(nodes)))
-        all_leaf_error = np.zeros((len(self.features),len(nodes)))
+        all_root_error = np.zeros((len(self.output_features),len(nodes)))
+        all_leaf_error = np.zeros((len(self.output_features),len(nodes)))
         for i,node in enumerate(nodes):
             leaf_error,root_error = node.total_error_vs_root()
             all_leaf_error[:,i] = leaf_error
@@ -755,8 +758,8 @@ class Forest:
 
 
     def total_local_error_matrix(self,nodes):
-        all_parent_error = np.zeros((len(self.features),len(nodes)))
-        all_node_error = np.zeros((len(self.features),len(nodes)))
+        all_parent_error = np.zeros((len(self.output_features),len(nodes)))
+        all_node_error = np.zeros((len(self.output_features),len(nodes)))
         for i,node in enumerate(nodes):
             node_error,parent_error = node.total_error_vs_parent()
             all_node_error[:,i] = node_error
@@ -765,7 +768,7 @@ class Forest:
 
 
     def local_gain_matrix(self,nodes):
-        gains = np.zeros((len(self.features),len(nodes)))
+        gains = np.zeros((len(self.output_features),len(nodes)))
         fd = self.truth_dictionary.feature_dictionary
         for i,node in enumerate(nodes):
             for feature,gain in zip(node.features,node.local_gains):
@@ -778,9 +781,9 @@ class Forest:
             level.extend(tree.level(target))
         return level
 
-    def load(location, prefix="/run.*.compact", header="/run.prediction_header",truth="run.prediction_truth"):
+    def load(location, prefix="/run", ifh="/run.ifh",ofh='run.ofh',input="input.counts",output="output.counts"):
 
-        combined_tree_files = sorted(glob.glob(location + prefix))
+        combined_tree_files = sorted(glob.glob(location + prefix + "*.compact"))
 
         print(combined_tree_files)
 
@@ -789,10 +792,12 @@ class Forest:
         for tree_file in combined_tree_files:
             raw_forest.append(json.load(open(tree_file.strip())))
 
-        counts = np.loadtxt(location+truth)
-        header = np.loadtxt(location+header,dtype=str)
+        input = np.loadtxt(location+input)
+        output = np.loadtxt(location+output)
+        ifh = np.loadtxt(location+ifh,dtype=str)
+        ofh = np.loadtxt(location+ofh,dtype=str)
 
-        first_forest = Forest(raw_forest[1:],counts,features=header)
+        first_forest = Forest(raw_forest[1:],input_features=ifh,output_features=ofh,input=input,output=output)
 
         first_forest.prototype = Tree(raw_forest[0],first_forest)
 
@@ -930,7 +935,7 @@ class Forest:
                 feature_leaf_sample_encoding[:,i] *= prediction
             leaf_feature_indecies = leaf_feature_index_table[feature_leaf_indecies][:,feature_index]
 
-            truth = self.counts[:,feature_index]
+            truth = self.output[:,feature_index]
 
             weights = Ridge(alpha=5).fit(feature_leaf_sample_encoding,truth).coef_
             # weights = NMF().fit()
@@ -1049,7 +1054,7 @@ class Forest:
 
     def cluster_samples_simple(self,override=False,*args,**kwargs):
 
-        counts = self.counts
+        counts = self.output
 
         if hasattr(self,'sample_clusters') and not override:
             print("Clustering has already been done")
@@ -1228,7 +1233,7 @@ class Forest:
             plt.imshow(encoding[cell_sort].T[leaf_sort].T,cmap='binary')
             plt.show()
 
-        return cell_sort,leaf_sort,self.counts
+        return cell_sort,leaf_sort,self.ouput_counts
 
     # def cluster_splits(self,override=False,no_plot=False,*args,**kwargs):
     #
@@ -1302,11 +1307,11 @@ class Forest:
             mean_coordinates = np.mean(tc[cluster_cell_mask],axis=0)
             cluster_tc[i] = mean_coordinates
 
-        combined_coordinates = np.zeros((self.counts.shape[0]+len(self.sample_clusters),2))
+        combined_coordinates = np.zeros((self.output.shape[0]+len(self.sample_clusters),2))
 
-        combined_coordinates[0:self.counts.shape[0]] = tc
+        combined_coordinates[0:self.output.shape[0]] = tc
 
-        combined_coordinates[self.counts.shape[0]:] = cluster_tc
+        combined_coordinates[self.output.shape[0]:] = cluster_tc
 
         highlight = np.ones(combined_coordinates.shape[0])
         highlight[len(self.sample_labels):] = [len(cluster.samples) for cluster in self.sample_clusters]
@@ -1314,7 +1319,7 @@ class Forest:
         #
         #     highlight[self.counts.shape[0] + i:] = len(cluster.samples/10)
 
-        combined_labels = np.zeros(self.counts.shape[0]+len(self.sample_clusters))
+        combined_labels = np.zeros(self.output.shape[0]+len(self.sample_clusters))
         if colorize:
             combined_labels[0:len(self.sample_labels)] = self.sample_labels
             combined_labels[len(self.sample_labels):] = [cluster.id for cluster in self.sample_clusters]
@@ -1339,9 +1344,21 @@ class Forest:
             coordinates[i] = sample_cluster.median_feature_values()
         return coordinates
 
-    def tsne(self,no_plot=False):
-        if not hasattr(self,'tsne_coordinates'):
-            self.tsne_coordinates = TSNE().fit_transform(self.counts)
+    def tsne(self,no_plot=False,override=False):
+        if not hasattr(self,'tsne_coordinates') or override:
+            self.tsne_coordinates = TSNE().fit_transform(self.output)
+
+        if not no_plot:
+            plt.figure()
+            plt.title("TSNE-Transformed Cell Coordinates")
+            plt.scatter(self.tsne_coordinates[:,0],self.tsne_coordinates[:,1],s=.1)
+            plt.show()
+
+        return self.tsne_coordinates
+
+    def tsne_encoding(self,no_plot=False,override=False):
+        if not hasattr(self,'tsne_coordinates') or override:
+            self.tsne_coordinates = TSNE().fit_transform(self.node_sample_encoding(self.leaves()))
 
         if not no_plot:
             plt.figure()
@@ -1488,8 +1505,8 @@ class Forest:
 
         sample_sort = np.argsort(gradient)
 
-        left_counts = self.counts[left]
-        right_counts = self.counts[right]
+        left_counts = self.output[left]
+        right_counts = self.output[right]
 
         left_mean_features = np.mean(left_counts,axis=0)
         right_mean_features = np.mean(right_counts,axis=0)
@@ -1503,12 +1520,12 @@ class Forest:
         plt.figure(figsize=(5,8))
         plt.suptitle("Divergence of Features",fontsize=20)
         ax1 = plt.subplot(211)
-        ax1.imshow(self.counts[sample_sort].T[sort_up_right][-plot_n:],aspect='auto')
+        ax1.imshow(self.output[sample_sort].T[sort_up_right][-plot_n:],aspect='auto')
         ax1.set_yticks(np.arange(plot_n))
         ax1.set_yticklabels(features_up_right[-plot_n:],fontsize=14)
         ax1.tick_params(axis='x',labelbottom=False)
         ax2 = plt.subplot(212)
-        ax2.imshow(self.counts[sample_sort].T[sort_up_left][-plot_n:],aspect='auto')
+        ax2.imshow(self.output[sample_sort].T[sort_up_left][-plot_n:],aspect='auto')
         ax2.set_yticks(np.arange(plot_n))
         ax2.set_yticklabels(features_up_left[-plot_n:],fontsize=14)
         ax2.tick_params(axis='y',labelleft=False,labelright=True)

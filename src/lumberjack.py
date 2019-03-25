@@ -20,7 +20,7 @@ import tree_reader as tr
 import numpy as np
 # import matplotlib.pyplot as plt
 
-def main(location,input,output=None,header=None,**kwargs):
+def main(location,input,output=None,ifh=None,ofh=None,**kwargs):
     # print("Tree reader?")
     # print(path_to_tree_reader)
     if output is None:
@@ -31,14 +31,16 @@ def main(location,input,output=None,header=None,**kwargs):
     print(output)
     input_counts = np.loadtxt(input)
     output_counts = np.loadtxt(output)
-    if header is not None:
-        header = np.loadtxt(header,dtype=str)
+    if ifh is not None:
+        ifh = np.loadtxt(ifh,dtype=str)
+    if ofh is not None:
+        ofh = np.loadtxt(ofh,dtype=str)
     print("Loaded counts")
     print(input)
-    fit_return = save_trees(location,input_counts,output_counts=output_counts,**kwargs)
+    fit_return = save_trees(location,input_counts,output_counts=output_counts,ifh=ifh,ofh=ofh,**kwargs)
     print(fit_return)
 
-def save_trees(location,input_counts,output_counts=None,header=None,**kwargs):
+def save_trees(location,input_counts,output_counts=None,ifh=None,ofh=None,**kwargs):
 
     if output_counts is None:
         output_counts = input_counts
@@ -46,17 +48,22 @@ def save_trees(location,input_counts,output_counts=None,header=None,**kwargs):
     np.savetxt(location + "input.counts",input_counts)
     np.savetxt(location + "output.counts",output_counts)
 
-    if header is None:
-        np.savetxt(location + "tmp.header", np.arange(output_counts.shape[1],dtype=int),fmt='%u')
+    if ifh is None:
+        np.savetxt(location + "tmp.ifh", np.arange(input_counts.shape[1],dtype=int),fmt='%u')
     else:
-        np.savetxt(location + "tmp.header", header,fmt="%s")
+        np.savetxt(location + "tmp.ifh", header,fmt="%s")
+
+    if ofh is None:
+        np.savetxt(location + "tmp.ofh", np.arange(output_counts.shape[1],dtype=int),fmt='%u')
+    else:
+        np.savetxt(location + "tmp.ofh", header,fmt="%s")
 
     print("Generating trees")
 
-    inner_fit(input_counts,output_counts,location,header=(location + "tmp.header"),**kwargs)
+    inner_fit(input_counts,output_counts,location,ifh=(location + "tmp.ifh"),ofh=(location+"tmp.ofh"),**kwargs)
 
 
-def fit(input_counts,output_counts=None,header=None,**kwargs):
+def fit(input_counts,output_counts=None,ifh=None,ofh=None,**kwargs):
 
     if output_counts is None:
         output_counts = input_counts
@@ -67,20 +74,23 @@ def fit(input_counts,output_counts=None,header=None,**kwargs):
     print("Output:" + str(output_counts.shape))
 
     tmp_dir = tmp.TemporaryDirectory()
-    output = tmp_dir.name + "/"
+    location = tmp_dir.name + "/"
 
-    np.savetxt(output + "input.counts",input_counts)
-    np.savetxt(output + "output.counts", output_counts)
+    np.savetxt(location + "input.counts",input_counts)
+    np.savetxt(location + "output.counts", output_counts)
 
     input_features = input_counts.shape[1]
     output_features = output_counts.shape[1]
 
-    if header is None:
-        np.savetxt(output + "tmp.i.header", np.arange(output_features,dtype=int),fmt='%u')
-        np.savetxt(output + "tmp.o.header", np.arange(output_features,dtype=int),fmt='%u')
+    if ifh is None:
+        np.savetxt(location + "tmp.ifh", np.arange(input_counts.shape[1],dtype=int),fmt='%u')
     else:
-        np.savetxt(output + "tmp.i.header", header,fmt="%s")
-        np.savetxt(output + "tmp.o.header", header,fmt="%s")
+        np.savetxt(location + "tmp.ifh", np.array(ifh),fmt="%s")
+
+    if ofh is None:
+        np.savetxt(location + "tmp.ofh", np.arange(output_counts.shape[1],dtype=int),fmt='%u')
+    else:
+        np.savetxt(location + "tmp.ofh", np.array(ofh),fmt="%s")
 
     print("CHECK TRUTH")
     print(tmp_dir.name)
@@ -88,12 +98,12 @@ def fit(input_counts,output_counts=None,header=None,**kwargs):
 
     print("Generating trees")
 
-    inner_fit(input_counts,output_counts,output,ifh=output+"tmp.i.header",ofh=output+"tmp.o.header",**kwargs)
+    inner_fit(input_counts,output_counts,location,ifh=location + 'tmp.ifh',ofh=location + 'tmp.ofh',**kwargs)
 
     print("CHECK OUTPUT")
     print(os.listdir(tmp_dir.name))
 
-    forest = tr.Forest.load(output,prefix="tmp.*.compact",header="tmp.o.header",truth="output.counts")
+    forest = tr.Forest.load(location,prefix="tmp",ifh="tmp.ifh",ofh="tmp.ofh",input="input.counts",output="output.counts")
 
     tmp_dir.cleanup()
 

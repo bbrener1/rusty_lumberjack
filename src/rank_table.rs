@@ -20,10 +20,8 @@ use io::Parameters;
 #[derive(Debug,Clone)]
 pub struct RankTable {
     meta_vector: Vec<Arc<RankVector<Vec<Node>>>>,
-    pub feature_names: Vec<String>,
-    pub sample_names: Vec<String>,
-    pub sample_indecies: Vec<usize>,
-    draw_order: Vec<usize>,
+    features: Vec<Feature>,
+    samples: Vec<Sample>,
     index: usize,
     pub dimensions: (usize,usize),
     dropout: DropMode,
@@ -36,32 +34,18 @@ pub struct RankTable {
 
 impl RankTable {
 
-    pub fn new<'a> (counts: &Vec<Vec<f64>>,feature_names:&'a [String],sample_names:&'a [String], sample_indecies: &'a [usize], parameters:Arc<Parameters>) -> RankTable {
+    pub fn new<'a> (counts: &Vec<Vec<f64>>,features: &'a[Feature],samples: &'a[Sample], parameters:Arc<Parameters>) -> RankTable {
 
         let mut meta_vector = Vec::new();
 
-        // let mut feature_dictionary: HashMap<String,usize> = HashMap::with_capacity(feature_names.len());
-
-        let sample_dictionary: HashMap<String,usize> = sample_names.iter().cloned().enumerate().map(|x| (x.1,x.0)).collect();
-
-        // println!("{:?}", counts);
-        // println!("{:?}", feature_names);
-
-        for (i,(name,loc_counts)) in feature_names.iter().cloned().zip(counts.iter()).enumerate() {
+        for (i,loc_counts) in counts.iter().enumerate() {
             if i%200 == 0 {
                 println!("Initializing: {}",i);
             }
-            // println!("Starting to iterate");
-            // feature_dictionary.insert(name.clone(),i);
-            // println!("Updated feature dict");
-            // println!("{:?}", loc_counts);
             let mut construct = RankVector::<Vec<Node>>::link(loc_counts);
-            // println!("Made a rank vector");
             construct.drop_using_mode(parameters.dropout);
             meta_vector.push(Arc::new(construct));
         }
-
-        let draw_order = (0..counts.get(0).unwrap_or(&vec![]).len()).collect::<Vec<usize>>();
 
         let dim = (meta_vector.len(),meta_vector.get(0).map(|x| x.raw_len()).unwrap_or(0));
 
@@ -69,14 +53,13 @@ impl RankTable {
 
         RankTable {
             meta_vector:meta_vector,
-            feature_names:feature_names.iter().cloned().collect(),
-            sample_names:sample_names.iter().cloned().collect(),
-            sample_indecies: sample_indecies.iter().cloned().collect(),
-            draw_order:draw_order,
+
             index:0,
             dimensions:dim,
-            // feature_dictionary: feature_dictionary,
             dropout:parameters.dropout,
+
+            features: features.iter().cloned().collect(),
+            samples: samples.iter().cloned().collect(),
 
             norm_mode: parameters.norm_mode,
             dispersion_mode: parameters.dispersion_mode,
@@ -88,10 +71,8 @@ impl RankTable {
     pub fn empty() -> RankTable {
         RankTable {
             meta_vector:vec![],
-            feature_names:vec![],
-            sample_names:vec![],
-            sample_indecies: vec![],
-            draw_order:vec![],
+            features:vec![],
+            samples:vec![],
             index:0,
             dimensions:(0,0),
             // feature_dictionary: HashMap::with_capacity(0),
@@ -123,38 +104,22 @@ impl RankTable {
         self.dispersions().into_iter().zip(self.dispersions().into_iter()).map(|x| x.0/x.1).map(|y| if y.is_nan() {0.} else {y}).collect()
     }
 
-    // pub fn sort_by_feature(& self, feature: &str) -> (Vec<usize>,HashSet<usize>) {
-    //
-    //     self.meta_vector[self.feature_dictionary[feature]].draw_and_drop()
-    //
-    // }
+
 
     pub fn sort_by_feature(&self, feature:usize) -> (Vec<usize>,HashSet<usize>) {
         self.meta_vector[feature].draw_and_drop()
     }
 
-    // pub fn split_indecies_by_feature(&self, feature: &str, split: &f64) -> (Vec<usize>,Vec<usize>){
-    //     self.meta_vector[self.feature_dictionary[feature]].split_indecies(split)
-    // }
-
-    // pub fn feature_name(&self, feature_index: usize) -> Option<&String> {
-    //     self.feature_names.get(feature_index)
-    // }
-    //
-    // pub fn feature_index(&self, feature_name: &str) -> Option<&usize> {
-    //     self.feature_dictionary.get(feature_name)
-    // }
-    //
     pub fn feature_fetch(&self, feature: usize, sample: usize) -> f64 {
         self.meta_vector[feature].fetch(sample)
     }
 
-    pub fn features(&self) -> &Vec<String> {
-        &self.feature_names
+    pub fn features(&self) -> &[Feature] {
+        &self.features[..]
     }
 
     pub fn sample_name(&self, index:usize) -> String {
-        self.sample_names[index].clone()
+        self.samples[index].name.clone()
     }
 
     pub fn full_values(&self) -> Vec<Vec<f64>> {
@@ -169,8 +134,8 @@ impl RankTable {
         self.meta_vector.iter().map(|x| x.ordered_values()).collect()
     }
 
-    pub fn samples(&self) -> &[String] {
-        &self.sample_names[..]
+    pub fn samples(&self) -> &[Sample] {
+        &self.samples[..]
     }
 
     pub fn dispersion_mode(&self) -> DispersionMode {
@@ -181,78 +146,51 @@ impl RankTable {
         self.dispersion_mode = dispersion_mode;
     }
 
-    pub fn derive(&self, indecies:&[usize]) -> RankTable {
+    pub fn derive(&self, samples:&[usize]) -> RankTable {
 
-        let mut new_meta_vector: Vec<Arc<RankVector<Vec<Node>>>> = Vec::with_capacity(indecies.len());
+        let dummy_features: Vec<usize> = (0..self.features.len()).collect();
 
-        let index_set: HashSet<&usize> = indecies.iter().collect();
-
-        let mut new_sample_dictionary: HashMap<String,usize> = HashMap::with_capacity(indecies.len());
-
-        let mut new_sample_names: Vec<String> = Vec::with_capacity(indecies.len());
-
-        let mut new_sample_indecies: Vec<usize> = Vec::with_capacity(indecies.len());
-
-        for (i,sample_name) in self.sample_names.iter().enumerate() {
-            if index_set.contains(&i) {
-                new_sample_names.push(sample_name.clone());
-                new_sample_indecies.push(self.sample_indecies[i]);
-                new_sample_dictionary.insert(sample_name.clone(),new_sample_names.len()-1);
-            }
-        }
-
-        for feature in &self.meta_vector {
-            new_meta_vector.push(Arc::new(feature.derive(indecies)));
-        }
-
-        let new_draw_order: Vec<usize> = (0..indecies.len()).collect();
-
-        let dimensions = (self.meta_vector.len(),self.meta_vector.get(0).map(|x| x.raw_len()).unwrap_or(0));
-
-        let child = RankTable {
-
-            meta_vector: new_meta_vector,
-            feature_names: self.feature_names.clone(),
-            sample_names: new_sample_names,
-            sample_indecies: new_sample_indecies,
-            draw_order: new_draw_order,
-            index: 0,
-            dimensions: dimensions,
-            dropout: self.dropout,
-            norm_mode: self.norm_mode,
-            dispersion_mode: self.dispersion_mode,
-            split_fraction_regularization: self.split_fraction_regularization,
-        };
-
-        // println!("{:?}",child.samples());
-        // println!("{:?}",child.features());
-        // println!("{:?}",child.full_ordered_values());
-
-        child
+        self.derive_specified(&dummy_features[..], samples)
 
     }
 
-    //
-    // pub fn arc_features(&mut self) -> Vec<RankVector<Vec<Node>>> {
-    //
-    //     let mut out = Vec::with_capacity(0);
-    //     swap(&mut self.meta_vector,&mut out);
-    //     out
-    // }
-    //
-    // pub fn return_features(&mut self, returned: Vec<RankVector<Vec<Node>>>) {
-    //     self.meta_vector = returned;
-    // }
+    pub fn filter_prototype_by_prerequisites(&self,prerequisites:&Vec<Prerequisite>) -> Vec<&Sample> {
 
-    pub fn derive_specified(&self, features:&Vec<usize>,samples:&Vec<usize>) -> RankTable {
+
+
+        let mut masks: Vec<Vec<bool>> = Vec::with_capacity(prerequisites.len());
+
+        for Prerequisite{feature:feature,split:split,orientation:orientation} in prerequisites {
+
+            // NOTE, VERY IMPORTANT, THIS PART WORKS ONLY IN THE PROTOTYPE
+            if *orientation {
+                masks.push(self.meta_vector[*feature.index()].full_values().iter().map(|v| v > split).collect())
+            }
+            else {
+                masks.push(self.meta_vector[*feature.index()].full_values().iter().map(|v| v < split).collect())
+            }
+
+        }
+
+        let mut filtered_samples = Vec::with_capacity(self.samples.len());
+
+        for sample in self.samples.iter() {
+            if masks.iter_mut().flat_map(|m| m.pop()).any(|x| x) {
+                filtered_samples.push(sample)
+            }
+        }
+
+        filtered_samples
+
+    }
+
+    pub fn derive_specified(&self, features:&[usize],samples:&[usize]) -> RankTable {
 
         let mut new_meta_vector: Vec<Arc<RankVector<Vec<Node>>>> = Vec::with_capacity(features.len());
 
-        let mut new_sample_names = samples.iter().map(|i| self.sample_names[*i].clone()).collect();
+        let mut new_samples = samples.iter().map(|i| self.samples[*i].clone()).collect();
 
-        let mut new_sample_indecies = samples.iter().map(|i| self.sample_indecies[*i].clone()).collect();
-
-        let mut new_feature_names = features.iter().map(|i| self.feature_names[*i].clone()).collect();
+        let mut new_features = features.iter().map(|i| self.features[*i].clone()).collect();
 
         let sample_stencil = Stencil::from_slice(samples);
 
@@ -265,10 +203,8 @@ impl RankTable {
         RankTable {
 
             meta_vector: new_meta_vector,
-            feature_names: new_feature_names,
-            sample_names: new_sample_names,
-            sample_indecies: new_sample_indecies,
-            draw_order: new_draw_order,
+            features: new_features,
+            samples: new_samples,
             index: 0,
             dimensions: dimensions,
             dropout: self.dropout,
@@ -280,54 +216,6 @@ impl RankTable {
 
     }
 
-    pub fn derive_random(&self, features:usize,samples:usize) -> RankTable {
-
-        let mut rng = rand::thread_rng();
-
-        let indecies = rand::seq::sample_iter(&mut rng, 0..self.sample_names.len(), samples).expect("Couldn't generate sample subset");
-
-        let index_set: HashSet<&usize> = indecies.iter().collect();
-
-        // println!("Derive debug {},{}", samples, indecies.len());
-
-        let mut new_meta_vector: Vec<Arc<RankVector<Vec<Node>>>> = Vec::with_capacity(features);
-
-        let new_sample_names: Vec<String> = self.sample_names.iter().enumerate().filter(|x| index_set.contains(&x.0)).map(|x| x.1).cloned().collect();
-        let new_sample_indecies: Vec<usize> = self.sample_indecies.iter().enumerate().filter(|x| index_set.contains(&x.0)).map(|x| x.1).cloned().collect();
-        let new_sample_dictionary : HashMap<String,usize> = new_sample_names.iter().enumerate().map(|(count,sample)| (sample.clone(),count)).collect();
-
-        // let mut new_feature_dictionary = HashMap::with_capacity(features);
-        let mut new_feature_names = Vec::with_capacity(features);
-
-        for (i,feature) in rand::seq::sample_iter(&mut rng, self.feature_names.iter().enumerate(), features).expect("Couldn't process feature during subsampling") {
-            new_meta_vector.push(Arc::new(self.meta_vector[i].derive(&indecies)));
-            new_feature_names.push(feature.clone());
-            // new_feature_dictionary.insert(feature.clone(),new_feature_names.len()-1);
-        }
-
-        let new_draw_order: Vec<usize> = (0..indecies.len()).collect();
-
-        let dimensions = (new_meta_vector.len(),new_meta_vector.get(0).map(|x| x.raw_len()).unwrap_or(0));
-
-        //
-        // println!("Feature dict {:?}", new_feature_dictionary.clone());
-        // println!("New sample dict {:?}", new_sample_dictionary.clone());
-
-        RankTable {
-
-            meta_vector: new_meta_vector,
-            feature_names: new_feature_names,
-            sample_names: new_sample_names,
-            sample_indecies: new_sample_indecies,
-            draw_order: new_draw_order,
-            index: 0,
-            dimensions: dimensions,
-            dropout: self.dropout,
-            norm_mode: self.norm_mode,
-            dispersion_mode: self.dispersion_mode,
-            split_fraction_regularization: self.split_fraction_regularization,
-        }
-    }
 
     pub fn parallel_split_order_min(&self,draw_order:&Vec<usize>, drop_set: &HashSet<usize>,feature_weights:Option<&Vec<f64>>, pool:mpsc::Sender<FeatureMessage>) -> Option<(usize,usize,f64)> {
 
@@ -340,15 +228,15 @@ impl RankTable {
         if let Some(disp_mtx) = disp_mtx_opt {
 
             if let Some((split_index, raw_split_dispersion)) = match self.norm_mode {
-                NormMode::L1 => l1_minimum(&disp_mtx, feature_weights.unwrap_or(&vec![1.;self.feature_names.len()])),
-                NormMode::L2 => l2_minimum(&disp_mtx, feature_weights.unwrap_or(&vec![1.;self.feature_names.len()])),
+                NormMode::L1 => l1_minimum(&disp_mtx, feature_weights.unwrap_or(&vec![1.;self.features.len()])),
+                NormMode::L2 => l2_minimum(&disp_mtx, feature_weights.unwrap_or(&vec![1.;self.features.len()])),
             } {
 
                 // println!("Raw dispersion: {}", raw_split_dispersion);
 
                 let split_sample_index = draw_order[split_index];
 
-                let minimum = (split_index,split_sample_index,raw_split_dispersion * ((self.sample_names.len() - draw_order.len() + 1) as f64));
+                let minimum = (split_index,split_sample_index,raw_split_dispersion * ((self.samples.len() - draw_order.len() + 1) as f64));
 
                 // println!("Minimum: {:?}", minimum);
 
@@ -372,8 +260,8 @@ impl RankTable {
         if let Some(disp_mtx) = disp_mtx_opt {
 
             let mut maximum = match self.norm_mode {
-                NormMode::L1 => l1_maximum(&disp_mtx, feature_weights.unwrap_or(&vec![1.;self.feature_names.len()])),
-                NormMode::L2 => l2_maximum(&disp_mtx, feature_weights.unwrap_or(&vec![1.;self.feature_names.len()])),
+                NormMode::L1 => l1_maximum(&disp_mtx, feature_weights.unwrap_or(&vec![1.;self.features.len()])),
+                NormMode::L2 => l2_maximum(&disp_mtx, feature_weights.unwrap_or(&vec![1.;self.features.len()])),
             };
 
             maximum = maximum.map(|z| (z.0, z.1 * draw_order.len() as f64));
@@ -486,10 +374,8 @@ impl RankTable {
     pub fn wrap_consume(self) -> RankTableWrapper{
         RankTableWrapper {
             meta_vector:self.meta_vector.into_iter().map(|x| Arc::try_unwrap(x).expect("Failed to unwrap value during serialization")).collect(),
-            feature_names:self.feature_names,
-            sample_names:self.sample_names,
-            sample_indecies:self.sample_indecies,
-            draw_order:self.draw_order,
+            features:self.features,
+            samples:self.samples,
             index:0,
             dimensions:self.dimensions,
             dropout:self.dropout,
@@ -505,10 +391,8 @@ impl RankTable {
 #[derive(Debug,Clone,Serialize,Deserialize)]
 pub struct RankTableWrapper {
     meta_vector: Vec<RankVector<Vec<Node>>>,
-    pub feature_names: Vec<String>,
-    pub sample_names: Vec<String>,
-    sample_indecies: Vec<usize>,
-    draw_order: Vec<usize>,
+    features: Vec<Feature>,
+    samples: Vec<Sample>,
     index: usize,
     pub dimensions: (usize,usize),
     dropout: DropMode,
@@ -522,10 +406,8 @@ impl RankTableWrapper {
     pub fn unwrap(self) -> RankTable {
         RankTable {
             meta_vector:self.meta_vector.into_iter().map(|x| Arc::new(x)).collect(),
-            feature_names:self.feature_names,
-            sample_names:self.sample_names,
-            sample_indecies:self.sample_indecies,
-            draw_order:self.draw_order,
+            features:self.features,
+            samples:self.samples,
             index:0,
             dimensions:self.dimensions,
             dropout:self.dropout,
@@ -536,6 +418,86 @@ impl RankTableWrapper {
         }
     }
 }
+
+#[derive(Debug,Clone,Serialize,Deserialize,PartialEq)]
+pub struct Feature {
+    name: String,
+    index: usize,
+}
+
+impl Feature {
+
+    pub fn vec(input: Vec<usize>) -> Vec<Feature> {
+        input.iter().map(|x| Feature::q(x)).collect()
+    }
+
+    pub fn nvec(input: &Vec<String>) -> Vec<Feature> {
+        input.iter().enumerate().map(|(i,f)| Feature::new(f,&i)).collect()
+    }
+
+    pub fn q(index:&usize) -> Feature {
+        Feature {name: index.to_string(),index:*index}
+    }
+
+    pub fn new(name:&str,index:&usize) -> Feature {
+        Feature {name: name.to_owned(),index:*index}
+    }
+
+    pub fn name(&self) -> &String {
+        &self.name
+    }
+
+    pub fn index(&self) -> &usize {
+        &self.index
+    }
+}
+
+#[derive(Debug,Clone,Serialize,Deserialize,PartialEq)]
+pub struct Sample {
+    name: String,
+    index: usize,
+}
+
+impl Sample {
+
+    pub fn vec(input: Vec<usize>) -> Vec<Sample> {
+        input.iter().map(|x| Sample::q(x)).collect()
+    }
+
+    pub fn nvec(input: &Vec<String>) -> Vec<Sample> {
+        input.iter().enumerate().map(|(i,s)| Sample::new(s,&i)).collect()
+    }
+
+    pub fn q(index:&usize) -> Sample {
+        Sample {name: index.to_string(),index:*index}
+    }
+
+    pub fn new(name:&str,index:&usize) -> Sample {
+        Sample {name: name.to_owned(),index:*index}
+    }
+
+    pub fn name(&self) -> &String {
+        &self.name
+    }
+
+    pub fn index(&self) -> &usize {
+        &self.index
+    }
+}
+
+#[derive(Debug,Clone,Serialize,Deserialize)]
+pub struct Prerequisite {
+    feature: Feature,
+    split: f64,
+    orientation: bool
+}
+
+impl Prerequisite {
+    pub fn new(feature:Feature,split:f64,orientation:bool) -> Prerequisite {
+        Prerequisite {feature,split,orientation}
+    }
+}
+
 
 pub fn l2_minimum(mtx_in:&Vec<Vec<f64>>, weights: &Vec<f64>) -> Option<(usize,f64)> {
 
@@ -617,7 +579,7 @@ mod rank_table_tests {
 
     #[test]
     fn rank_table_general_test() {
-        let table = RankTable::new(&vec![vec![1.,2.,3.],vec![4.,5.,6.],vec![7.,8.,9.]], &vec!["one".to_string(),"two".to_string(),"three".to_string()], &vec!["0".to_string(),"1".to_string(),"2".to_string()],&vec![1,2,3],blank_parameter());
+        let table = RankTable::new(&vec![vec![1.,2.,3.],vec![4.,5.,6.],vec![7.,8.,9.]], &Feature::vec(vec![1,2,3])[..],&Sample::vec(vec![1,2,3])[..],blank_parameter());
         assert_eq!(table.medians(),vec![2.,5.,8.]);
 
         // This assertion tests a default dispersion of SSME
@@ -631,7 +593,7 @@ mod rank_table_tests {
     fn rank_table_trivial_test() {
         let mut params = Parameters::empty();
         params.dropout = DropMode::No;
-        let table = RankTable::new(&Vec::new(), &Vec::new(), &Vec::new(),&Vec::new(),Arc::new(params));
+        let table = RankTable::new(&Vec::new(), &Vec::new(),&Vec::new(),Arc::new(params));
         let empty: Vec<f64> = Vec::new();
         assert_eq!(table.medians(),empty);
         assert_eq!(table.dispersions(),empty);
@@ -639,7 +601,7 @@ mod rank_table_tests {
 
     #[test]
     pub fn rank_table_simple_test() {
-        let table = RankTable::new(&vec![vec![10.,-3.,0.,5.,-2.,-1.,15.,20.]], &vec!["one".to_string()], &(0..8).map(|x| x.to_string()).collect::<Vec<String>>()[..],&vec![1,2,3,4,5,6,7],blank_parameter());
+        let table = RankTable::new(&vec![vec![10.,-3.,0.,5.,-2.,-1.,15.,20.]], &Feature::vec(vec![1])[..],&Sample::vec(vec![1,2,3,4,5,6,7])[..],blank_parameter());
         // let draw_order = table.sort_by_feature("one");
         // println!("{:?}",draw_order);
         // let mad_order = table.meta_vector[*table.feature_index("one").unwrap()].clone_to_container(SmallVec::new()).ordered_meds_mads(&draw_order.0,draw_order.1);
@@ -648,7 +610,7 @@ mod rank_table_tests {
 
     #[test]
     pub fn split() {
-        let mut table = RankTable::new(&vec![vec![10.,-3.,0.,5.,-2.,-1.,15.,20.]], &vec!["one".to_string()], &(0..8).map(|x| x.to_string()).collect::<Vec<String>>()[..],&vec![1,2,3,4,5,6,7],blank_parameter());
+        let mut table = RankTable::new(&vec![vec![10.,-3.,0.,5.,-2.,-1.,15.,20.]], &Feature::vec(vec![1])[..],&Sample::vec(vec![1,2,3,4,5,6,7])[..],blank_parameter());
         let pool = FeatureThreadPool::new(1);
         // let mut draw_order = {(table.sort_by_feature("one").0.clone(),table.sort_by_feature("one").1.clone())};
 
@@ -661,7 +623,7 @@ mod rank_table_tests {
 
     #[test]
     pub fn rank_table_derive_test() {
-        let mut table = RankTable::new(&vec![vec![10.,-3.,0.,5.,-2.,-1.,15.,20.]], &vec!["one".to_string()], &(0..8).map(|x| x.to_string()).collect::<Vec<String>>()[..],&vec![1,2,3,4,5,6,7],blank_parameter());
+        let mut table = RankTable::new(&vec![vec![10.,-3.,0.,5.,-2.,-1.,15.,20.]],&Feature::vec(vec![1])[..],&Sample::vec(vec![1,2,3,4,5,6,7])[..],blank_parameter());
         let kid1 = table.derive(&vec![0,2,4,6]);
         let kid2 = table.derive(&vec![1,3,5,7]);
         println!("{:?}",kid1);
@@ -680,7 +642,7 @@ mod rank_table_tests {
 
     #[test]
     pub fn rank_table_derive_empty_test() {
-        let table = RankTable::new(&vec![vec![10.,-3.,0.,5.,-2.,-1.,15.,20.],vec![0.,1.,0.,1.,0.,1.,0.,1.]], &vec!["one".to_string(),"two".to_string()], &(0..8).map(|x| x.to_string()).collect::<Vec<String>>()[..],&vec![1,2,3,4,5,6,7],blank_parameter());
+        let table = RankTable::new(&vec![vec![10.,-3.,0.,5.,-2.,-1.,15.,20.],vec![0.,1.,0.,1.,0.,1.,0.,1.]], &Feature::vec(vec![1,2])[..],&Sample::vec(vec![1,2,3,4,5,6,7])[..],blank_parameter());
         let kid1 = table.derive(&vec![0,2,4,6]);
         let kid2 = table.derive(&vec![1,3,5,7]);
     }

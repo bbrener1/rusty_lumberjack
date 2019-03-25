@@ -14,9 +14,8 @@ use serde_json;
 extern crate rand;
 
 
-use node::Node;
-use node::NodeWrapper;
-use node::StrippedNode;
+use node::{Node,NodeWrapper,StrippedNode};
+use rank_table::{Feature,Sample};
 use split_thread_pool::SplitThreadPool;
 use split_thread_pool::SplitMessage;
 use io::DispersionMode;
@@ -37,12 +36,12 @@ pub struct Tree {
 
 impl<'a> Tree {
 
-    pub fn prototype_tree(inputs:&Vec<Vec<f64>>,outputs:&Vec<Vec<f64>>,sample_names:&[String],sample_indecies:&[usize],input_features: &[String],output_features:&[String], feature_weight_option: Option<Vec<f64>>, parameters: Arc<Parameters> ,report_address: String) -> Tree {
+    pub fn prototype_tree(inputs:&Vec<Vec<f64>>,outputs:&Vec<Vec<f64>>,input_features:&[Feature],output_features:&[Feature],samples:&[Sample], feature_weight_option: Option<Vec<f64>>, parameters: Arc<Parameters> ,report_address: String) -> Tree {
         // let pool = ThreadPool::new(processor_limit);
         let processor_limit = parameters.processor_limit;
         let split_thread_pool = SplitThreadPool::new(1);
         // let mut root = Node::root(counts,feature_names,sample_names,input_features,output_features,pool.clone());
-        let root = Node::feature_root(inputs,outputs,input_features,output_features,sample_names,sample_indecies, parameters.clone() , feature_weight_option.clone() ,split_thread_pool.clone());
+        let root = Node::feature_root(inputs,outputs,input_features,output_features,samples, parameters.clone() , feature_weight_option.clone() ,split_thread_pool.clone());
         let weights = feature_weight_option;
 
         Tree{
@@ -157,7 +156,7 @@ impl<'a> Tree {
 
     pub fn derive_specified(&self,samples:&Vec<usize>,input_features:&Vec<usize>,output_features:&Vec<usize>,iteration: usize) -> Tree {
 
-        let new_root = self.root.derive_specified(samples,input_features,output_features,"RT");
+        let new_root = self.root.derive_specified(samples,input_features,output_features,"RT",None);
 
         let mut address: Vec<String> = self.report_address.split('.').map(|x| x.to_string()).collect();
         *address.last_mut().unwrap() = iteration.to_string();
@@ -180,7 +179,7 @@ impl<'a> Tree {
 
         println!("Deriving from prototype: {},{},{}",samples,input_features,output_features);
 
-        let new_root = self.root.derive_random(samples,input_features,output_features,"RT");
+        let new_root = self.root.derive_random(samples,input_features,output_features,"RT",None);
 
         let mut address: Vec<String> = self.report_address.split('.').map(|x| x.to_string()).collect();
         *address.last_mut().unwrap() = iteration.to_string();
@@ -282,15 +281,23 @@ impl<'a> Tree {
         Ok(())
     }
 
-    pub fn input_features(&self) -> &Vec<String> {
+    pub fn input_features(&self) -> &[Feature] {
         &self.root.input_features()
     }
 
-    pub fn samples(&self) -> &Vec<String> {
+    pub fn input_feature_names(&self) -> Vec<String> {
+        self.root.input_feature_names()
+    }
+
+    pub fn output_feature_names(&self) -> Vec<String> {
+        self.root.output_feature_names()
+    }
+
+    pub fn samples(&self) -> &[Sample] {
         self.root.samples()
     }
 
-    pub fn output_features(&self) -> &Vec<String> {
+    pub fn output_features(&self) -> &[Feature] {
         &self.root.output_features()
     }
 

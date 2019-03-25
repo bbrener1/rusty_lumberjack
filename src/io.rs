@@ -104,6 +104,8 @@ pub fn construct(mut args: Parameters) {
 
     rnd_forest.generate(arc_params.clone(),false);
 
+    
+
 }
 
 pub fn predict(args: Parameters) {

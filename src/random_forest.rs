@@ -1,9 +1,13 @@
 use std::fs::File;
+use std::io::Write;
 use std::io::Error;
 use std::io::BufRead;
 use std::io;
 use std::collections::HashMap;
 use std::sync::mpsc;
+
+
+use std::fs::OpenOptions;
 
 use tree::Tree;
 use tree::PredictiveTree;
@@ -14,6 +18,8 @@ use rand::seq;
 use io::DropMode;
 use io::Parameters;
 use io::TreeBackups;
+use rank_table::Feature;
+use rank_table::Sample;
 use split_thread_pool::SplitThreadPool;
 use tree_thread_pool::TreeThreadPool;
 use std::sync::Arc;
@@ -28,9 +34,13 @@ impl Forest {
 
         let report_string = format!("{}.0",report_address).to_string();
 
-        let sample_indecies: Vec<usize> = parameters.sample_names.iter().enumerate().map(|(i,x)| i).collect();
+        let samples = Sample::nvec(&parameters.sample_names);
 
-        let prototype_tree = Tree::prototype_tree(&input_array,&output_array,&parameters.sample_names,&sample_indecies[..],&parameters.input_feature_names,&parameters.output_feature_names,None, parameters.clone() ,report_string);
+        let input_features = Feature::nvec(&parameters.input_feature_names);
+
+        let output_features = Feature::nvec(&parameters.output_feature_names);
+
+        let prototype_tree = Tree::prototype_tree(&input_array,&output_array,&input_features,&output_features,&samples,None, parameters.clone() ,report_string);
 
         prototype_tree.serialize_compact();
 
@@ -43,10 +53,11 @@ impl Forest {
             size: tree_limit,
             prototype_tree: Some(prototype_tree),
             processor_limit: processor_limit,
+            parameters: parameters.clone(),
         }
     }
 
-    pub fn generate(&mut self, parameters:Arc<Parameters>, remember: bool) {
+    pub fn generate(&mut self, parameters:Arc<Parameters>, remember: bool) -> Result<(),Error> {
 
         if let Some(ref prototype) = self.prototype_tree {
 
@@ -74,8 +85,16 @@ impl Forest {
 
             }
 
-            TreeThreadPool::terminate(&mut tree_pool);
+            let mut output_header_dump = OpenOptions::new().create(true).append(false).open([&self.parameters.report_address.clone(),".ifh"].join(""))?;
+            output_header_dump.write(self.prototype_tree.as_ref().unwrap().input_feature_names().join("\n").as_bytes())?;
+            output_header_dump.write(b"\n")?;
 
+            let mut output_header_dump = OpenOptions::new().create(true).append(false).open([&self.parameters.report_address.clone(),".ofh"].join(""))?;
+            output_header_dump.write(self.prototype_tree.as_ref().unwrap().output_feature_names().join("\n").as_bytes())?;
+            output_header_dump.write(b"\n")?;
+
+
+            TreeThreadPool::terminate(&mut tree_pool);
 
             // let samples_per_tree = parameters.sample_subsample.unwrap_or(1);
             // let input_features = parameters.input_features.unwrap_or(1);
@@ -92,6 +111,7 @@ impl Forest {
             //     }
             // }
 
+            Ok(())
         }
         else {
             panic!("Attempted to generate a forest without a prototype tree. Are you trying to do predictions after reloading from compact backups?")
@@ -172,6 +192,7 @@ impl Forest {
             }
         }
 
+        let parameters = Arc::new(Parameters::empty());
 
         let prototype_tree = predictive_trees.remove(0);
 
@@ -189,6 +210,7 @@ impl Forest {
             processor_limit: processor_option.unwrap_or(1),
             trees: Vec::new(),
             predictive_trees: predictive_trees,
+            parameters:parameters
         })
 
     }
@@ -232,6 +254,7 @@ impl Forest {
 
         let report_string = format!("{}.reconstituted.0",report_address).to_string();
 
+        let parameters = Arc::new(Parameters::empty());
 
         Ok (Forest {
             size: trees.len(),
@@ -239,6 +262,7 @@ impl Forest {
             processor_limit: processor_option.unwrap_or(1),
             trees: trees,
             predictive_trees: Vec::new(),
+            parameters: parameters,
         })
     }
 
@@ -299,12 +323,12 @@ impl Forest {
         self.prototype_tree.as_ref().unwrap().dimensions()
     }
 
-    pub fn input_features(&self) -> Option<&Vec<String>>  {
-        self.prototype_tree.as_ref().map(|x| x.input_features())
+    pub fn input_features(&self) -> Option<Vec<String>>  {
+        self.prototype_tree.as_ref().map(|x| x.input_feature_names())
     }
 
-    pub fn output_features(&self) -> Option<&Vec<String>> {
-        self.prototype_tree.as_ref().map(|x| x.output_features())
+    pub fn output_features(&self) -> Option<Vec<String>> {
+        self.prototype_tree.as_ref().map(|x| x.output_feature_names())
     }
 
     pub fn feature_map(&self) -> Option<HashMap<String,usize>> {
@@ -312,7 +336,7 @@ impl Forest {
     }
 
     pub fn sample_map(&self) -> HashMap<String,usize> {
-        self.prototype_tree.as_ref().unwrap().samples().iter().cloned().enumerate().map(|x| (x.1,x.0)).collect()
+        self.prototype_tree.as_ref().unwrap().samples().iter().map(|s| (s.name().clone(),s.index().clone())).collect()
     }
 
     // pub fn random_features(&self, n_features) -> &Vec<&String> {
@@ -332,6 +356,7 @@ pub struct Forest {
     size: usize,
     prototype_tree: Option<Tree>,
     processor_limit: usize,
+    parameters: Arc<Parameters>,
 }
 
 fn split_shuffle<T>(source_vector: Vec<T>, pieces: usize) -> Vec<Vec<T>> {
