@@ -144,8 +144,47 @@ class IHMM():
     ##  - New states discovered
     ##  - Loop back to recomputing transitions & hypers
 
+    def establish_parameters(self):
+
+        ## This method establishes descriptive parameters given some sequence of hidden states over the node sequences.
+
+        print(self.hidden_states)
+        print(self.node_states)
+        print(list(np.sum(self.state_masks,axis=1)))
+
+        ### Here we re-assign hidden states to cleaned up indecies, in order to eliminate hidden states that no longer exist
+
+        self.node_states = self.clean_state_indeces(self.node_states)
+
+        ## Here we update the states assigned to the children of each node, this is setup to count the transition frequencies
+
+        self.update_node_relations()
+
+        ## State masks are a more conveninet way of storing which nodes belong to which states. They are numpy boolean mask arrays
+
+        self.state_masks = self.recompute_state_masks(self.node_states)
+
+        ## Here we compute the state log odds of emission for each sample for each state given the node assignments above
+
+        self.state_sample_log_odds,self.state_raw_emission_counts,self.state_flips = self.recompute_state_sample_log_odds(self.hidden_states,self.total_samples,self.alpha_e,self.beta_e,self.state_masks,self.state_sample_log_odds,self.divergence_l,self.divergence_r)
+
+        ## And here we count the transition counts
+
+        self.transition_counts = self.recompute_transition_counts(self.live_mask,self.oracle_indicator_l,self.oracle_indicator_r,self.hidden_states,self.node_states,self.child_state_l,self.child_state_r)
+
+        ## Here we count which transitions occurred through an oracle in order to recalculate the oracle transition frequencies
+
+        self.oracle_transition_matrix = self.recompute_oracle_transition_matrix(self.hidden_states,self.oracle_indicator_l,self.oracle_indicator_r,self.node_states,self.child_state_l,self.child_state_r)
+        self.oracle_transition_counts = self.recompute_oracle_transition_counts(self.oracle_transition_matrix)
+
+        ## And finally here, on the basis of how often the oracle was used and the number of observed states, we sample the hyperparameters
+
+        self.sample_hypers()
+
 
     def sweep(self):
+
+        print("Sweep")
 
         self.establish_parameters()
 
@@ -159,7 +198,9 @@ class IHMM():
 
         ## First we establish the log odds of a given state based on the divergence observed
 
-        self.state_log_odds_given_divergence = self.compute_state_log_odds_given_divergence(self.divergence_l,self.divergence_r,self.state_sample_log_odds)
+        self.state_log_odds_given_divergence = self.compute_state_log_odds_given_divergence(self.divergence_l,self.divergence_r,self.state_flips,self.state_masks,self.state_sample_log_odds)
+
+        ## This matrix contains only odds of existing states based on divergence, eg it is hidden_states x nodes in dimension
 
         ## We need to pad this with the odds of a new state. A priori we have no information about this new state based on divergence, so the odds are 0
 
@@ -273,44 +314,6 @@ class IHMM():
         self.node_states = new_node_states
         self.establish_parameters()
 
-    def establish_parameters(self):
-
-        ## This method establishes descriptive parameters given some sequence of hidden states over the node sequences.
-
-        print("Sweep debug")
-
-        print(self.hidden_states)
-        print(self.node_states)
-        print(list(np.sum(self.state_masks,axis=1)))
-
-        ### Here we re-assign hidden states to cleaned up indecies, in order to eliminate hidden states that no longer exist
-
-        self.node_states = self.clean_state_indeces(self.node_states)
-
-        ## Here we update the states assigned to the children of each node, this is setup to count the transition frequencies
-
-        self.update_node_relations()
-
-        ## State masks are a more conveninet way of storing which nodes belong to which states. They are numpy boolean mask arrays
-
-        self.state_masks = self.recompute_state_masks(self.node_states)
-
-        ## Here we compute the state log odds of emission for each sample for each state given the node assignments above
-
-        self.state_sample_log_odds,self.state_raw_sample_odds = self.recompute_state_sample_log_odds(self.hidden_states,self.total_samples,self.alpha_e,self.beta_e,self.state_masks,self.state_sample_log_odds,self.divergence_l,self.divergence_r)
-
-        ## And here we count the transition counts
-
-        self.transition_counts = self.recompute_transition_counts(self.live_mask,self.oracle_indicator_l,self.oracle_indicator_r,self.hidden_states,self.node_states,self.child_state_l,self.child_state_r)
-
-        ## Here we count which transitions occurred through an oracle in order to recalculate the oracle transition frequencies
-
-        self.oracle_transition_matrix = self.recompute_oracle_transition_matrix(self.hidden_states,self.oracle_indicator_l,self.oracle_indicator_r,self.node_states,self.child_state_l,self.child_state_r)
-        self.oracle_transition_counts = self.recompute_oracle_transition_counts(self.oracle_transition_matrix)
-
-        ## And finally here, on the basis of how often the oracle was used and the number of observed states, we sample the hyperparameters
-
-        self.sample_hypers()
 
     def sample_hypers(self):
 
@@ -425,8 +428,14 @@ class IHMM():
 
         print("Recomputing Sample Log Odds")
 
-        new_state_sample_log_odds = np.zeros((states,samples))
-        new_raw_sample_odds = np.zeros((states,samples))
+        # new_state_sample_log_odds_l = np.zeros((states,samples))
+        # new_state_sample_log_odds_c = np.zeros((states,samples))
+        # new_state_sample_log_odds_r = np.zeros((states,samples))
+        new_state_sample_log_odds = np.zeros((states,samples,3))
+
+        state_flips = np.zeros((states,samples),dtype=bool)
+
+        new_raw_emission_counts = np.zeros((states,samples,2))
 
         sample_totals = np.sum(divergence_l,axis=0) + np.sum(divergence_r,axis=0)
 
@@ -460,9 +469,7 @@ class IHMM():
 
             state_sample_log_tile = np.tile(state_sample_log_odds[i],(np.sum(state_mask),1))
 
-            # print(state_sample_log_tile.shape)
-
-            # print(state_sample_log_tile.shape)
+            ## Here we created a mask with dimensions of # of nodes in state x samples
 
             left_log_odds = np.zeros(l.shape)
             left_log_odds[l] = state_sample_log_tile[l]
@@ -473,17 +480,14 @@ class IHMM():
             ## Next we sum the log odds to obtain total log odds of the fit of each side of the divergence
             ## to the state model
 
+            ## Recall that each state model models the odds of a sample going left.
+
             left_fit = np.sum(left_log_odds,axis=1)
             right_fit = np.sum(right_log_odds,axis=1)
-
-            # print(left_fit.shape)
-            # print(right_fit.shape)
 
             ## If right fit is better than left fit, we would like to flip
 
             flip = right_fit > left_fit
-
-            # print(flip.shape)
 
             ## Next we want to figure out the totals going left and right
 
@@ -499,36 +503,32 @@ class IHMM():
             l_total = l_total.astype(dtype=float)
             r_total = r_total.astype(dtype=float)
 
-            l_total = l_total + alpha_e
-
-            r_total = r_total + beta_e
-
             state_total = l_total + r_total
 
-            # ext_l = sample_totals - l_total + (2 * alpha_e)
-            ext_total = sample_totals - state_total + (2* beta_e) / states
+            ## Now one last trick remains: we have to pre-compute the odds if a node is removed from this state during evaluation
+            ## This will allow us to compute a gibbs sweep in which a node is being evaluated that initially belonged to this state
+            ##
+
+            l_total_m = l_total - 1
+            r_total_m = r_total - 1
+            state_total_m = state_total - 1
 
             ## The new log odds are now ready to be computed:
 
-            # print(l_total)
-            # print(state_total)
+            new_state_sample_log_odds_l[i,:,0] = np.log2(l_total_m + alpha_e / r_total + beta_e)
+            new_state_sample_log_odds_c[i,:,1] = np.log2(l_total + alpha_e / r_total + beta_e)
+            new_state_sample_log_odds_r[i,:,2] = np.log2(l_total + alpha_e / r_total_m + beta_e)
 
-            # print(ext_l)
-            # print(ext_total)
+            new_raw_emission_counts[i,:,0] = l_total
+            new_raw_emission_counts[i,:,1] = r_total
 
-            # new_state_sample_log_odds[i] = np.log2((l_total/state_total) / (ext_l/ext_total))
-
-            # new_state_sample_log_odds[i] = np.log2(l_total/r_total)
-
-            new_state_sample_log_odds[i] = np.log2(l_total + ext_total/r_total + ext_total)
-            new_raw_sample_odds[i] = np.log2(l_total/r_total)
-            # posterior_probability = (l_total/(l_total + r_total))
-            # posterior_odds = (posterior_probability / (1 - posterior_probability))
-            # new_state_sample_log_odds[i] = np.log2(posterior_odds)
+            state_flips[i] = flip
 
         # print(new_state_sample_log_odds)
 
-        return new_state_sample_log_odds,new_raw_sample_odds
+        assert not (np.isnan(new_state_sample_log_odds).any())
+
+        return new_state_sample_log_odds,new_raw_emission_counts,state_flips
 
     def recompute_transition_counts(self,live_mask,oracle_indicator_l,oracle_indicator_r,states,node_states,child_state_l,child_state_r):
 
@@ -588,28 +588,71 @@ class IHMM():
 
         return new_oracle_transitions
 
-    def compute_state_log_odds_given_divergence(self,divergence_l,divergence_r,state_sample_log_odds):
+    def compute_state_log_odds_given_divergence(self,divergence_l,divergence_r,flip,state_mask,state_sample_log_odds):
 
         print("Computing state log odds | divergence")
 
-        node_output = self.pool.map(IHMM.node_state_log_odds_given_divergence,zip(divergence_l,divergence_r,repeat(state_sample_log_odds)))
+        ## Here we have a wrapper function that allows us to parallelize the node state odds computation
+        ## An inner function allows us to compute multiple states at the same time in a process pool
 
-        # print(node_output)
-        # print(np.array(node_output).shape)
+        node_output = self.pool.map(IHMM.node_state_log_odds_given_divergence,zip(divergence_l,divergence_r,flip,state_mask,repeat(state_sample_log_odds)))
 
         return np.array(node_output).T
 
+
     def node_state_log_odds_given_divergence(task):
 
-        dl,dr,state_sample_log_odds = task
+        ## Here we have a function for computing the log odds of each node's emissions for a state
 
-        l = np.sum(state_sample_log_odds[:,dl],axis=1)
-        r = np.sum(state_sample_log_odds[:,dr],axis=1)
+        dl,dr,flip,state_mask,state_sample_log_odds = task
+
+        ## First we compute the simple case, the odds of a node from a different state transitioning to this state:
+
+        l = np.sum(state_sample_log_odds[:,dl,1],axis=1)
+        r = np.sum(state_sample_log_odds[:,dr,1],axis=1)
 
         f = l-r
         r = r-l
 
-        return np.maximum(f,r)
+        odds = np.maximum(f,r)
+
+        ## Now the tricky part comes. When evaluating the odds of a node, the odds have to be evaluated as if this node was
+        ## NOT in the state it is currently assigned to. This allows unbiased evaluation of small states, and is especially
+        ## important for sparse data, where a single emission element can make a substantial difference in odds
+
+        ## First we compute the odds of the nodes that have not been flipped
+
+        ## Select the nodes that are from this state, and have not been flipped
+
+        hss = np.logical_and(state_mask,np.logical_not(flip))
+
+        ## Select the odds of each right sample, assuming one less right sample in the state emissions,
+        ## and each left sample assuming one less left sample in the state emissions
+
+        slh = np.sum(state_sample_log_odds[hss,dl[hss],0],axis=1)
+        srh = np.sum(state_sample_log_odds[hss,dr[hss],2],axis=1)
+
+        sfh = slh - slr
+        ssh = srh - slh
+
+        odds[hss] = np.maximum(sfh,ssh)
+
+        ## Now select the nodes that are from this state and flipped
+
+        hsf = np.logical_and(state_mask,flip)
+
+        ## Select the odds of each right sample, assuming one less right sample in the state emissions,
+        ## and each left sample assuming one less left sample in the state emissions
+
+        flh = np.sum(state_sample_log_odds[hsf,dr[hsf],0],axis=1)
+        frh = np.sum(state_sample_log_odds[hsf,dl[hsf],2],axis=1)
+
+        ffh = flh - frh
+        fsh = frh - flh
+
+        odds[hsf] = np.maximum(ffh,fsh)
+
+        return odds
 
     def compute_state_odds_given_child_direct_transition(self,beta,transition_counts,node_child_states):
 

@@ -115,6 +115,7 @@ impl Node {
 
             let (draw_order,drop_set) = self.input_table.sort_by_feature(input_feature);
 
+            println!("{:?}",draw_order);
             //
             // println!("Passed to thread pool");
 
@@ -173,8 +174,8 @@ impl Node {
             left_child_id.push_str(&format!("!F{}:S{}L",feature.name(),split_value));
             right_child_id.push_str(&format!("!F{}:S{}R",feature.name(),split_value));
 
-            // println!("{:?}",&left_indecies);
-            // println!("{:?}",&right_indecies);
+            println!("{:?}",&left_indecies);
+            println!("{:?}",&right_indecies);
 
             let left_child;
             let right_child;
@@ -1022,6 +1023,7 @@ mod node_testing {
 
     #[test]
     fn node_test_simple() {
+
         let mut root = simple_node();
 
         root.feature_parallel_derive(None);

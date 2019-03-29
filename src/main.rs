@@ -23,6 +23,7 @@ mod tree_thread_pool;
 mod feature_thread_pool;
 mod split_thread_pool;
 mod randutils;
+mod tree_braider4;
 
 use io::Parameters;
 use io::construct;

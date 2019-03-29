@@ -55,8 +55,8 @@ class Node:
         self.level = level
         self.feature = node_json['feature']
         self.split = node_json['split']
-        self.features = node_json['features']
-        self.samples = node_json['samples']
+        self.features = [f['name'] for f in node_json['features']]
+        self.samples = [s['name'] for s in node_json['samples']]
         self.medians = node_json['medians']
         self.dispersions = node_json['dispersions']
         self.weights = np.ones(len(self.features),dtype=float)

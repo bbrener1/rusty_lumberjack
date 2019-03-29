@@ -601,7 +601,7 @@ mod rank_table_tests {
 
     #[test]
     pub fn rank_table_simple_test() {
-        let table = RankTable::new(&vec![vec![10.,-3.,0.,5.,-2.,-1.,15.,20.]], &Feature::vec(vec![1])[..],&Sample::vec(vec![1,2,3,4,5,6,7])[..],blank_parameter());
+        let table = RankTable::new(&vec![vec![10.,-3.,0.,5.,-2.,-1.,15.,20.]], &Feature::vec(vec![1])[..],&Sample::vec(vec![0,1,2,3,4,5,6,7])[..],blank_parameter());
         // let draw_order = table.sort_by_feature("one");
         // println!("{:?}",draw_order);
         // let mad_order = table.meta_vector[*table.feature_index("one").unwrap()].clone_to_container(SmallVec::new()).ordered_meds_mads(&draw_order.0,draw_order.1);
@@ -610,7 +610,7 @@ mod rank_table_tests {
 
     #[test]
     pub fn split() {
-        let mut table = RankTable::new(&vec![vec![10.,-3.,0.,5.,-2.,-1.,15.,20.]], &Feature::vec(vec![1])[..],&Sample::vec(vec![1,2,3,4,5,6,7])[..],blank_parameter());
+        let mut table = RankTable::new(&vec![vec![10.,-3.,0.,5.,-2.,-1.,15.,20.]], &Feature::vec(vec![1])[..],&Sample::vec(vec![0,1,2,3,4,5,6,7])[..],blank_parameter());
         let pool = FeatureThreadPool::new(1);
         // let mut draw_order = {(table.sort_by_feature("one").0.clone(),table.sort_by_feature("one").1.clone())};
 
@@ -623,7 +623,7 @@ mod rank_table_tests {
 
     #[test]
     pub fn rank_table_derive_test() {
-        let mut table = RankTable::new(&vec![vec![10.,-3.,0.,5.,-2.,-1.,15.,20.]],&Feature::vec(vec![1])[..],&Sample::vec(vec![1,2,3,4,5,6,7])[..],blank_parameter());
+        let mut table = RankTable::new(&vec![vec![10.,-3.,0.,5.,-2.,-1.,15.,20.]],&Feature::vec(vec![1])[..],&Sample::vec(vec![0,1,2,3,4,5,6,7])[..],blank_parameter());
         let kid1 = table.derive(&vec![0,2,4,6]);
         let kid2 = table.derive(&vec![1,3,5,7]);
         println!("{:?}",kid1);
@@ -642,7 +642,7 @@ mod rank_table_tests {
 
     #[test]
     pub fn rank_table_derive_empty_test() {
-        let table = RankTable::new(&vec![vec![10.,-3.,0.,5.,-2.,-1.,15.,20.],vec![0.,1.,0.,1.,0.,1.,0.,1.]], &Feature::vec(vec![1,2])[..],&Sample::vec(vec![1,2,3,4,5,6,7])[..],blank_parameter());
+        let table = RankTable::new(&vec![vec![10.,-3.,0.,5.,-2.,-1.,15.,20.],vec![0.,1.,0.,1.,0.,1.,0.,1.]], &Feature::vec(vec![1,2])[..],&Sample::vec(vec![0,1,2,3,4,5,6,7])[..],blank_parameter());
         let kid1 = table.derive(&vec![0,2,4,6]);
         let kid2 = table.derive(&vec![1,3,5,7]);
     }
