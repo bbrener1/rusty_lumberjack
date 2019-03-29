@@ -63,7 +63,7 @@ def save_trees(location,input_counts,output_counts=None,ifh=None,ofh=None,**kwar
     inner_fit(input_counts,output_counts,location,ifh=(location + "tmp.ifh"),ofh=(location+"tmp.ofh"),**kwargs)
 
 
-def fit(input_counts,output_counts=None,ifh=None,ofh=None,**kwargs):
+def fit(input_counts,output_counts=None,ifh=None,ofh=None,backtrace=False,**kwargs):
 
     if output_counts is None:
         output_counts = input_counts
@@ -98,7 +98,7 @@ def fit(input_counts,output_counts=None,ifh=None,ofh=None,**kwargs):
 
     print("Generating trees")
 
-    inner_fit(input_counts,output_counts,location,ifh=location + 'tmp.ifh',ofh=location + 'tmp.ofh',**kwargs)
+    inner_fit(input_counts,output_counts,location,ifh=location + 'tmp.ifh',ofh=location + 'tmp.ofh',backtrace=backtrace,**kwargs)
 
     print("CHECK OUTPUT")
     print(os.listdir(tmp_dir.name))
@@ -110,7 +110,7 @@ def fit(input_counts,output_counts=None,ifh=None,ofh=None,**kwargs):
     return forest
 
 
-def inner_fit(input_counts,output_counts,location, **kwargs):
+def inner_fit(input_counts,output_counts,location,backtrace=False, **kwargs):
 
     # targets = "\n".join(["\t".join([str(y) for y in x]) for x in targets]) + "\n"
 
@@ -118,7 +118,12 @@ def inner_fit(input_counts,output_counts,location, **kwargs):
 
     print("Running " + str(path_to_rust))
 
-    arg_list = [str(path_to_rust),"generate","-ic",location + "input.counts","-oc",location + "output.counts","-o",location + "tmp","-auto"]
+    arg_list = []
+
+    # if backtrace:
+    #     arg_list.append("RUST_BACKTRACE=1")
+
+    arg_list.extend([str(path_to_rust),"generate","-ic",location + "input.counts","-oc",location + "output.counts","-o",location + "tmp","-auto"])
 
     for arg in kwargs.keys():
         arg_list.append("-" + str(arg))

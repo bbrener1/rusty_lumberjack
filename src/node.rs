@@ -114,8 +114,6 @@ impl Node {
             let (tx,rx) = mpsc::channel();
 
             let (draw_order,drop_set) = self.input_table.sort_by_feature(input_feature);
-
-            println!("{:?}",draw_order);
             //
             // println!("Passed to thread pool");
 
@@ -174,8 +172,8 @@ impl Node {
             left_child_id.push_str(&format!("!F{}:S{}L",feature.name(),split_value));
             right_child_id.push_str(&format!("!F{}:S{}R",feature.name(),split_value));
 
-            println!("{:?}",&left_indecies);
-            println!("{:?}",&right_indecies);
+            // println!("{:?}",&left_indecies);
+            // println!("{:?}",&right_indecies);
 
             let left_child;
             let right_child;
@@ -303,7 +301,7 @@ impl Node {
 
         let mut new_prerequisites = self.prerequisites.clone();
         if let Some(orientation) = orientation_option {
-            new_prerequisites.push(Prerequisite::new(self.feature().clone().unwrap(),self.split().clone().unwrap(),orientation));
+            new_prerequisites.push(Prerequisite::new(self.feature().clone().unwrap_or(Feature::new("Prototype",&0)),self.split().clone().unwrap_or(0.),orientation));
         }
 
         let medians = new_output_table.medians();
@@ -1031,11 +1029,17 @@ mod node_testing {
         // println!("{:?}", root.output_table.sort_by_feature("two"));
         // println!("{:?}", root.clone().output_table.parallel_dispersion(&root.output_table.sort_by_feature("two").0,&root.output_table.sort_by_feature("two").1,FeatureThreadPool::new(1)));
 
-        assert_eq!(&root.children[0].sample_names(),&vec!["1".to_string(),"3".to_string(),"4".to_string(),"5".to_string()]);
-        assert_eq!(&root.children[1].sample_names(),&vec!["0".to_string(),"6".to_string(),"7".to_string()]);
+        println!("sample_order:{:?}",root.children[0].output_table.full_values());
+
+        // assert_eq!(&root.children[0].sample_names(),&vec!["1".to_string(),"3".to_string(),"4".to_string(),"5".to_string()]);
+        // assert_eq!(&root.children[1].sample_names(),&vec!["0".to_string(),"6".to_string(),"7".to_string()]);
 
         // assert_eq!(root.children[0].samples(),&vec!["1".to_string(),"4".to_string(),"5".to_string()]);
         // assert_eq!(root.children[1].samples(),&vec!["0".to_string(),"3".to_string(),"6".to_string(),"7".to_string()]);
+
+        assert_eq!(&root.children[0].sample_names(),&vec!["1".to_string(),"4".to_string(),"5".to_string(),"3".to_string()]);
+        assert_eq!(&root.children[1].sample_names(),&vec!["0".to_string(),"6".to_string(),"7".to_string()]);
+
     }
 
 }

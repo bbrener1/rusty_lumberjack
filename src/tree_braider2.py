@@ -29,9 +29,11 @@ import pickle
 ## These variables are sampled sequentially
 
 class IHMM():
-    def __init__(self,forest,alpha=1,beta=1,gamma=1,alpha_e=.5,beta_e=.5,start_states=20):
+    def __init__(self,forest,alpha=1,beta=1,gamma=1,alpha_e=.5,beta_e=.5,start_states=20,inf_check=False):
 
-        self.pool = mp.Pool()
+        self.pool = mp.Pool(1)
+
+        self.inf_check = inf_check
 
         self.forest = forest
 
@@ -86,7 +88,7 @@ class IHMM():
 
         self.state_masks = np.zeros((self.hidden_states,self.total_nodes),dtype=bool)
 
-        self.state_sample_log_odds = np.zeros((self.hidden_states,self.total_samples))
+        self.state_sample_log_odds = np.zeros((self.hidden_states,self.total_samples,3))
 
 
     ## Here we begin the methods for updating the state of the model over many "sweeps"
@@ -166,7 +168,7 @@ class IHMM():
 
         ## Here we compute the state log odds of emission for each sample for each state given the node assignments above
 
-        self.state_sample_log_odds,self.state_raw_emission_counts,self.state_flips = self.recompute_state_sample_log_odds(self.hidden_states,self.total_samples,self.alpha_e,self.beta_e,self.state_masks,self.state_sample_log_odds,self.divergence_l,self.divergence_r)
+        self.state_sample_log_odds,self.state_raw_emission_counts,self.state_flips = self.recompute_state_sample_log_odds(self.hidden_states,self.total_nodes,self.total_samples,self.alpha_e,self.beta_e,self.state_masks,self.state_sample_log_odds,self.divergence_l,self.divergence_r)
 
         ## And here we count the transition counts
 
@@ -198,7 +200,7 @@ class IHMM():
 
         ## First we establish the log odds of a given state based on the divergence observed
 
-        self.state_log_odds_given_divergence = self.compute_state_log_odds_given_divergence(self.divergence_l,self.divergence_r,self.state_flips,self.state_masks,self.state_sample_log_odds)
+        self.state_log_odds_given_divergence = self.compute_state_log_odds_given_divergence(self.divergence_l,self.divergence_r,self.state_flips,self.node_states,self.state_sample_log_odds)
 
         ## This matrix contains only odds of existing states based on divergence, eg it is hidden_states x nodes in dimension
 
@@ -206,6 +208,9 @@ class IHMM():
 
         self.state_log_odds_given_divergence = np.concatenate((self.state_log_odds_given_divergence,np.zeros((1,self.state_log_odds_given_divergence.shape[1]))),axis=0)
 
+        if self.inf_check:
+            if np.isnan(self.state_log_odds_given_divergence).any():
+                raise Exception("NaN state log odds given divergence")
 
         #### IMPORTANT ####
 
@@ -223,10 +228,17 @@ class IHMM():
         self.oracle_odds_given_child_l = np.tile(self.direct_state_odds_given_child_l[-1],(self.hidden_states + 1,1))
         self.oracle_odds_given_child_r = np.tile(self.direct_state_odds_given_child_r[-1],(self.hidden_states + 1,1))
 
-        if np.sum(np.isnan(self.oracle_odds_given_child_l[:,self.live_mask])) > 0:
-            raise Exception("NaN oracle odds")
-        if np.sum(np.isnan(self.oracle_odds_given_child_r[:,self.live_mask])) > 0:
-            raise Exception("NaN oracle odds")
+        if self.inf_check:
+            if np.isnan(self.oracle_odds_given_child_l[:,self.live_mask]).any():
+                raise Exception("NaN oracle odds")
+            if np.isnan(self.oracle_odds_given_child_r[:,self.live_mask]).any():
+                raise Exception("NaN oracle odds")
+
+            if (np.sum(self.direct_state_odds_given_child_l,axis=0) == 0).any():
+                raise Exception("Total zero transition odds")
+            if (np.sum(self.direct_state_odds_given_child_r,axis=0) == 0).any():
+                raise Exception("Total zero transition odds")
+
 
 
         # print("ORACLE_ODDS_DEBUG")
@@ -238,18 +250,20 @@ class IHMM():
         self.direct_state_odds_given_child_l[-1] = 0
         self.direct_state_odds_given_child_r[-1] = 0
 
-        if np.sum(np.isnan(self.direct_state_odds_given_child_l[:,self.live_mask])) > 0:
-            raise Exception("NaN direct state odds")
-        if np.sum(np.isnan(self.direct_state_odds_given_child_r[:,self.live_mask])) > 0:
-            raise Exception("NaN direct state odds")
+        if self.inf_check:
+            if np.sum(np.isnan(self.direct_state_odds_given_child_l[:,self.live_mask])) > 0:
+                raise Exception("NaN direct state odds")
+            if np.sum(np.isnan(self.direct_state_odds_given_child_r[:,self.live_mask])) > 0:
+                raise Exception("NaN direct state odds")
 
         ## Next we need to establish the odds of a given state given that an oracle was visited
         ## These are tiled across every node because they are uniform
 
         self.oracle_odds = self.compute_state_odds_given_oracle(self.gamma,self.total_nodes,self.oracle_transition_counts)
 
-        if np.sum(np.isnan(self.oracle_odds[:,self.live_mask])) > 0:
-            raise Exception("NaN oracle odds")
+        if self.inf_check:
+            if np.sum(np.isnan(self.oracle_odds[:,self.live_mask])) > 0:
+                raise Exception("NaN oracle odds")
 
 
         ## Next we get the odds of obtaining each state by the oracle route through multiplication:
@@ -257,12 +271,22 @@ class IHMM():
         self.state_odds_given_oracle_l = self.oracle_odds_given_child_l * self.oracle_odds
         self.state_odds_given_oracle_r = self.oracle_odds_given_child_r * self.oracle_odds
 
-
-        if np.sum(np.isnan(self.state_odds_given_oracle_l[:,self.live_mask])) > 0:
-            print(list(self.state_odds_given_oracle_l[np.logical_and(np.sum(np.isnan(self.state_odds_given_oracle_l),axis=0) > 0,self.live_mask)]))
-            raise Exception("NaN state odds given oracle")
-        if np.sum(np.isnan(self.state_odds_given_oracle_r[:,self.live_mask])) > 0:
-            raise Exception("NaN state odds given oracle")
+        if self.inf_check:
+            if np.isnan(self.state_odds_given_oracle_l[:,self.live_mask]).any():
+                mask = np.logical_and(np.sum(np.isnan(self.state_odds_given_oracle_l),axis=0) > 0,self.live_mask)
+                print("Total Odds")
+                print(list(self.state_odds_given_oracle_l[:,mask]))
+                print("Direct Odds")
+                print(list(self.direct_state_odds_given_child_l[:,mask]))
+                print(list(self.direct_state_odds_given_child_r[:,mask]))
+                print("Odds of Oracle")
+                print(list(self.oracle_odds_given_child_l[:,mask]))
+                print(list(self.oracle_odds_given_child_r[:,mask]))
+                print("Oracle odds")
+                print(list(self.oracle_odds[:,mask]))
+                raise Exception("NaN state odds given oracle")
+            if np.isnan(self.state_odds_given_oracle_r[:,self.live_mask]).any():
+                raise Exception("NaN state odds given oracle")
 
 
 
@@ -276,16 +300,28 @@ class IHMM():
         self.state_odds_given_child_l = self.direct_state_odds_given_child_l + self.state_odds_given_oracle_l
         self.state_odds_given_child_r = self.direct_state_odds_given_child_r + self.state_odds_given_oracle_r
 
-        if np.sum(np.isnan(self.state_odds_given_child_l[:,self.live_mask])) > 0:
-            raise Exception("NaN child state odds")
-        if np.sum(np.isnan(self.state_odds_given_child_r[:,self.live_mask])) > 0:
-            raise Exception("NaN child state odds")
+        if self.inf_check:
+            if np.isnan(self.state_odds_given_child_l[:,self.live_mask]).any():
+                raise Exception("NaN child state odds")
+            if np.isnan(self.state_odds_given_child_r[:,self.live_mask]).any():
+                raise Exception("NaN child state odds")
 
+            if (self.state_odds_given_child_l < 0).any():
+                raise Exception("Negative odds!")
+            if (self.state_odds_given_child_r < 0).any():
+                raise Exception("Negative odds!")
 
         ## And here we transform the plain odds into log odds:
 
         self.state_log_odds_given_child_l = np.log2(self.state_odds_given_child_l)
         self.state_log_odds_given_child_r = np.log2(self.state_odds_given_child_r)
+
+        if self.inf_check:
+            if np.isnan(self.state_log_odds_given_child_l[:,self.live_mask]).any():
+                raise Exception("NaN child state log odds")
+            if np.isnan(self.state_log_odds_given_child_r[:,self.live_mask]).any():
+                raise Exception("NaN child state log odds")
+
 
         #THIS IS A TEMPORARY HACK FOR AN UNSTRUCTURED DP MIXTURE MODEL:
         # self.state_log_odds_given_child_l = np.log2(self.oracle_odds)
@@ -295,6 +331,10 @@ class IHMM():
         ## Finally we want to combine all log odds and sample the resulting distribution
 
         self.state_log_odds = self.state_log_odds_given_divergence + self.state_log_odds_given_child_l + self.state_log_odds_given_child_r
+
+        if self.inf_check:
+            if np.isnan(self.state_log_odds[:,self.live_mask]).any():
+                raise Exception("NaN additive log state odds")
 
         new_node_states[self.live_mask],new_state_indicator[self.live_mask] = self.sample_states(self.live_mask,self.state_log_odds)
 
@@ -393,7 +433,7 @@ class IHMM():
 
         # print(self.hidden_states)
 
-        new_state_sample_log_odds = np.zeros((self.hidden_states,self.total_samples))
+        new_state_sample_log_odds = np.zeros((self.hidden_states,self.total_samples,3))
 
         for old_index,state in enumerate(self.state_sample_log_odds):
             if old_index in new_indices:
@@ -424,7 +464,7 @@ class IHMM():
         return new_state_masks
 
 
-    def recompute_state_sample_log_odds(self,states,samples,alpha_e,beta_e,state_masks,state_sample_log_odds,divergence_l,divergence_r):
+    def recompute_state_sample_log_odds(self,states,nodes,samples,alpha_e,beta_e,state_masks,state_sample_log_odds,divergence_l,divergence_r):
 
         print("Recomputing Sample Log Odds")
 
@@ -433,7 +473,7 @@ class IHMM():
         # new_state_sample_log_odds_r = np.zeros((states,samples))
         new_state_sample_log_odds = np.zeros((states,samples,3))
 
-        state_flips = np.zeros((states,samples),dtype=bool)
+        state_flips = np.zeros((states,nodes),dtype=bool)
 
         new_raw_emission_counts = np.zeros((states,samples,2))
 
@@ -441,12 +481,13 @@ class IHMM():
 
         sample_totals = sample_totals.astype(dtype=float)
 
-        # print(new_state_sample_log_odds.shape)
+        print(new_state_sample_log_odds.shape)
 
         for i,state_mask in list(enumerate(state_masks))[1:]:
 
             # print("SAMPLE LOG ODDS DEBUG")
             # print(state_mask.shape)
+            # print(divergence_l.shape)
 
             ## First we want:
             ##  -only nodes in state
@@ -467,7 +508,11 @@ class IHMM():
 
             ## First take each sample mask and use it to select log odds from state sample log odds
 
-            state_sample_log_tile = np.tile(state_sample_log_odds[i],(np.sum(state_mask),1))
+            state_sample_log_tile = np.tile(state_sample_log_odds[i,:,1],(np.sum(state_mask),1))
+
+            # print("TILE DEBUG")
+            # print(state_sample_log_tile.shape)
+            # print(l.shape)
 
             ## Here we created a mask with dimensions of # of nodes in state x samples
 
@@ -513,20 +558,47 @@ class IHMM():
             r_total_m = r_total - 1
             state_total_m = state_total - 1
 
+            l_total_m[l_total_m < 0] = 0
+            r_total_m[r_total_m < 0] = 0
+
             ## The new log odds are now ready to be computed:
 
-            new_state_sample_log_odds_l[i,:,0] = np.log2(l_total_m + alpha_e / r_total + beta_e)
-            new_state_sample_log_odds_c[i,:,1] = np.log2(l_total + alpha_e / r_total + beta_e)
-            new_state_sample_log_odds_r[i,:,2] = np.log2(l_total + alpha_e / r_total_m + beta_e)
+            new_state_sample_log_odds[i,:,0] = np.log2((l_total_m + alpha_e) / (r_total + beta_e))
+            new_state_sample_log_odds[i,:,1] = np.log2((l_total + alpha_e) / (r_total + beta_e))
+            new_state_sample_log_odds[i,:,2] = np.log2((l_total + alpha_e) / (r_total_m + beta_e))
 
             new_raw_emission_counts[i,:,0] = l_total
             new_raw_emission_counts[i,:,1] = r_total
 
-            state_flips[i] = flip
+            state_flips[i][state_mask] = flip
+            #
+            # if self.inf_check:
+            #     if np.isnan(new_state_sample_log_odds[i]).any():
+            #         print("NAN WARNING")
+            #         print("================================")
+            #         print("================================")
+            #         print(list(enumerate(new_raw_emission_counts[i])))
+            #         print(list(enumerate(new_state_sample_log_odds[i])))
+            #         print("================================")
+            #         print("================================")
+            #
+            #     if np.isinf(new_state_sample_log_odds[i]).any():
+            #         print("INFINITY WARNING")
+            #         print("================================")
+            #         print("================================")
+            #         print(list(enumerate(l_total_m)))
+            #         print(list(enumerate()))
+            #         print(list(enumerate(new_raw_emission_counts[i])))
+            #         print(list(enumerate(new_state_sample_log_odds[i])))
+            #         print("================================")
+            #         print("================================")
+
 
         # print(new_state_sample_log_odds)
 
+
         assert not (np.isnan(new_state_sample_log_odds).any())
+
 
         return new_state_sample_log_odds,new_raw_emission_counts,state_flips
 
@@ -588,23 +660,33 @@ class IHMM():
 
         return new_oracle_transitions
 
-    def compute_state_log_odds_given_divergence(self,divergence_l,divergence_r,flip,state_mask,state_sample_log_odds):
+    def compute_state_log_odds_given_divergence(self,divergence_l,divergence_r,flip,node_states,state_sample_log_odds):
 
         print("Computing state log odds | divergence")
 
         ## Here we have a wrapper function that allows us to parallelize the node state odds computation
         ## An inner function allows us to compute multiple states at the same time in a process pool
 
-        node_output = self.pool.map(IHMM.node_state_log_odds_given_divergence,zip(divergence_l,divergence_r,flip,state_mask,repeat(state_sample_log_odds)))
+        node_output = self.pool.map(IHMM.node_state_log_odds_given_divergence,zip(divergence_l,divergence_r,flip.T,node_states,repeat(state_sample_log_odds)))
 
-        return np.array(node_output).T
+        node_output = np.array(node_output).T
+
+        # if np.isnan(node_output).any():
+        #     raise Exception("Computed nan divergence log odds")
+
+        return node_output
 
 
     def node_state_log_odds_given_divergence(task):
 
         ## Here we have a function for computing the log odds of each node's emissions for a state
 
-        dl,dr,flip,state_mask,state_sample_log_odds = task
+        dl,dr,flip,home_state,state_sample_log_odds = task
+
+        # print("STATE LOG ODDS DIMENSIONS")
+        # print(state_sample_log_odds.shape)
+        # print(dl.shape)
+        # print(flip.shape)
 
         ## First we compute the simple case, the odds of a node from a different state transitioning to this state:
 
@@ -620,37 +702,38 @@ class IHMM():
         ## NOT in the state it is currently assigned to. This allows unbiased evaluation of small states, and is especially
         ## important for sparse data, where a single emission element can make a substantial difference in odds
 
-        ## First we compute the odds of the nodes that have not been flipped
+        ## First we determine the odds if the node has been flipped:
 
-        ## Select the nodes that are from this state, and have not been flipped
+        if flip[home_state]:
 
-        hss = np.logical_and(state_mask,np.logical_not(flip))
-
-        ## Select the odds of each right sample, assuming one less right sample in the state emissions,
-        ## and each left sample assuming one less left sample in the state emissions
-
-        slh = np.sum(state_sample_log_odds[hss,dl[hss],0],axis=1)
-        srh = np.sum(state_sample_log_odds[hss,dr[hss],2],axis=1)
-
-        sfh = slh - slr
-        ssh = srh - slh
-
-        odds[hss] = np.maximum(sfh,ssh)
-
-        ## Now select the nodes that are from this state and flipped
-
-        hsf = np.logical_and(state_mask,flip)
+            hsl = np.sum(state_sample_log_odds[home_state,dl,0])
+            hsr = np.sum(state_sample_log_odds[home_state,dr,2])
 
         ## Select the odds of each right sample, assuming one less right sample in the state emissions,
         ## and each left sample assuming one less left sample in the state emissions
 
-        flh = np.sum(state_sample_log_odds[hsf,dr[hsf],0],axis=1)
-        frh = np.sum(state_sample_log_odds[hsf,dl[hsf],2],axis=1)
+            hss = hsl - hsr
+            hsf = hsr - hsl
 
-        ffh = flh - frh
-        fsh = frh - flh
+            odds[home_state] = np.maximum(hss,hsf)
 
-        odds[hsf] = np.maximum(ffh,fsh)
+        ## Now determine the odds if the node is from this state and flipped
+
+        else:
+
+            hsl = np.sum(state_sample_log_odds[home_state,dr,0])
+            hsr = np.sum(state_sample_log_odds[home_state,dl,2])
+
+            hss = hsl - hsr
+            hsf = hsr - hsl
+
+            odds[home_state] = np.maximum(hss,hsf)
+
+        # if np.isnan(odds).any():
+        #     print(state_sample_log_odds[:,dl,:])
+        #     print(state_sample_log_odds[:,dr,:])
+        #     print(odds)
+        #     raise Exception("Node state odds nan")
 
         return odds
 
@@ -668,7 +751,10 @@ class IHMM():
 
         total_transitions = np.sum(padded_transition_counts,axis=1)
 
-        counter_odds = np.tile(total_transitions,(padded_transition_counts.shape[1],1)).T
+        ## Here we  compute the odds of any other transition besides a given transition. It's important to normalize the transitions by an additional beta.
+        ## This is important to prevent potential infinite odds being present when the ONLY transitionto a state is via the oracle.
+
+        counter_odds = np.tile(total_transitions,(padded_transition_counts.shape[1],1)).T + beta
         counter_odds -= padded_transition_counts
 
         transition_odds = padded_transition_counts.astype(dtype=float) / counter_odds.astype(dtype=float)
@@ -685,18 +771,18 @@ class IHMM():
 
         live_nodes = np.sum(live_mask)
 
-        if np.sum(np.isnan(state_log_odds[:,self.live_mask])) > 0:
-            raise Exception("NaN live log odds")
+        # if np.isnan(state_log_odds[1:]).any():
+        #     raise Exception("NaN live log odds")
 
         state_raw_odds = np.exp2(state_log_odds)
 
-        if np.sum(np.sum(state_raw_odds[:,self.live_mask],axis=0) == 0) > 0:
-            print(np.sum(state_raw_odds[:,self.live_mask],axis=0).shape)
-            print(np.sum(np.sum(state_raw_odds[:,self.live_mask],axis=0) == 0))
-            raise Exception("Some samples with zero total odds")
-
-        if np.sum(np.isnan(state_raw_odds[:,self.live_mask])) > 0:
-            raise Exception("NaN live raw odds")
+        # if np.sum(np.sum(state_raw_odds[:,self.live_mask],axis=0) == 0) > 0:
+        #     print(np.sum(state_raw_odds[:,self.live_mask],axis=0).shape)
+        #     print(np.sum(np.sum(state_raw_odds[:,self.live_mask],axis=0) == 0))
+        #     raise Exception("Some samples with zero total odds")
+        #
+        # if np.sum(np.isnan(state_raw_odds[:,self.live_mask])) > 0:
+        #     raise Exception("NaN live raw odds")
 
         #
         # print("State Raw Odds")
@@ -706,8 +792,8 @@ class IHMM():
 
         draws = np.random.rand(live_nodes) * descending_odds[-1,live_mask]
 
-        if np.sum(draws == 0) > 0:
-            raise Exception("Drew a zero")
+        # if np.sum(draws == 0) > 0:
+        #     raise Exception("Drew a zero")
 
         # print("descending_odds")
         # print(descending_odds)
@@ -717,10 +803,11 @@ class IHMM():
 
         draw_index = np.sum(descending_odds[:,live_mask] >= np.tile(draws,(descending_odds.shape[0],1)),axis=0)
 
-        if np.sum(draw_index == 0) > 0:
-            print(descending_odds[:,live_mask][:,draw_index == 0])
-            print(draws[draw_index == 0])
-            raise Exception("Zero Draw Index")
+        if self.inf_check:
+            if np.sum(draw_index == 0) > 0:
+                print(descending_odds[:,live_mask][:,draw_index == 0])
+                print(draws[draw_index == 0])
+                raise Exception("Zero Draw Index")
 
         new_state_indicator = draw_index >= descending_odds.shape[0]
 
@@ -751,18 +838,18 @@ class IHMM():
 
         print("Oracle sampler debug")
 
-        print(direct_state_odds_l.shape)
-        print(direct_state_odds_r.shape)
+        # print(direct_state_odds_l.shape)
+        # print(direct_state_odds_r.shape)
 
 
-        print(self.hidden_states)
+        # print(self.hidden_states)
 
         state_mask = np.equal(np.tile(np.arange(direct_state_odds_l.shape[0]),(direct_state_odds_l.shape[1],1)).T,np.tile(node_state,(direct_state_odds_l.shape[0],1)))
 
-        print(np.sum(np.sum(state_mask,axis=0) < 1))
-        print(np.sum(np.sum(state_mask,axis=1) < 1))
-
-        print(node_state[np.sum(state_mask,axis=0) < 1])
+        # print(np.sum(np.sum(state_mask,axis=0) < 1))
+        # print(np.sum(np.sum(state_mask,axis=1) < 1))
+        #
+        # print(node_state[np.sum(state_mask,axis=0) < 1])
 
 
 
@@ -775,12 +862,12 @@ class IHMM():
         direct_state_odds_l = direct_state_odds_l[state_mask]
         direct_state_odds_r = direct_state_odds_r[state_mask]
 
-        print(direct_state_odds_l.shape)
-        print(direct_state_odds_r.shape)
-        print(state_mask.shape)
-        print(state_mask.shape)
-        print(oracle_state_odds_l.shape)
-        print(oracle_state_odds_r.shape)
+        # print(direct_state_odds_l.shape)
+        # print(direct_state_odds_r.shape)
+        # print(state_mask.shape)
+        # print(state_mask.shape)
+        # print(oracle_state_odds_l.shape)
+        # print(oracle_state_odds_r.shape)
 
         oracle_state_odds_l = oracle_state_odds_l[state_mask]
         oracle_state_odds_r = oracle_state_odds_r[state_mask]
@@ -791,8 +878,8 @@ class IHMM():
         oracle_probability_l[np.isnan(oracle_probability_l)] = 0
         oracle_probability_r[np.isnan(oracle_probability_r)] = 0
 
-        if np.sum(np.isnan(oracle_probability_l[self.live_mask] + np.isnan(oracle_probability_r[self.live_mask]))) > 0:
-            raise Exception("NaN Oracle Probability")
+        # if np.sum(np.isnan(oracle_probability_l[self.live_mask] + np.isnan(oracle_probability_r[self.live_mask]))) > 0:
+        #     raise Exception("NaN Oracle Probability")
 
         oracle_indicator_l = np.random.rand(oracle_probability_l.shape[0]) > oracle_probability_l
         oracle_indicator_r = np.random.rand(oracle_probability_r.shape[0]) > oracle_probability_r
@@ -810,7 +897,7 @@ class IHMM():
         return states + 1
 
     def lr_finite(self,state):
-        return expit(self.state_raw_sample_odds[state])
+        return expit(self.state_raw_emission_counts[state][:,0])
 
     def state_node_odds(self,state):
 
@@ -844,6 +931,8 @@ class IHMM():
     def raw_transition_counts(self):
 
         print("Recomputing Transition Counts")
+
+        self.establish_parameters()
 
         states = self.hidden_states
 
