@@ -63,7 +63,7 @@ def save_trees(location,input_counts,output_counts=None,ifh=None,ofh=None,**kwar
     inner_fit(input_counts,output_counts,location,ifh=(location + "tmp.ifh"),ofh=(location+"tmp.ofh"),**kwargs)
 
 
-def fit(input_counts,output_counts=None,ifh=None,ofh=None,backtrace=False,**kwargs):
+def fit(input_counts,output_counts=None,ifh=None,ofh=None,header=None,backtrace=False,**kwargs):
 
     if output_counts is None:
         output_counts = input_counts
@@ -81,6 +81,10 @@ def fit(input_counts,output_counts=None,ifh=None,ofh=None,backtrace=False,**kwar
 
     input_features = input_counts.shape[1]
     output_features = output_counts.shape[1]
+
+    if header is not None:
+        ifh = header
+        ofh = header
 
     if ifh is None:
         np.savetxt(location + "tmp.ifh", np.arange(input_counts.shape[1],dtype=int),fmt='%u')
