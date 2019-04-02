@@ -29,9 +29,9 @@ import pickle
 ## These variables are sampled sequentially
 
 class IHMM():
-    def __init__(self,forest,alpha=1,beta=1,gamma=1,alpha_e=.5,beta_e=.5,start_states=20,inf_check=False):
+    def __init__(self,forest,alpha=1,beta=1,gamma=1,alpha_e=.5,beta_e=.5,start_states=20,inf_check=False,p=None):
 
-        self.pool = mp.Pool(1)
+        self.pool = mp.Pool(p)
 
         self.inf_check = inf_check
 
@@ -202,6 +202,8 @@ class IHMM():
         ## First we establish the log odds of a given state based on the divergence observed
 
         self.state_log_odds_given_divergence = self.compute_state_log_odds_given_divergence(self.divergence_l,self.divergence_r,self.state_flips,self.node_states,self.state_sample_log_odds)
+
+        # self.state_log_odds_given_divergence = self.state_log_odds_given_divergence / self.hidden_states
 
         ## This matrix contains only odds of existing states based on divergence, eg it is hidden_states x nodes in dimension
 
@@ -825,16 +827,26 @@ class IHMM():
 
     def log_sampling(log_weights):
         raw_odds = np.exp2(log_weights)
-        sorted_raw = sorted(list(enumerate(raw_odds)),key=lambda x: log_weights[x[0]])
+        sorted_raw = sorted(list(enumerate(raw_odds)),key=lambda x: log_weights[x[0]])[::-1]
+        # print(log_weights)
+        # print(sorted_raw)
         draw = random.random()*np.sum(raw_odds)
+        # print(draw)
         for i,w in sorted_raw:
+            # print(draw)
+            # print(w)
             draw -= w
             if draw <= 0 or (not np.isfinite(draw)):
+                # print(draw)
+                # print("DREW")
+                # print(i)
                 return i
-        print("WARNING")
-        print(log_weights)
-        print(raw_odds)
-        print(sorted_weights)
+        # print("WARNING")
+        # print(log_weights)
+        # print(raw_odds)
+        # print(sorted_weights)
+        # print("DREW")
+        # print(len(raw_odds) - 1)
         return len(raw_odds) - 1
 
 
@@ -847,7 +859,7 @@ class IHMM():
         draw_index = self.pool.map(IHMM.log_sampling,state_log_odds[1:,live_mask].T)
         draw_index = [i+1 for i in draw_index]
 
-        new_state_indicator = [draw_index == state_log_odds.shape[0]]
+        new_state_indicator = [draw_index == state_log_odds.shape[0] - 1]
 
         # if np.isinf(state_log_odds[1:,live_mask]).any():
         #     raise Exception("Inf live log odds")
@@ -909,22 +921,28 @@ class IHMM():
 
         odds = np.ones(oracle_transition_counts.shape[0]+1)
         odds[:-1] += oracle_transition_counts
-        odds[-1] = gamma
+        odds[-1] += gamma
 
 
         counter_odds = np.sum(odds) * np.ones(odds.shape)
         counter_odds -= odds
+
 
         fractional_odds = odds/counter_odds
 
         ## Here we tile the odds across all nodes, because they are uniform
         fractional_odds = np.tile(fractional_odds,(nodes,1)).T
 
+        # print("Oracle Odds Debug")
+        # print(odds)
+        # print(counter_odds)
+        # print(fractional_odds)
+
         return fractional_odds
 
     def sample_oracle_indicator(self,node_state,live_mask,direct_state_odds_l,direct_state_odds_r,oracle_state_odds_l,oracle_state_odds_r):
 
-        print("Oracle sampler debug")
+        # print("Oracle sampler debug")
 
         states = direct_state_odds_l.shape[0]
         nodes = node_state.shape[0]
@@ -1016,7 +1034,7 @@ class IHMM():
         return states + 1
 
     def lr_finite(self,state):
-        return expit(self.state_raw_emission_counts[state][:,0]/self.state_raw_emission_counts[state][:,1])
+        return expit(np.log2(self.state_raw_emission_counts[state][:,0]/self.state_raw_emission_counts[state][:,1]))
 
     def state_node_odds(self,state):
 
@@ -1057,7 +1075,7 @@ class IHMM():
 
         transition_mask = self.live_mask
 
-        new_transition_counts = np.zeros((states,states))
+        new_transition_counts = np.zeros((states+1,states+1))
 
         # transition_mask = live_mask
 

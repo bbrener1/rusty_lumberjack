@@ -655,6 +655,9 @@ class Forest:
         self.output = output
         self.samples = samples
 
+        self.input_features = input_features
+        self.output_features = output_features
+
         self.input_dim = input.shape
         self.output_dim = output.shape
 
@@ -1344,26 +1347,26 @@ class Forest:
             coordinates[i] = sample_cluster.median_feature_values()
         return coordinates
 
-    def tsne(self,no_plot=False,override=False):
+    def tsne(self,no_plot=False,override=False,**kwargs):
         if not hasattr(self,'tsne_coordinates') or override:
             self.tsne_coordinates = TSNE().fit_transform(self.output)
 
         if not no_plot:
             plt.figure()
             plt.title("TSNE-Transformed Cell Coordinates")
-            plt.scatter(self.tsne_coordinates[:,0],self.tsne_coordinates[:,1],s=.1)
+            plt.scatter(self.tsne_coordinates[:,0],self.tsne_coordinates[:,1],s=.1,**kwargs)
             plt.show()
 
         return self.tsne_coordinates
 
-    def tsne_encoding(self,no_plot=False,override=False):
+    def tsne_encoding(self,no_plot=False,override=False,**kwargs):
         if not hasattr(self,'tsne_coordinates') or override:
             self.tsne_coordinates = TSNE().fit_transform(self.node_sample_encoding(self.leaves()))
 
         if not no_plot:
             plt.figure()
             plt.title("TSNE-Transformed Cell Coordinates")
-            plt.scatter(self.tsne_coordinates[:,0],self.tsne_coordinates[:,1],s=.1)
+            plt.scatter(self.tsne_coordinates[:,0],self.tsne_coordinates[:,1],s=.1,**kwargs)
             plt.show()
 
         return self.tsne_coordinates
@@ -1406,7 +1409,7 @@ class Forest:
 
     def node_feature_summary(self,nodes):
 
-        feature_counts = count_list_elements([n.feature for n in nodes])
+        feature_counts = count_list_elements([n.feature['name'] for n in nodes])
 
         feature_counts = list(feature_counts.items())
 
@@ -1514,8 +1517,8 @@ class Forest:
         sort_up_left = np.argsort(left_mean_features - right_mean_features)
         sort_up_right = np.argsort(right_mean_features - left_mean_features)
 
-        features_up_left = self.features[sort_up_left]
-        features_up_right = self.features[sort_up_right]
+        features_up_left = self.output_features[sort_up_left]
+        features_up_right = self.output_features[sort_up_right]
 
         plt.figure(figsize=(5,8))
         plt.suptitle("Divergence of Features",fontsize=20)

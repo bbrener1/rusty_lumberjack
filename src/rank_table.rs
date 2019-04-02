@@ -104,7 +104,28 @@ impl RankTable {
         self.dispersions().into_iter().zip(self.dispersions().into_iter()).map(|x| x.0/x.1).map(|y| if y.is_nan() {0.} else {y}).collect()
     }
 
-
+    pub fn mask_prerequisites(prerequisites:Vec<Prerequisite>) -> Vec<bool> {
+        let mut mask = vec![true;self.dimensions.1];
+        for p in prerequisites {
+            if let Some(fi) = self.features.iter().position(p.feature) {
+                if p.orientation {
+                    for (i,v) in self.meta_vector[fi].full_values().enumerate() {
+                        if v <= p.split {
+                            mask[i] = false;
+                        }
+                    }
+                }
+                else {
+                    for (i,v) in self.meta_vector[fi].full_values().enumerate() {
+                        if v > p.split {
+                            mask[i] = false;
+                        }
+                    }
+                }
+            }
+        }
+        mask
+    }
 
     pub fn sort_by_feature(&self, feature:usize) -> (Vec<usize>,HashSet<usize>) {
         self.meta_vector[feature].draw_and_drop()

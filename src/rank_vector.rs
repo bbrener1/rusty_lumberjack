@@ -731,7 +731,8 @@ impl<T: Borrow<[Node]> + BorrowMut<[Node]> + Index<usize,Output=Node> + IndexMut
 
     #[inline]
     pub fn full_values(&self) -> Vec<f64> {
-        (0..self.raw_len()).map(|x| self.nodes[x].data).collect()
+        self.nodes.iter().map(|n| n.data).collect()
+        // (0..self.raw_len()).map(|x| self.nodes[x].data).collect()
         // self.nodes[0..self.raw_len()].map(|x| x.data).collect()
     }
 
