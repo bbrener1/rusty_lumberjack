@@ -155,7 +155,10 @@ impl Node {
         // println!("{:?}",self.output_table.full_ordered_values());
         // println!("{:?}",self.medians());
 
-        Some((best_feature,split_dispersion,split_value,split_order.0[..split_index].iter().cloned().collect(),split_order.0[split_index..].iter().cloned().collect()))
+        let left_indices = split_order.0[..split_index].iter().cloned().collect();
+        let right_indices = split_order.0[split_index..].iter().cloned().collect();
+
+        Some((best_feature,split_dispersion,split_value,left_indices,right_indices))
 
     }
 
@@ -167,6 +170,7 @@ impl Node {
         // println!("{},{},{},{}", self.input_features().len(),self.output_features().len(),self.input_table.samples().len(),self.output_table.samples().len());
 
         if let Some((feature,_dispersion,split_value, left_indecies,right_indecies)) = self.feature_parallel_best_split() {
+
             let mut left_child_id = self.id.clone();
             let mut right_child_id = self.id.clone();
             left_child_id.push_str(&format!("!F{}:S{}L",feature.name(),split_value));
@@ -179,8 +183,20 @@ impl Node {
             let right_child;
 
             if let Some(prototype) = prototype_opt {
-                left_child = self.derive_resampled(prototype, self.input_features().len(), self.output_features().len(), &left_indecies, &left_child_id,Some(false));
-                right_child = self.derive_resampled(prototype, self.input_features().len(), self.output_features().len(), &right_indecies, &right_child_id,Some(true));
+                // left_child = self.derive_resampled(prototype, self.input_features().len(), self.output_features().len(), &left_indecies, &left_child_id,Some(false));
+                // right_child = self.derive_resampled(prototype, self.input_features().len(), self.output_features().len(), &right_indecies, &right_child_id,Some(true));
+
+                let (left_prerequisite,right_prerequisite) = (Prerequisite::new(feature.clone(),split_value.clone(),false),Prerequisite::new(feature.clone(),split_value.clone(),true));
+
+                let mut left_prerequisites = self.prerequisites.clone();
+                let mut right_prerequisites = self.prerequisites.clone();
+
+                left_prerequisites.push(left_prerequisite);
+                right_prerequisites.push(right_prerequisite);
+
+                left_child = self.derive_by_prerequisites(prototype, &left_prerequisites, self.input_features().len(), self.output_features().len(), self.samples().len() , &left_child_id,Some(false));
+                right_child = self.derive_by_prerequisites(prototype, &right_prerequisites, self.input_features().len(), self.output_features().len(), self.samples().len() , &right_child_id,Some(true));
+
             }
             else {
                 left_child = self.derive(&left_indecies, &left_child_id,false);
@@ -277,6 +293,21 @@ impl Node {
         let new_output_features = (0..output_features).map(|_| rng.gen_range(0, prototype.output_table.dimensions.0)).collect();
 
         let prototype_indecies = indecies.iter().map(|&i| *self.input_table.samples()[i].index()).collect();
+
+        prototype.derive_specified(&prototype_indecies,&new_input_features,&new_output_features,new_id, orientation)
+    }
+
+    pub fn derive_by_prerequisites(&self,prototype:&Node, prerequisites: &Vec<Prerequisite>, input_features: usize, output_features: usize, samples: usize, new_id:&str, orientation:Option<bool>) -> Node {
+
+        let mut rng = rand::thread_rng();
+
+        let new_input_features = (0..input_features).map(|_| rng.gen_range(0, prototype.input_table.dimensions.0)).collect();
+
+        let new_output_features = (0..output_features).map(|_| rng.gen_range(0, prototype.output_table.dimensions.0)).collect();
+
+        let potential_sample_indices: Vec<usize> = prototype.samples_given_prerequisites(&prerequisites).iter().map(|(i,s)| *i).collect();
+
+        let prototype_indecies = (0..samples).map(|_| rng.gen_range(0, potential_sample_indices.len())).collect();
 
         prototype.derive_specified(&prototype_indecies,&new_input_features,&new_output_features,new_id, orientation)
     }
@@ -553,6 +584,10 @@ impl Node {
 
     pub fn feature_name(&self) -> Option<&String> {
         self.feature.as_ref().map(|f| f.name())
+    }
+
+    pub fn samples_given_prerequisites(&self,prerequisites:&Vec<Prerequisite>) -> Vec<(usize,&Sample)> {
+        self.input_table.samples_given_prerequisites(prerequisites)
     }
 
     pub fn split(&self) -> &Option<f64> {

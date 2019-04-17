@@ -24,7 +24,7 @@ pub struct RankVector<T> {
     nodes: T,
 }
 
-#[derive(Clone,Debug,Serialize,Deserialize)]
+#[derive(Clone,Copy,Debug,Serialize,Deserialize)]
 pub struct Node {
     data: f64,
     index: usize,
@@ -731,8 +731,7 @@ impl<T: Borrow<[Node]> + BorrowMut<[Node]> + Index<usize,Output=Node> + IndexMut
 
     #[inline]
     pub fn full_values(&self) -> Vec<f64> {
-        self.nodes.iter().map(|n| n.data).collect()
-        // (0..self.raw_len()).map(|x| self.nodes[x].data).collect()
+        (0..self.raw_len()).map(|x| self.nodes[x].data).collect()
         // self.nodes[0..self.raw_len()].map(|x| x.data).collect()
     }
 
@@ -887,6 +886,7 @@ impl<T: Borrow<[Node]> + BorrowMut<[Node]> + Index<usize,Output=Node> + IndexMut
 
         mads
     }
+
 
     pub fn ordered_covs(&mut self,draw_order: &Vec<usize>,drop_set: &HashSet<usize>) -> Vec<f64> {
 
@@ -1146,7 +1146,7 @@ impl RankVector<Vec<Node>> {
         local_node_vector.clear();
 
         for node in &self.nodes {
-            local_node_vector.push(node.clone());
+            local_node_vector.push(*node);
         }
 
         // println!("{:?}", local_node_vector);
@@ -1156,8 +1156,8 @@ impl RankVector<Vec<Node>> {
             drop_set: None,
             dirty_set: None,
             rank_order: None,
-            drop: self.drop.clone(),
-            zones: self.zones.clone(),
+            drop: self.drop,
+            zones: self.zones,
             offset: self.offset,
             median: self.median,
             left: self.left,
@@ -1175,6 +1175,7 @@ impl RankVector<Vec<Node>> {
         new_vector
 
     }
+
 
 }
 
@@ -1539,27 +1540,27 @@ mod rank_vector_tests {
     //     );
     // }
     //
-    // #[bench]
-    // fn bench_rv3_mad_vector(b: &mut Bencher) {
-    //     let mut vector = RankVector::<Vec<Node>>::link(&vec![10.,-3.,0.,5.,-2.,-1.,15.,20.],);
-    //     vector.drop_f(0.);
-    //
-    //     b.iter(|| vector.mad());
-    // }
-    //
-    // #[bench]
-    // fn bench_rv3_mad_smallvec(b: &mut Bencher) {
-    //     let mut vector = RankVector::<Vec<Node>>::link(&vec![10.,-3.,0.,5.,-2.,-1.,15.,20.],);
-    //     vector.drop_f(0.);
-    //
-    //     let container: SmallVec<[Node;1024]> = SmallVec::with_capacity(8);
-    //
-    //     let vm = vector.clone_to_container(container);
-    //
-    //     b.iter(||
-    //         vm.mad()
-    //     );
-    // }
+    #[bench]
+    fn bench_rv3_mad_vector(b: &mut Bencher) {
+        let mut vector = RankVector::<Vec<Node>>::link(&vec![10.,-3.,0.,5.,-2.,-1.,15.,20.],);
+        vector.drop_f(0.);
+
+        b.iter(|| vector.mad());
+    }
+
+    #[bench]
+    fn bench_rv3_mad_smallvec(b: &mut Bencher) {
+        let mut vector = RankVector::<Vec<Node>>::link(&vec![10.,-3.,0.,5.,-2.,-1.,15.,20.],);
+        vector.drop_f(0.);
+
+        let container: SmallVec<[Node;1024]> = SmallVec::with_capacity(8);
+
+        let vm = vector.clone_to_container(container);
+
+        b.iter(||
+            vm.mad()
+        );
+    }
     //
     // #[bench]
     // fn bench_rv3_clone_and_return(b: &mut Bencher) {
@@ -1612,7 +1613,7 @@ mod rank_vector_tests {
     //     });
     //
     // }
-    //
+    // //
     // #[bench]
     // fn bench_rv3_ordered_mads_vector(b: &mut Bencher) {
     //     let mut vector = RankVector::<Vec<Node>>::link(&vec![10.,-3.,0.,5.,-2.,-1.,15.,20.],);
@@ -1642,6 +1643,7 @@ mod rank_vector_tests {
     //     });
     //
     // }
+
 
     #[test]
     fn fetch_test() {

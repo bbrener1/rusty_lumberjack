@@ -1,3 +1,8 @@
+// #![feature(test)]
+//
+// extern crate test;
+// use test::Bencher;
+
 #[macro_use]
 extern crate serde_derive;
 

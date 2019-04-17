@@ -104,20 +104,20 @@ impl RankTable {
         self.dispersions().into_iter().zip(self.dispersions().into_iter()).map(|x| x.0/x.1).map(|y| if y.is_nan() {0.} else {y}).collect()
     }
 
-    pub fn mask_prerequisites(prerequisites:Vec<Prerequisite>) -> Vec<bool> {
+    pub fn mask_prerequisites(&self,prerequisites:&Vec<Prerequisite>) -> Vec<bool> {
         let mut mask = vec![true;self.dimensions.1];
         for p in prerequisites {
-            if let Some(fi) = self.features.iter().position(p.feature) {
+            if let Some(fi) = self.features.iter().position(|x| x == &p.feature) {
                 if p.orientation {
-                    for (i,v) in self.meta_vector[fi].full_values().enumerate() {
-                        if v <= p.split {
+                    for (i,v) in self.meta_vector[fi].full_values().iter().enumerate() {
+                        if v <= &p.split {
                             mask[i] = false;
                         }
                     }
                 }
                 else {
-                    for (i,v) in self.meta_vector[fi].full_values().enumerate() {
-                        if v > p.split {
+                    for (i,v) in self.meta_vector[fi].full_values().iter().enumerate() {
+                        if v > &p.split {
                             mask[i] = false;
                         }
                     }
@@ -125,6 +125,16 @@ impl RankTable {
             }
         }
         mask
+    }
+
+    pub fn samples_given_prerequisites(&self,prerequisites:&Vec<Prerequisite>) -> Vec<(usize,&Sample)> {
+        let mask = self.mask_prerequisites(prerequisites);
+        self.samples.iter()
+            .zip(mask.iter())
+            .enumerate()
+            .filter(|(i,(s,m))| **m )
+            .map(|(i,(s,m))| (i,s))
+            .collect()
     }
 
     pub fn sort_by_feature(&self, feature:usize) -> (Vec<usize>,HashSet<usize>) {
@@ -440,7 +450,7 @@ impl RankTableWrapper {
     }
 }
 
-#[derive(Debug,Clone,Serialize,Deserialize,PartialEq)]
+#[derive(Debug,Clone,Serialize,Deserialize,PartialEq,Eq)]
 pub struct Feature {
     name: String,
     index: usize,
@@ -655,6 +665,36 @@ mod rank_table_tests {
         // These assertions test ssme as a dispersion
         assert_eq!(kid1.dispersions(),vec![169.]);
         assert_eq!(kid2.dispersions(),vec![367.]);
+
+        // // These assertions test variance as a dispersion
+        // assert_eq!(kid1.dispersions(),vec![5.]);
+        // assert_eq!(kid2.dispersions(),vec![4.]);
+    }
+
+    #[test]
+    pub fn rank_table_derive_feature_twice() {
+        let mut table = RankTable::new(&vec![vec![10.,-3.,0.,5.,-2.,-1.,15.,20.]],&Feature::vec(vec![1])[..],&Sample::vec(vec![0,1,2,3,4,5,6,7])[..],blank_parameter());
+        let kid = table.derive_specified(&vec![0,0],&vec![0,2,4,6]);
+        println!("{:?}",kid);
+        assert_eq!(kid.medians(),vec![10.,10.]);
+
+        // These assertions test ssme as a dispersion
+        assert_eq!(kid.dispersions(),vec![169.,169.]);
+
+        // // These assertions test variance as a dispersion
+        // assert_eq!(kid1.dispersions(),vec![5.]);
+        // assert_eq!(kid2.dispersions(),vec![4.]);
+    }
+
+    #[test]
+    pub fn rank_table_derive_sample_twice() {
+        let mut table = RankTable::new(&vec![vec![10.,-3.,0.,5.,-2.,-1.,15.,20.]],&Feature::vec(vec![1])[..],&Sample::vec(vec![0,1,2,3,4,5,6,7])[..],blank_parameter());
+        let kid = table.derive_specified(&vec![0],&vec![0,2,4,6,6]);
+        println!("{:?}",kid);
+        assert_eq!(kid.medians(),vec![12.5]);
+
+        // These assertions test ssme as a dispersion
+        assert_eq!(kid.dispersions(),vec![229.]);
 
         // // These assertions test variance as a dispersion
         // assert_eq!(kid1.dispersions(),vec![5.]);

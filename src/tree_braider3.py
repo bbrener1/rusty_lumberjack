@@ -2,7 +2,6 @@
 
 import numpy as np
 import random
-# import pymc3 as pm
 from functools import reduce
 from scipy.misc import comb as nCk
 from tree_reader import Node as TreeReaderNode
@@ -16,7 +15,6 @@ import multiprocessing as mp
 
 import matplotlib.pyplot as plt
 
-import pickle
 
 
 ## This model contains several interdependent variables:
@@ -54,7 +52,8 @@ class IHMM():
         for node in self.live_nodes:
             self.live_mask[node.index] = True
 
-        self.total_samples = len(forest.samples)
+        self.total_features = len(forest.output_features)
+        self.feature_dictionary = forest.truth_dictionary.feature_dictionary
         self.total_nodes = len(self.nodes)
 
         self.node_states = np.zeros(self.total_nodes,dtype=int)
@@ -70,13 +69,16 @@ class IHMM():
 
         self.node_samples = forest.node_sample_encoding(self.nodes)
 
-        self.divergence_l = np.zeros((self.total_nodes,self.total_samples),dtype=bool)
-        self.divergence_r = np.zeros((self.total_nodes,self.total_samples),dtype=bool)
+        self.node_features = np.zeros((self.total_nodes,self.total_features))
+        self.node_feature_mask = np.zeros((self.total_nodes,self.total_features),dtype=bool)
 
         for node in self.live_nodes:
-            l,r = node.lr_encoding_vectors()
-            self.divergence_l[node.index] = l
-            self.divergence_r[node.index] = r
+            node_features = node.features
+            local_gains = node.local_gains
+            for feature,gain in zip(node_features,local_gains):
+                fi = self.feature_dictionary[feature]
+                self.node_features[node.index,fi] = gain
+                self.node_feature_mask[node.index,fi] = True
 
         for node in self.live_nodes:
             self.node_states[node.index] = random.randint(1,self.hidden_states-1)
@@ -93,26 +95,32 @@ class IHMM():
 
         self.state_masks = np.zeros((self.hidden_states,self.total_nodes),dtype=bool)
 
-        self.state_sample_log_odds = np.zeros((self.hidden_states,self.total_samples,3))
+        self.state_means = np.zeros((self.hidden_states,self.total_features))
 
+        self.state_covariances = np.zeros((self.hidden_states,self.total_features,self.total_features))
+        self.state_covariances[:,np.identity(self.total_features,dtype=bool)] = 1
+
+        self.state_precisions = np.zeros((self.hidden_states,self.total_features,self.total_features))
+        self.state_precisions[:,np.identity(self.total_features,dtype=bool)] = 1
+
+
+        self.compute_data_properties()
 
     ## Here we begin the methods for updating the state of the model over many "sweeps"
 
     ## Things that stay constant:
-    ## Divergence masks
-    ##    - These are the emissions of 0 or 1 per sample for a given node
+    ## Node feature gains/Features present in nodes
     ## Number of samples
     ## Number of nodes
     ## State of nodes that aren't live or marked as null state
-    ##    - These nodes don't have a divergence (probably because they're leaves), so they can't be modeled
-    ## Node sample encoding
+    ##    - These nodes don't have a gain of information (probably because they're leaves), so they can't be modeled
     ## Node relations (eg child indices)
     ##    -  Topology of the forest remains constant, we're only trying to learn it
 
     ## Things that update:
     ## Node states for live nodes
     ## Number of states
-    ## Log odds of a sample emitting "1" vs "0" in a state
+    ## Emission model for each state
     ## Number of transitions between states
     ## State of children
     ## Hyperparameters
@@ -126,7 +134,7 @@ class IHMM():
     ## - Number of states + masks + oracle transition indicator =>
     ##  - Transitions
     ##  - Oracle transitions
-    ##  - State sample log odds
+    ##  - State gain expectation and covariance
 
     ## - Transitions + number of states =>
     ##  - Transition log odds
@@ -136,7 +144,7 @@ class IHMM():
 
     ###### HERE WE BEGIN TO RECOMPUTE THE NODE STATE ####
 
-    ## - Transition log odds + state sample log odds =>
+    ## - Transition log odds + state emission model (Wishart) =>
     ##  - Log odds of direct state transitions per node
     ##  - Log odds of oracle per node
 
@@ -159,6 +167,7 @@ class IHMM():
         print(self.node_states)
         print(list(np.sum(self.state_masks,axis=1)))
 
+        self.recompute_component_mean_prior()
 
         ### Here we re-assign hidden states to cleaned up indecies, in order to eliminate hidden states that no longer exist
 
@@ -174,14 +183,13 @@ class IHMM():
 
         ## Here we compute the state log odds of emission for each sample for each state given the node assignments above
 
-        self.state_sample_log_odds,self.state_raw_emission_counts,self.state_flips = self.recompute_state_sample_log_odds(self.hidden_states,self.total_nodes,self.total_samples,self.alpha_e,self.beta_e,self.state_masks,self.state_sample_log_odds,self.divergence_l,self.divergence_r)
+        self.state_means = np.zeros((self.hidden_states,self.total_features))
 
         ## We would like to pad this matrix with the log odds of the oracle state. For it, we will use the log odds of all samples without partitioning
+        background_state_means = np.zeros(self.total_features)
 
-        background_sample_log_odds = self.compute_background_divergence_odds(self.alpha_e,self.beta_e,self.divergence_l,self.divergence_r)
-        # background_sample_log_odds = np.zeros((1,self.total_samples,3))
 
-        self.state_sample_log_odds = np.concatenate((self.state_sample_log_odds,background_sample_log_odds),axis=0)
+        self.state_means = np.concatenate((self.state_means,),axis=0)
 
         ## And here we count the transition counts
 
@@ -449,6 +457,7 @@ class IHMM():
 
         self.beta = self.recompute_beta()
         self.gamma = self.recompute_gamma()
+        self.beta_e = self.recompute_beta_e()
 
         print(f"Beta:{self.beta}")
         print(f"Gamma:{self.gamma}")
@@ -522,6 +531,132 @@ class IHMM():
 
         return gamma
 
+    def recompute_beta_e(self):
+
+        return (self.total_features * 2) - 1
+
+    def compute_data_properties(self):
+
+        nodes = self.total_nodes
+        features = self.total_features
+        live_mask = self.live_mask
+        node_feature_mask = self.node_feature_mask
+        node_features = self.node_features
+        hidden_states = self.hidden_states
+
+
+        ## We need to compute the mean gain for each feature using only the values from nodes that actually contain that feautre:
+
+        feature_sums = np.zeros(features) + np.sum(node_features[live_mask],axis=0)
+        state_feature_node_totals = np.ones(features) + np.sum(node_feature_mask[live_mask],axis=0)
+
+        state_feature_means = feature_sums / state_feature_node_totals
+
+        ## Note, this is a minimum-mean-square-error estimate of the mean: https://scholarsarchive.byu.edu/cgi/viewcontent.cgi?article=1277&context=facpub
+
+        ## Now we will need a centered feature gain matrix
+
+        centered_state_features = np.zeros((np.sum(live_mask),features))
+        centered_state_features[node_feature_mask[live_mask]] = node_features[live_mask][node_feature_mask[live_mask]]
+        centered_state_features[node_feature_mask[live_mask]] -= np.tile(state_feature_means,(np.sum(live_mask),1))[node_feature_mask[live_mask]]
+
+        print(centered_state_features.shape)
+
+        raw_cross_product = np.dot(centered_state_features.T,centered_state_features)
+
+
+        scaling_value = np.dot(node_feature_mask[live_mask].T,node_feature_mask[live_mask])
+        covariance_estimate = raw_cross_product / (scaling_value + 1)
+
+        covariance_estimate += np.identity(features)
+
+        if np.any(np.linalg.matrix_rank(covariance_estimate) < self.total_features):
+            print("WARNING:")
+            print("Feature covariance matrix shape:")
+            print(covariance_estimate.shape)
+            print("Rank:")
+            print(np.linalg.matrix_rank(covariance_estimate))
+            raise Exception("Rank-deficient covariance matrix, you are probably using a forest that is too small. Please generate more trees")
+
+        # if self.inf_check:
+        #     print("Unrepresented features?")
+        #     if np.any(np.sum(node_feature_mask,axis=0) == 0):
+        #         raise Exception("Unrepresented features, covariance can't be computed")
+
+        if np.any(np.diagonal(covariance_estimate) == 0):
+            print("WARNING")
+            print("Zero self-covariance, probably an unrepresented feature")
+            print("Setting self-covariance (eg variance) to 1, and all other covariances to zero")
+            mask = np.diagonal(covariance_estimate) == 0
+            print("Affected features:")
+            print(np.arange(self.total_features)[mask])
+            covariance_estimate[mask] = 0
+            covariance_estimate[:,mask] = 0
+            covariance_estimate[mask,mask] = 1
+
+        if self.inf_check:
+            if np.any(np.linalg.eigvals(covariance_estimate) < 0):
+                print("Cov estimate:")
+                print(covariance_estimate.shape)
+                print("Rank:")
+                print(np.linalg.matrix_rank(covariance_estimate))
+                raise Exception("Negative eigenvalues in covariance")
+
+
+        precision_estimate = np.linalg.inv(covariance_estimate)
+
+        ## Let's test whether or not the estimate is a positive definite matrix:
+
+        if self.inf_check:
+            if not np.all(np.linalg.eigvals(precision_estimate) >= 0):
+                raise Exception("Negative eigenvalues in precision")
+
+        self.data_means = state_feature_means
+        self.data_covariance = covariance_estimate
+        self.data_precision = precision_estimate
+
+    def recompute_component_mean_prior(self):
+
+        nodes = self.total_nodes
+        features = self.total_features
+        live_mask = self.live_mask
+        node_feature_mask = self.node_feature_mask
+        node_features = self.node_features
+        hidden_states = self.hidden_states
+
+        background_mean_covariance_priors = (np.sum(self.state_covariances,axis=0) + self.data_covariance) / (hidden_states + 1)
+
+        background_mean_precision_priors = np.linalg.inv(background_mean_covariance_priors) * (hidden_states + 1)
+
+        background_mean_prior_numerator = np.dot(self.data_means, self.data_precision)
+
+        background_mean_prior_numerator += np.dot(np.sum(self.state_means,axis=0),background_mean_precision_priors)
+
+        background_mean_inverse_denomenator = np.linalg.inv(self.data_precision + (hidden_states * background_mean_precision_priors))
+
+        background_mean_priors = np.dot(background_mean_prior_numerator,background_mean_inverse_denomenator)
+
+        self.background_mean_priors = background_mean_priors
+        self.background_mean_covariance_priors = background_mean_covariance_priors
+        self.background_mean_precision_priors = background_mean_precision_priors
+
+        self.precomputed_mean_dot = np.dot(background_mean_priors,background_mean_precision_priors)
+
+        # Now we can find a posterior distribution for the state mean and covariance:
+
+    def recompute_component_precision_prior(self):
+
+        features = self.total_features
+
+        sum_precision = (self.data_precision + (self.beta_e * np.sum(self.state_precisions)))
+
+        mean_precision = sum_precision / ((hidden_states * self.beta_e) + 1)
+
+        prior_covariance = np.inv(mean_precision) * ((self.hidden_states * self.beta_e) + 1)
+
+        self.background_covariance_priors = prior_covariance
+        self.background_precision_priors = mean_precision / ((hidden_states * self.beta_e) + 1)
+
     def update_node_relations(self):
 
         self.child_state_l[self.live_mask] = self.node_states[self.child_index_l][self.live_mask]
@@ -544,13 +679,13 @@ class IHMM():
 
         # print(self.hidden_states)
 
-        new_state_sample_log_odds = np.zeros((self.hidden_states,self.total_samples,3))
+        new_state_means = np.zeros((self.hidden_states,self.total_features))
 
-        for old_index,state in enumerate(self.state_sample_log_odds):
+        for old_index,state in enumerate(self.state_means):
             if old_index in new_indices:
-                new_state_sample_log_odds[new_indices[old_index]] = state
+                new_state_means[new_indices[old_index]] = state
 
-        self.state_sample_log_odds = new_state_sample_log_odds
+        self.state_means = new_state_means
 
         # print(new_state_sequence)
 
@@ -574,195 +709,99 @@ class IHMM():
 
         return new_state_masks
 
+    # def recompute_state_feature_gains(self,states,features,nodes,state_masks,node_feature_mask,gains):
+    def recompute_state_features(self):
 
-    def recompute_state_sample_log_odds(self,states,nodes,samples,alpha_e,beta_e,state_masks,state_sample_log_odds,divergence_l,divergence_r):
+        print("Recomputing State Means and Covariance")
 
-        print("Recomputing Sample Log Odds")
+        states = self.hidden_states
+        nodes = self.total_nodes
+        features = self.total_features
+        state_masks = self.state_masks
+        node_feature_mask = self.node_feature_mask
+        node_features = self.node_features
 
-        # new_state_sample_log_odds_l = np.zeros((states,samples))
-        # new_state_sample_log_odds_c = np.zeros((states,samples))
-        # new_state_sample_log_odds_r = np.zeros((states,samples))
-        new_state_sample_log_odds = np.zeros((states,samples,3))
+        prior_means = self.background_mean_priors
+        prior_mean_precisions = self.background_mean_precision_priors
+        prior_mean_covariances = self.background_mean_covariance_priors
 
-        state_flips = np.zeros((states,nodes),dtype=bool)
+        precomputed_background_dot_product = self.precomputed_mean_dot
 
-        new_raw_emission_counts = np.zeros((states,samples,2))
+        new_means = np.zeros((states,features))
 
-        sample_totals = np.sum(divergence_l,axis=0) + np.sum(divergence_r,axis=0)
+        new_covariances = np.zeros((states,features,features))
+        new_precisions = np.zeros((states,features,features))
 
-        sample_totals = sample_totals.astype(dtype=float)
+        for state,state_node_mask in list(enumerate(state_masks))[1:]:
 
-        print(new_state_sample_log_odds.shape)
+            print(f"State:{state}")
+            print(f"Total nodes:{np.sum(state_node_mask)}")
 
-        for i,state_mask in list(enumerate(state_masks))[1:]:
-
-            # print("SAMPLE LOG ODDS DEBUG")
-            # print(state_mask.shape)
-            # print(divergence_l.shape)
+            state_occupancy = np.sum(state_node_mask)
 
             ## First we want:
             ##  -only nodes in state
-            ##  -left and right mask each
-            ##      -This matrix is node x sample, true if left/right
+            ##  -feature gains for each node
+            ##      -Not every node has gains for every feature, so we will need to be efficient about computing their means
 
-            l = divergence_l[state_mask]
-            r = divergence_r[state_mask]
+            covariance_estimate = np.zeros((features,features))
 
-            # print(l.shape)
-            # print(r.shape)
+            state_feature_node_mask = np.zeros((features,nodes),dtype=bool)
 
-            # print(i)
-            # print(l.shape)
-            # print(r.shape)
+            ## We need to compute the mean gain for each feature using only the values from nodes that actually contain that feautre:
 
-            ## We want to figure out whether to use the right or the left split of the node:
+            feature_sums = np.zeros(features) + np.sum(node_features[state_node_mask],axis=0)
+            state_feature_node_totals = np.ones(features) + np.sum(node_feature_mask[state_node_mask],axis=0)
 
-            ## First take each sample mask and use it to select log odds from state sample log odds
+            state_feature_means = feature_sums / state_feature_node_totals
 
-            state_sample_log_tile = np.tile(state_sample_log_odds[i,:,1],(np.sum(state_mask),1))
+            ## Note, this is a minimum-mean-square-error estimate of the mean: https://scholarsarchive.byu.edu/cgi/viewcontent.cgi?article=1277&context=facpub
 
-            # print("TILE DEBUG")
-            # print(state_sample_log_tile.shape)
-            # print(l.shape)
+            ## Now we will need a centered feature gain matrix
 
-            ## Here we created a mask with dimensions of # of nodes in state x samples
+            centered_state_features = np.zeros((state_occupancy,features))
+            centered_state_features[node_feature_mask[state_node_mask]] = node_features[state_node_mask][node_feature_mask[state_node_mask]]
+            centered_state_features[node_feature_mask[state_node_mask]] -= np.tile(state_feature_means,(state_occupancy,1))[node_feature_mask[state_node_mask]]
 
-            left_log_odds = np.zeros(l.shape)
-            left_log_odds[l] = state_sample_log_tile[l]
+            raw_cross_product = np.dot(centered_state_features.T,centered_state_features)
 
-            right_log_odds = np.zeros(r.shape)
-            right_log_odds[r] = state_sample_log_tile[r]
+            # scaling_value = np.dot(node_feature_mask[state_node_mask].T,node_feature_mask[state_node_mask])
+            # covariance_estimate = raw_cross_product / (scaling_value + 1)
+            # covariance_estimate = raw_cross_product / (np.sum(state_node_mask) + 1)
+            # covariance_estimate = raw_cross_product / np.sum(state_node_mask)
 
-            ## Next we sum the log odds to obtain total log odds of the fit of each side of the divergence
-            ## to the state model
+            ## Let's test whether or not the estimate is a positive definite matrix:
 
-            ## Recall that each state model models the odds of a sample going left.
+            posterior_covariance = prior_mean_covariances[state] + raw_cross_product + ((state_occupancy/ (state_occupancy + 1)) * np.sum(np.power(prior_means - state_feature_means,2)))
 
-            left_fit = np.sum(left_log_odds,axis=1)
-            right_fit = np.sum(right_log_odds,axis=1)
+            posterior_precision = np.linalg.inv(posterior_covariance)
 
-            ## If right fit is better than left fit, we would like to flip
+            posterior_mean_numerator = np.dot((state_feature_means * state_occupancy),posterior_precision) + precomputed_background_dot_product
 
-            flip = right_fit > left_fit
+            posterior_precision = (state_occupancy * posterior_precision) + prior_mean_precisions
 
-            ## Next we want to figure out the totals going left and right
+            posterior_mean_inverse_denominator = np.linalg.inv(posterior_precision)
 
-            l_total = np.sum(l[np.logical_not(flip)],axis=0) + np.sum(r[flip],axis=0)
-            r_total = np.sum(r[np.logical_not(flip)],axis=0) + np.sum(l[flip],axis=0)
+            posterior_means = np.dot(posterior_mean_numerator, posterior_mean_inverse_denominator)
 
-            ## L total here is a sample x 1 matrix that is the sum of all nodes present in the state that also had that sample go left
-            ## R total here is a sample x 1 matrix that had the samples go the other way
+            new_means[state] = posterior_means
 
-            # print(l_total.shape)
-            # print(r_total.shape)
+            new_precisions[state] = posterior_precision
 
-            l_total = l_total.astype(dtype=float)
-            r_total = r_total.astype(dtype=float)
+            new_covariances[state] = posterior_mean_inverse_denominator
 
-            state_total = l_total + r_total
+            if np.any(np.linalg.eigvals(covariance_estimate) < 0):
+                raise Exception("Covariance estimate not positive-definite")
 
-            ## Now one last trick remains: we have to pre-compute the odds if a node is removed from this state during evaluation
-            ## This will allow us to compute a gibbs sweep in which a node is being evaluated that initially belonged to this state
-            ##
+            # Now we can find a posterior distribution for the state mean and covariance:
 
-            l_total_m = l_total - 1
-            r_total_m = r_total - 1
-            state_total_m = state_total - 1
-
-            l_total_m[l_total_m < 0] = 0
-            r_total_m[r_total_m < 0] = 0
-
-            ## The new log odds are now ready to be computed:
-
-            new_state_sample_log_odds[i,:,0] = np.log2((l_total_m + alpha_e) / (r_total + beta_e))
-            new_state_sample_log_odds[i,:,1] = np.log2((l_total + alpha_e) / (r_total + beta_e))
-            new_state_sample_log_odds[i,:,2] = np.log2((l_total + alpha_e) / (r_total_m + beta_e))
-
-            new_raw_emission_counts[i,:,0] = l_total
-            new_raw_emission_counts[i,:,1] = r_total
-
-            state_flips[i][state_mask] = flip
-
-            # external = sample_totals - (l_total + r_total)
-
-            # if (external < 0).any():
-            #     mask = external < 1
-            #     print(sample_totals[mask])
-            #     print(l_total[mask])
-            #     print(r_total[mask])
-            #     raise Exception()
-
-            # external_p = external + 1
-            #
-            # new_state_sample_log_odds[i,:,0] = np.log2((l_total_m + external_p + alpha_e) / (r_total + external_p + beta_e))
-            # new_state_sample_log_odds[i,:,1] = np.log2((l_total + external + alpha_e) / (r_total + external + beta_e))
-            # new_state_sample_log_odds[i,:,2] = np.log2((l_total + external_p + alpha_e) / (r_total_m + external_p + beta_e))
-            #
-            # new_raw_emission_counts[i,:,0] = l_total
-            # new_raw_emission_counts[i,:,1] = r_total
-            #
-            # state_flips[i][state_mask] = flip
+        self.state_means = new_means
+        self.state_precisions = new_precisions
+        self.state_covariances = new_covariances
 
 
-
-            #
-            # if self.inf_check:
-            #     if np.isnan(new_state_sample_log_odds[i]).any():
-            #         print("NAN WARNING")
-            #         print("================================")
-            #         print("================================")
-            #         print(list(enumerate(new_raw_emission_counts[i])))
-            #         print(list(enumerate(new_state_sample_log_odds[i])))
-            #         print("================================")
-            #         print("================================")
-            #
-            #     if np.isinf(new_state_sample_log_odds[i]).any():
-            #         print("INFINITY WARNING")
-            #         print("================================")
-            #         print("================================")
-            #         print(list(enumerate(l_total_m)))
-            #         print(list(enumerate()))
-            #         print(list(enumerate(new_raw_emission_counts[i])))
-            #         print(list(enumerate(new_state_sample_log_odds[i])))
-            #         print("================================")
-            #         print("================================")
-
-
-        # print(new_state_sample_log_odds)
-
-
-        assert not (np.isnan(new_state_sample_log_odds).any())
-
-
-        return new_state_sample_log_odds,new_raw_emission_counts,state_flips
-
-    def compute_background_divergence_odds(self,alpha_e,beta_e,divergence_l,divergence_r):
-
-        left_sum = np.sum(divergence_l,axis=0)
-        right_sum = np.sum(divergence_r,axis=0)
-
-        ## If right fit is better than left fit, we would like to flip
-
-        flip = left_sum < right_sum
-        no_flip = np.logical_not(flip)
-
-        ## The new log odds are now ready to be computed:
-
-        flipped_left = np.zeros(left_sum.shape)
-        flipped_left[no_flip] = left_sum[no_flip]
-        flipped_left[flip] = right_sum[flip]
-        flipped_right = np.zeros(right_sum.shape)
-        flipped_right[no_flip] = right_sum[no_flip]
-        flipped_right[flip] = left_sum[flip]
-
-        background_log_odds = np.log2((flipped_left + alpha_e) / (flipped_right + beta_e))
-
-        tiled_odds = np.zeros((1,divergence_l.shape[1],3))
-        tiled_odds[0,:,0] = background_log_odds
-        tiled_odds[0,:,1] = background_log_odds
-        tiled_odds[0,:,2] = background_log_odds
-
-        return tiled_odds
+            # print(len(feature_means))
+            # print(self.total_features)
 
 
     def recompute_transition_counts(self,live_mask,oracle_indicator_l,oracle_indicator_r,states,node_states,child_state_l,child_state_r):
@@ -841,65 +880,6 @@ class IHMM():
 
         return divergence_odds
 
-    def node_state_log_odds_given_divergence(task):
-
-        ## Here we have a function for computing the log odds of each node's emissions for a state
-
-        dl,dr,flip,home_state,state_sample_log_odds = task
-
-        # print("STATE LOG ODDS DIMENSIONS")
-        # print(state_sample_log_odds.shape)
-        # print(dl.shape)
-        # print(flip.shape)
-
-        ## First we compute the simple case, the odds of a node from a different state transitioning to this state:
-
-        l = np.sum(state_sample_log_odds[:,dl,1],axis=1)
-        r = np.sum(state_sample_log_odds[:,dr,1],axis=1)
-
-        f = l-r
-        s = r-l
-
-        odds = np.maximum(f,s)
-
-        ## Now the tricky part comes. When evaluating the odds of a node, the odds have to be evaluated as if this node was
-        ## NOT in the state it is currently assigned to. This allows unbiased evaluation of small states, and is especially
-        ## important for sparse data, where a single emission element can make a substantial difference in odds
-
-        ## First we determine the odds if the node has been flipped:
-
-        if flip[home_state]:
-
-            hsl = np.sum(state_sample_log_odds[home_state,dl,2])
-            hsr = np.sum(state_sample_log_odds[home_state,dr,0])
-
-        ## Select the odds of each right sample, assuming one less right sample in the state emissions,
-        ## and each left sample assuming one less left sample in the state emissions
-
-            hss = hsl - hsr
-            hsf = hsr - hsl
-
-            odds[home_state] = np.maximum(hss,hsf)
-
-        ## Now determine the odds if the node is from this state and flipped
-
-        else:
-
-            hsl = np.sum(state_sample_log_odds[home_state,dr,2])
-            hsr = np.sum(state_sample_log_odds[home_state,dl,0])
-
-            hss = hsl - hsr
-            hsf = hsr - hsl
-
-            odds[home_state] = np.maximum(hss,hsf)
-
-        # if np.isnan(odds).any():
-        #     print(state_sample_log_odds[:,dl,:])
-        #     print(state_sample_log_odds[:,dr,:])
-        #     print(odds)
-        #     raise Exception("Node state odds nan")
-
-        return odds
 
     def compute_state_odds_given_child_direct_transition(self,beta,transition_counts,node_states,node_child_states):
 

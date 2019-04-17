@@ -448,6 +448,47 @@ class Node:
             child_masks[i] = child.sample_mask()
         return child_masks
 
+    # def make_fat_node(self,samples,fat_tree):
+    #
+    #     fat_node = Node.null()
+    #     fat_samples = []
+    #     for sample in samples:
+    #         si = self.forest.truth_dictionary.sample_dictionary[sample]
+    #         prerequisite_flag = True
+    #         for prerequisite in self.prerequisites:
+    #             feature = prerequisite[0]
+    #             fi = self.forest.truth_dictionary.feature_dictionary[feature]
+    #             split = float(prerequisite[1])
+    #             if prerequisite[2] == '>':
+    #                 if truth_dictionary[feature] < split:
+    #                     prerequisite_flag = False
+    #             else if prerequisite[2] == '<':
+    #                 if sample[feature] > split:
+    #                     prerequisite_flag = False
+    #         if prerequisite_flag:
+    #             fat_samples.append(sample)
+    #
+    #     fat_node.tree = fat_tree
+    #     fat_node.forest = self.forest
+    #     fat_node.lr = self.lr
+    #     fat_node.level = self.level
+    #     fat_node.feature = self.feature['feature']
+    #     fat_node.split = self.split['split']
+    #
+    #     fat_node.features = self.forest.output_features
+    #     fat_node.samples =
+    #     fat_node.medians = self.node_json['medians']
+    #     fat_node.dispersions = self.node_json['dispersions']
+    #     fat_node.weights = self.np.ones(len(self.features),dtype=float)
+    #     fat_node.local_gains = self.node_json['local_gains']
+    #     fat_node.absolute_gains = self.node_json['absolute_gains']
+    #     fat_node.children = self.[]
+    #     fat_node.child_clusters = self.([],[])
+    #     fat_node.prerequisites = self.prerequisites
+    #     if len(node_json['children']) > 0:
+    #         self.children.append(Node(node_json['children'][0],self.tree,self.forest,parent=self,lr=0,prerequisites = prerequisites + [(self.feature,self.split,'<')],level=level+1))
+    #         self.children.append(Node(node_json['children'][1],self.tree,self.forest,parent=self,lr=1,prerequisites = prerequisites + [(self.feature,self.split,'>')],level=level+1))
+
 class Tree:
 
     def __init__(self, tree_json, forest):
