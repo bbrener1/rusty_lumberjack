@@ -40,7 +40,10 @@ from multiprocessing import Pool
 
 import copy
 
-sys.path.append("/Users/boris/haxx/python/smooth_density_graph/")
+try:
+    sys.path.append("/Users/boris/haxx/python/smooth_density_graph")
+try:
+    sys.path.append("../smooth_density_graph/")
 import smooth_density_graph as sdg
 
 class Node:
