@@ -42,8 +42,12 @@ import copy
 
 try:
     sys.path.append("/Users/boris/haxx/python/smooth_density_graph")
+except:
+    pass
 try:
     sys.path.append("../smooth_density_graph/")
+except:
+    pass
 import smooth_density_graph as sdg
 
 class Node:
