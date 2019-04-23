@@ -874,7 +874,7 @@ class IHMM():
             # print(self.total_features)
 
     def recompute_state_features_parallel_wrapper(task):
-        
+
 
 
     def recompute_transition_counts(self,live_mask,oracle_indicator_l,oracle_indicator_r,states,node_states,child_state_l,child_state_r):
@@ -1052,7 +1052,7 @@ class IHMM():
         return node_state_odds.T
 
     def log_sampling(sequence):
-        sort = np.argsort(log_weights)
+        sort = np.argsort(sequence)
         sorted_log = sequence[sort[::-1]]
         sorted_log -= sorted_log[0]
         raw_odds = np.exp2(sorted_log)
