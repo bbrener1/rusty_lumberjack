@@ -1048,20 +1048,20 @@ class IHMM():
 
         return node_state_odds.T
 
-def log_sampling(sequence):
-    sort = np.argsort(log_weights)
-    sorted_log = sequence[sort[::-1]]
-    sorted_log -= sorted_log[0]
-    raw_odds = np.exp2(sorted_log)
+    def log_sampling(sequence):
+        sort = np.argsort(log_weights)
+        sorted_log = sequence[sort[::-1]]
+        sorted_log -= sorted_log[0]
+        raw_odds = np.exp2(sorted_log)
 
-    draw = random.random()*np.sum(raw_odds)
+        draw = random.random()*np.sum(raw_odds)
 
-    for i,w in sorted_raw:
-        draw -= w
-        if draw <= 0 or (not np.isfinite(draw)):
-            return i
+        for i,w in sorted_raw:
+            draw -= w
+            if draw <= 0 or (not np.isfinite(draw)):
+                return i
 
-    return len(raw_odds) - 1
+        return len(raw_odds) - 1
 
 
     def sample_states(self,live_mask,state_log_odds):
@@ -1074,10 +1074,6 @@ def log_sampling(sequence):
         draw_index = [i+1 for i in draw_index]
 
         new_state_indicator = [di >= state_log_odds.shape[0] - 1 for di in draw_index]
-
-        # if np.isinf(state_log_odds[1:,live_mask]).any():
-        #     raise Exception("Inf live log odds")
-
 
         return np.array(draw_index), np.array(new_state_indicator)
 
