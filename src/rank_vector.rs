@@ -1540,27 +1540,27 @@ mod rank_vector_tests {
     //     );
     // }
     //
-    #[bench]
-    fn bench_rv3_mad_vector(b: &mut Bencher) {
-        let mut vector = RankVector::<Vec<Node>>::link(&vec![10.,-3.,0.,5.,-2.,-1.,15.,20.],);
-        vector.drop_f(0.);
-
-        b.iter(|| vector.mad());
-    }
-
-    #[bench]
-    fn bench_rv3_mad_smallvec(b: &mut Bencher) {
-        let mut vector = RankVector::<Vec<Node>>::link(&vec![10.,-3.,0.,5.,-2.,-1.,15.,20.],);
-        vector.drop_f(0.);
-
-        let container: SmallVec<[Node;1024]> = SmallVec::with_capacity(8);
-
-        let vm = vector.clone_to_container(container);
-
-        b.iter(||
-            vm.mad()
-        );
-    }
+    // #[bench]
+    // fn bench_rv3_mad_vector(b: &mut Bencher) {
+    //     let mut vector = RankVector::<Vec<Node>>::link(&vec![10.,-3.,0.,5.,-2.,-1.,15.,20.],);
+    //     vector.drop_f(0.);
+    //
+    //     b.iter(|| vector.mad());
+    // }
+    // 
+    // #[bench]
+    // fn bench_rv3_mad_smallvec(b: &mut Bencher) {
+    //     let mut vector = RankVector::<Vec<Node>>::link(&vec![10.,-3.,0.,5.,-2.,-1.,15.,20.],);
+    //     vector.drop_f(0.);
+    //
+    //     let container: SmallVec<[Node;1024]> = SmallVec::with_capacity(8);
+    //
+    //     let vm = vector.clone_to_container(container);
+    //
+    //     b.iter(||
+    //         vm.mad()
+    //     );
+    // }
     //
     // #[bench]
     // fn bench_rv3_clone_and_return(b: &mut Bencher) {

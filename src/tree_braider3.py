@@ -74,7 +74,7 @@ class IHMM():
 
         for node in self.live_nodes:
             node_features = node.features
-            local_gains = node.local_gains
+            local_gains = node.medians
             for feature,gain in zip(node_features,local_gains):
                 fi = self.feature_dictionary[feature]
                 self.node_features[node.index,fi] = gain
@@ -103,6 +103,7 @@ class IHMM():
         self.state_precisions = np.zeros((self.hidden_states,self.total_features,self.total_features))
         self.state_precisions[:,np.identity(self.total_features,dtype=bool)] = 1
 
+        self.state_log_dets = np.zeros(self.total_features)
 
         self.compute_data_properties()
 
@@ -167,8 +168,6 @@ class IHMM():
         print(self.node_states)
         print(list(np.sum(self.state_masks,axis=1)))
 
-        self.recompute_component_mean_prior()
-
         ### Here we re-assign hidden states to cleaned up indecies, in order to eliminate hidden states that no longer exist
 
         self.node_states = self.clean_state_indeces(self.node_states)
@@ -183,13 +182,16 @@ class IHMM():
 
         ## Here we compute the state log odds of emission for each sample for each state given the node assignments above
 
-        self.state_means = np.zeros((self.hidden_states,self.total_features))
+        self.recompute_component_mean_prior()
+        self.recompute_component_precision_prior()
+        self.recompute_state_features()
 
         ## We would like to pad this matrix with the log odds of the oracle state. For it, we will use the log odds of all samples without partitioning
-        background_state_means = np.zeros(self.total_features)
 
-
-        self.state_means = np.concatenate((self.state_means,),axis=0)
+        self.state_means = np.concatenate((self.state_means,np.array([self.background_mean_priors])),axis=0)
+        self.state_precisions = np.concatenate((self.state_precisions,np.array([self.background_precision_prior])),axis=0)
+        self.state_covariances = np.concatenate((self.state_covariances,np.array([self.background_covariance_prior])),axis=0)
+        self.state_log_dets = np.concatenate((self.state_log_dets,np.array([self.background_log_det])))
 
         ## And here we count the transition counts
 
@@ -222,19 +224,19 @@ class IHMM():
 
         ## First we establish the log odds of a given state based on the divergence observed
 
-        self.state_log_odds_given_divergence = self.compute_state_log_odds_given_divergence(self.divergence_l,self.divergence_r,self.state_flips,self.node_states,self.live_mask,self.state_sample_log_odds)
+        self.state_log_odds_given_features = self.compute_state_log_odds_given_features(self.node_features,self.node_feature_mask,self.live_mask,self.state_means,self.state_precisions,self.state_log_dets)
 
         # self.state_log_odds_given_divergence /= self.hidden_states
 
         ## This matrix contains only odds of existing states based on divergence, eg it is hidden_states x nodes in dimension, plus an extra row for a novel state
 
         if self.inf_check:
-            print("Divergence odds")
-            print(list(self.state_log_odds_given_divergence))
-            if np.isnan(self.state_log_odds_given_divergence).any():
-                raise Exception("NaN state log odds given divergence")
-            if np.isinf(self.state_log_odds_given_divergence).any():
-                raise Exception("Inf state log odds given divergence")
+            print("Feature odds")
+            print(list(self.state_log_odds_given_features))
+            if np.isnan(self.state_log_odds_given_features).any():
+                raise Exception("NaN state log odds given features")
+            if np.isinf(self.state_log_odds_given_features).any():
+                raise Exception("Inf state log odds given features")
 
         #### IMPORTANT ####
 
@@ -377,7 +379,7 @@ class IHMM():
 
         ## Finally we want to combine all log odds and sample the resulting distribution
 
-        self.state_log_odds = self.state_log_odds_given_divergence + self.state_log_odds_given_child_l + self.state_log_odds_given_child_r
+        self.state_log_odds = self.state_log_odds_given_features + self.state_log_odds_given_child_l + self.state_log_odds_given_child_r
 
         new_node_states = self.node_states.copy()
         new_state_indicator = np.zeros(self.total_nodes,dtype=bool)
@@ -389,9 +391,9 @@ class IHMM():
         new_oracle_indicator_l,new_oracle_indicator_r = self.sample_oracle_indicator(oracle_probability_l,oracle_probability_r)
 
         if self.inf_check:
-            if np.isnan(state_log_odds[1:,self.live_mask]).any():
+            if np.isnan(self.state_log_odds[1:,self.live_mask]).any():
                 raise Exception("NaN additive log state odds")
-            if np.isinf(state_log_odds[1:,self.live_mask]).any():
+            if np.isinf(self.state_log_odds[1:,self.live_mask]).any():
                 raise Exception("Inf additive log state odds")
 
         new_oracle_indicator_l[new_state_indicator] = True
@@ -531,11 +533,47 @@ class IHMM():
 
         return gamma
 
-    def recompute_beta_e(self):
+    def recompute_beta_e(self,beta_max=None):
 
-        return (self.total_features * 2) - 1
+        k = self.hidden_states
+        features = self.total_features
+        if beta_max is None:
+            beta_max = max(k,features)
+
+        trace_product = self.state_precisions[:k,np.identity(features,dtype=bool)] * np.tile(self.background_precision_prior[np.identity(features,dtype=bool)],(k,1))
+
+        trace_sum = np.sum(trace_product + np.ones((k,features)))
+
+        log_trace_sum = np.sum(np.log(trace_product + np.ones((k,features))))
+
+        log_cum_sum = np.cumsum(np.log(np.arange(1,beta_max)))
+
+        def likelihood(beta): return (-k * log_cum_sum[int(beta/2)]) + (-1/(2 * beta)) + (((k*beta - 3)/2) * (beta / 2)) + ((beta / 2) * (log_trace_sum - trace_sum))
+
+        sequence = np.array([likelihood(b) for b in range(1,beta_max)])
+
+        beta_e = np.argmin(sequence) + 1
+        other_beta = np.argmax(sequence) + 1
+
+        print("BETA_E DEBUG")
+        print("beta_e")
+        print(beta_e)
+        print("Trace sum")
+        print(trace_sum)
+        print("Log trace sum")
+        print(log_trace_sum)
+        print("Other")
+        print(other_beta)
+        print(sequence[:10])
+
+        return beta_e
+
+        # return self.total_features
+        # return (self.total_features * 2) - 1
 
     def compute_data_properties(self):
+
+        print("Computing Data Properties")
 
         nodes = self.total_nodes
         features = self.total_features
@@ -564,8 +602,12 @@ class IHMM():
 
         raw_cross_product = np.dot(centered_state_features.T,centered_state_features)
 
+        scaling_value = np.dot(node_feature_mask[live_mask].T.astype(dtype=float),node_feature_mask[live_mask].astype(dtype=float))
 
-        scaling_value = np.dot(node_feature_mask[live_mask].T,node_feature_mask[live_mask])
+        # raw_cross_product += np.identity(features)
+        #
+        # scaling_value += np.identity(features)
+
         covariance_estimate = raw_cross_product / (scaling_value + 1)
 
         covariance_estimate += np.identity(features)
@@ -648,14 +690,19 @@ class IHMM():
 
         features = self.total_features
 
-        sum_precision = (self.data_precision + (self.beta_e * np.sum(self.state_precisions)))
+        sum_precision = (np.identity(features) + self.data_precision + (self.beta_e * np.sum(self.state_precisions[1:-1],axis=0)))
 
-        mean_precision = sum_precision / ((hidden_states * self.beta_e) + 1)
+        mean_precision = sum_precision / ((self.hidden_states * self.beta_e) + 1)
 
-        prior_covariance = np.inv(mean_precision) * ((self.hidden_states * self.beta_e) + 1)
+        # prior_covariance = np.linalg.inv(mean_precision) * ((self.hidden_states * self.beta_e) + 1)
+        prior_covariance = np.linalg.inv(mean_precision)
 
-        self.background_covariance_priors = prior_covariance
-        self.background_precision_priors = mean_precision / ((hidden_states * self.beta_e) + 1)
+        prior_determinant = np.log2(np.linalg.slogdet(prior_covariance)[1]) / np.log2(np.e)
+
+        self.background_covariance_prior = prior_covariance
+        self.background_precision_prior = mean_precision
+        # self.background_precision_prior = mean_precision / ((self.hidden_states * self.beta_e) + 1)
+        self.background_log_det = prior_determinant
 
     def update_node_relations(self):
 
@@ -725,12 +772,17 @@ class IHMM():
         prior_mean_precisions = self.background_mean_precision_priors
         prior_mean_covariances = self.background_mean_covariance_priors
 
+        prior_covariance = self.background_covariance_prior
+        prior_precision = self.background_precision_prior
+
         precomputed_background_dot_product = self.precomputed_mean_dot
 
         new_means = np.zeros((states,features))
 
         new_covariances = np.zeros((states,features,features))
         new_precisions = np.zeros((states,features,features))
+
+        new_log_dets = np.zeros(states)
 
         for state,state_node_mask in list(enumerate(state_masks))[1:]:
 
@@ -750,10 +802,14 @@ class IHMM():
 
             ## We need to compute the mean gain for each feature using only the values from nodes that actually contain that feautre:
 
-            feature_sums = np.zeros(features) + np.sum(node_features[state_node_mask],axis=0)
+            feature_sums = np.sum(node_features[state_node_mask],axis=0)
             state_feature_node_totals = np.ones(features) + np.sum(node_feature_mask[state_node_mask],axis=0)
 
             state_feature_means = feature_sums / state_feature_node_totals
+
+            print(feature_sums[:10])
+            print(state_feature_node_totals[:10])
+            print(state_feature_means[:10])
 
             ## Note, this is a minimum-mean-square-error estimate of the mean: https://scholarsarchive.byu.edu/cgi/viewcontent.cgi?article=1277&context=facpub
 
@@ -772,15 +828,27 @@ class IHMM():
 
             ## Let's test whether or not the estimate is a positive definite matrix:
 
-            posterior_covariance = prior_mean_covariances[state] + raw_cross_product + ((state_occupancy/ (state_occupancy + 1)) * np.sum(np.power(prior_means - state_feature_means,2)))
+
+
+            # posterior_covariance = prior_covariance + raw_cross_product + (((state_occupancy * self.beta_e)/ (state_occupancy + self.beta_e)) * np.sum(np.power(prior_means - state_feature_means,2)))
+
+            posterior_covariance = (((prior_covariance * self.beta_e) + raw_cross_product) / (self.beta_e + state_occupancy)) + np.identity(features)
+
+            covariance_log_determinant = np.log2(np.linalg.slogdet(posterior_covariance)[1])/np.log2(np.e)
+
+
+            print("DETERMINANT DEBUG")
+            print(raw_cross_product)
+            print(self.beta_e)
+            print(state_occupancy)
+            print(np.any(np.isinf(posterior_covariance)))
+            print(covariance_log_determinant)
 
             posterior_precision = np.linalg.inv(posterior_covariance)
 
             posterior_mean_numerator = np.dot((state_feature_means * state_occupancy),posterior_precision) + precomputed_background_dot_product
 
-            posterior_precision = (state_occupancy * posterior_precision) + prior_mean_precisions
-
-            posterior_mean_inverse_denominator = np.linalg.inv(posterior_precision)
+            posterior_mean_inverse_denominator = np.linalg.inv(np.dot((state_feature_means * state_occupancy),posterior_precision) + prior_mean_precisions)
 
             posterior_means = np.dot(posterior_mean_numerator, posterior_mean_inverse_denominator)
 
@@ -788,7 +856,9 @@ class IHMM():
 
             new_precisions[state] = posterior_precision
 
-            new_covariances[state] = posterior_mean_inverse_denominator
+            new_covariances[state] = posterior_covariance
+
+            new_log_dets[state] = covariance_log_determinant
 
             if np.any(np.linalg.eigvals(covariance_estimate) < 0):
                 raise Exception("Covariance estimate not positive-definite")
@@ -798,7 +868,7 @@ class IHMM():
         self.state_means = new_means
         self.state_precisions = new_precisions
         self.state_covariances = new_covariances
-
+        self.state_log_dets = new_log_dets
 
             # print(len(feature_means))
             # print(self.total_features)
@@ -862,24 +932,68 @@ class IHMM():
 
         return new_oracle_transitions
 
-    def compute_state_log_odds_given_divergence(self,divergence_l,divergence_r,flip,node_states,live_mask,state_sample_log_odds):
+    def compute_state_log_odds_given_features(self,node_features,node_feature_mask,live_mask,state_feature_means,state_precisions,state_log_dets):
 
-        print("Computing state log odds | divergence")
+        print("Computing state log odds | features")
 
         ## Here we have a wrapper function that allows us to parallelize the node state odds computation
         ## An inner function allows us to compute multiple states at the same time in a process pool
 
-        divergence_odds = np.zeros((state_sample_log_odds.shape[0],node_states.shape[0]))
+        feature_log_odds = np.zeros((node_features.shape[0],state_log_dets.shape[0]))
 
-        node_output = self.pool.map(IHMM.node_state_log_odds_given_divergence,zip(divergence_l[live_mask],divergence_r[live_mask],flip[:,live_mask].T,node_states[live_mask],repeat(state_sample_log_odds)))
+        print("Node features")
+        print(node_features[live_mask].shape)
+        print(node_feature_mask[live_mask].shape)
 
-        divergence_odds[:,live_mask] = np.array(node_output).T
+        node_output = self.pool.map(IHMM.node_state_log_odds_given_features,zip(range(np.sum(live_mask)),node_features[live_mask],node_feature_mask[live_mask],repeat(state_feature_means),repeat(state_precisions),repeat(state_log_dets)))
+
+        print("Node ratio debug")
+        print(np.array(node_output).shape)
+        print(feature_log_odds.shape)
+        print(feature_log_odds[live_mask].shape)
+
+        feature_log_odds[live_mask] = np.array(node_output)
 
         # if np.isnan(node_output).any():
         #     raise Exception("Computed nan divergence log odds")
 
-        return divergence_odds
+        return feature_log_odds.T
 
+    def node_state_log_odds_given_features(task):
+
+        node_index,node_features,node_feature_mask,state_feature_means,state_feature_precisions,state_log_dets = task
+
+        total_node_features = np.sum(node_feature_mask)
+
+        k = state_feature_means.shape[0]
+
+        centered_features = np.tile(node_features[node_feature_mask],(k,1)) - state_feature_means[:,node_feature_mask]
+
+        masked_precisions = state_feature_precisions[:,node_feature_mask].T[node_feature_mask].T
+
+        state_log_likelihood = np.zeros(k)
+
+        print("Node:")
+        print(node_index)
+        print(centered_features.shape)
+        # print(centered_features)
+        print(masked_precisions.shape)
+        # print(masked_precisions)
+        print(state_log_dets.shape)
+        # print(state_determinants)
+
+        for state,state_centered_features,state_precision_mtx,state_log_determinant in zip(range(k),centered_features,masked_precisions,state_log_dets):
+
+            # print(state_centered_features.shape)
+            # print(state_precision_mtx.shape)
+            # print(np.dot(np.dot(state_centered_features,state_precision_mtx),state_centered_features).shape)
+            # print(np.dot(np.dot(state_centered_features,state_precision_mtx),state_centered_features) + state_log_determinant + (k*np.log2(np.pi * 2)))
+
+            state_log_likelihood[state] = np.dot(np.dot(state_centered_features,state_precision_mtx),state_centered_features) + state_log_determinant + (k*np.log2(np.pi * 2))
+
+        print(state_log_likelihood)
+
+        return state_log_likelihood
 
     def compute_state_odds_given_child_direct_transition(self,beta,transition_counts,node_states,node_child_states):
 
@@ -934,35 +1048,20 @@ class IHMM():
 
         return node_state_odds.T
 
-    def log_sampling(log_weights):
-        raw_odds = np.exp2(log_weights)
-        sorted_raw = sorted(list(enumerate(raw_odds)),key=lambda x: log_weights[x[0]])[::-1]
-        # print(log_weights)
-        # print(sorted_raw)
-        draw = random.random()*np.sum(raw_odds)
-        # print(draw)
-        for i,w in sorted_raw:
-            # print(draw)
-            # print(w)
-            draw -= w
-            if draw <= 0 or (not np.isfinite(draw)):
-                # print(draw)
-                # print("DREW")
-                # print(i)
-                # if i == len(raw_odds)-1:
-                #     print("ALERT, NEW STATE")
-                #     print(i)
-                # if i == len(log_weights)-1:
-                #     print("ALWAYS PAIRED")
-                #     print(i)
-                return i
-        # print("WARNING")
-        # print(log_weights)
-        # print(raw_odds)
-        # print(sorted_weights)
-        # print("DREW")
-        # print(len(raw_odds) - 1)
-        return len(raw_odds) - 1
+def log_sampling(sequence):
+    sort = np.argsort(log_weights)
+    sorted_log = sequence[sort[::-1]]
+    sorted_log -= sorted_log[0]
+    raw_odds = np.exp2(sorted_log)
+
+    draw = random.random()*np.sum(raw_odds)
+
+    for i,w in sorted_raw:
+        draw -= w
+        if draw <= 0 or (not np.isfinite(draw)):
+            return i
+
+    return len(raw_odds) - 1
 
 
     def sample_states(self,live_mask,state_log_odds):
