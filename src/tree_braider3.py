@@ -837,18 +837,20 @@ class IHMM():
             covariance_log_determinant = np.log2(np.linalg.slogdet(posterior_covariance)[1])/np.log2(np.e)
 
 
-            print("DETERMINANT DEBUG")
-            print(raw_cross_product)
-            print(self.beta_e)
-            print(state_occupancy)
-            print(np.any(np.isinf(posterior_covariance)))
-            print(covariance_log_determinant)
+            # print("DETERMINANT DEBUG")
+            # print(raw_cross_product)
+            # print(self.beta_e)
+            # print(state_occupancy)
+            # print(np.any(np.isinf(posterior_covariance)))
+            # print(covariance_log_determinant)
 
             posterior_precision = np.linalg.inv(posterior_covariance)
 
-            posterior_mean_numerator = np.dot((state_feature_means * state_occupancy),posterior_precision) + precomputed_background_dot_product
+            occupied_mean_dot_product = np.dot((state_feature_means * state_occupancy),posterior_precision)
 
-            posterior_mean_inverse_denominator = np.linalg.inv(np.dot((state_feature_means * state_occupancy),posterior_precision) + prior_mean_precisions)
+            posterior_mean_numerator = occupied_mean_dot_product + precomputed_background_dot_product
+
+            posterior_mean_inverse_denominator = np.linalg.inv(occupied_mean_dot_product + prior_mean_precisions)
 
             posterior_means = np.dot(posterior_mean_numerator, posterior_mean_inverse_denominator)
 
@@ -1048,20 +1050,19 @@ class IHMM():
         return node_state_odds.T
 
     def log_sampling(sequence):
-        sort = np.argsort(sequence)
-        sorted_log = sequence[sort[::-1]]
+        sort = np.argsort(sequence)[::-1]
+        sorted_log = sequence[sort]
         sorted_log -= sorted_log[0]
         raw_odds = np.exp2(sorted_log)
 
         draw = random.random()*np.sum(raw_odds)
 
-        for i,w in sorted_raw:
+        for i,w in zip(sort,raw_odds):
             draw -= w
             if draw <= 0 or (not np.isfinite(draw)):
                 return i
 
         return len(raw_odds) - 1
-
 
     def sample_states(self,live_mask,state_log_odds):
 
