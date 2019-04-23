@@ -981,11 +981,11 @@ class IHMM():
 
         print("Node:")
         print(node_index)
-        print(centered_features.shape)
+        # print(centered_features.shape)
         # print(centered_features)
-        print(masked_precisions.shape)
+        # print(masked_precisions.shape)
         # print(masked_precisions)
-        print(state_log_dets.shape)
+        # print(state_log_dets.shape)
         # print(state_determinants)
 
         for state,state_centered_features,state_precision_mtx,state_log_determinant in zip(range(k),centered_features,masked_precisions,state_log_dets):
