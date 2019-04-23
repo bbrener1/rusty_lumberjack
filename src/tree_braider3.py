@@ -846,15 +846,17 @@ class IHMM():
 
             posterior_precision = np.linalg.inv(posterior_covariance)
 
-            occupied_mean_dot_product = np.dot((state_feature_means * state_occupancy),posterior_precision)
+            # occupied_mean_dot_product = np.dot((state_feature_means * state_occupancy),posterior_precision)
+            #
+            # posterior_mean_numerator = occupied_mean_dot_product + precomputed_background_dot_product
+            #
+            # posterior_mean_inverse_denominator = np.linalg.inv(occupied_mean_dot_product + prior_mean_precisions)
 
-            posterior_mean_numerator = occupied_mean_dot_product + precomputed_background_dot_product
+            # posterior_means = np.dot(posterior_mean_numerator, posterior_mean_inverse_denominator)
 
-            posterior_mean_inverse_denominator = np.linalg.inv(occupied_mean_dot_product + prior_mean_precisions)
+            # new_means[state] = posterior_means
 
-            posterior_means = np.dot(posterior_mean_numerator, posterior_mean_inverse_denominator)
-
-            new_means[state] = posterior_means
+            new_means[state] = ((state_feature_means * state_occupancy) + (prior_means * self.beta_e)) / (self.beta_e + state_occupancy)
 
             new_precisions[state] = posterior_precision
 
@@ -862,8 +864,11 @@ class IHMM():
 
             new_log_dets[state] = covariance_log_determinant
 
-            if np.any(np.linalg.eigvals(covariance_estimate) < 0):
-                raise Exception("Covariance estimate not positive-definite")
+            if np.isinf(covariance_log_determinant):
+                raise Exception("Infinite log determinant, singular covariance?")
+
+            # if np.any(np.linalg.eigvals(covariance_estimate) < 0):
+            #     raise Exception("Covariance estimate not positive-definite")
 
             # Now we can find a posterior distribution for the state mean and covariance:
 
