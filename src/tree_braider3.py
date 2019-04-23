@@ -184,7 +184,7 @@ class IHMM():
 
         self.recompute_component_mean_prior()
         self.recompute_component_precision_prior()
-        self.recompute_state_features()
+        self.recompute_state_features_parallel()
 
         ## We would like to pad this matrix with the log odds of the oracle state. For it, we will use the log odds of all samples without partitioning
 
@@ -209,13 +209,13 @@ class IHMM():
 
     def update_states(self):
 
-        if not self.hierarchal:
-            self.transition_counts = np.ones(self.transition_counts.shape) * ((np.sum(oracle_transition_counts) / self.hidden_states) + 1)
-
-        self.establish_parameters()
-
-        if not self.hierarchal:
-            self.transition_counts = np.ones(self.transition_counts.shape) * ((np.sum(oracle_transition_counts) / self.hidden_states) + 1)
+        # if not self.hierarchal:
+        #     self.transition_counts = np.ones(self.transition_counts.shape) * ((np.sum(oracle_transition_counts) / self.hidden_states) + 1)
+        #
+        # self.establish_parameters()
+        #
+        # if not self.hierarchal:
+        #     self.transition_counts = np.ones(self.transition_counts.shape) * ((np.sum(oracle_transition_counts) / self.hidden_states) + 1)
 
 
         ### The above methods establish a description of the current state.
@@ -666,15 +666,16 @@ class IHMM():
         node_features = self.node_features
         hidden_states = self.hidden_states
 
-        background_mean_covariance_priors = (np.sum(self.state_covariances,axis=0) + self.data_covariance) / (hidden_states + 1)
+        background_mean_covariance_priors = (np.sum(self.state_covariances,axis=0) + self.data_covariance + np.identity(features)) / (hidden_states + 1)
 
-        background_mean_precision_priors = np.linalg.inv(background_mean_covariance_priors) * (hidden_states + 1)
+        background_mean_precision_priors = np.linalg.inv(background_mean_covariance_priors)
 
         background_mean_prior_numerator = np.dot(self.data_means, self.data_precision)
 
-        background_mean_prior_numerator += np.dot(np.sum(self.state_means,axis=0),background_mean_precision_priors)
+        background_mean_prior_numerator += np.dot(background_mean_precision_priors,np.sum(self.state_means,axis=0))
 
-        background_mean_inverse_denomenator = np.linalg.inv(self.data_precision + (hidden_states * background_mean_precision_priors))
+        background_mean_inverse_denomenator = np.linalg.inv((self.data_precision + (hidden_states * background_mean_precision_priors)))
+        # background_mean_inverse_denomenator = background_mean_covariance_priors
 
         background_mean_priors = np.dot(background_mean_prior_numerator,background_mean_inverse_denomenator)
 
@@ -879,6 +880,108 @@ class IHMM():
 
             # print(len(feature_means))
             # print(self.total_features)
+
+    def recompute_state_features_parallel(self):
+
+        states = self.hidden_states
+        nodes = self.total_nodes
+        features = self.total_features
+        state_masks = self.state_masks
+        node_feature_mask = self.node_feature_mask
+        node_features = self.node_features
+        beta_e = self.beta_e
+
+        prior_means = self.background_mean_priors
+        prior_mean_precisions = self.background_mean_precision_priors
+        prior_mean_covariances = self.background_mean_covariance_priors
+
+        prior_covariance = self.background_covariance_prior
+        prior_precision = self.background_precision_prior
+
+        precomputed_dot = self.precomputed_mean_dot
+
+
+        new_means = np.zeros((states,features))
+
+        new_covariances = np.zeros((states,features,features))
+        new_precisions = np.zeros((states,features,features))
+
+        new_log_dets = np.zeros(states)
+
+        tasks = [(i,features,nodes,beta_e,state_masks[i],node_features,node_feature_mask,prior_means,prior_covariance,prior_precision,precomputed_dot,prior_mean_precisions) for i in range(states)]
+        # tasker = zip(range(states),repeat(features),repeat(nodes),repeat(beta_e),state_masks,repeat(node_features),repeat(node_feature_mask),repeat(prior_means),repeat(prior_covariance),repeat(prior_precision))
+
+        results = self.pool.map(IHMM.state_feature_wrapper,tasks)
+
+        for i,result in enumerate(results):
+            means,covariances,precisions,log_det = result
+            new_means[i] = means
+            new_covariances[i] = covariances
+            new_precisions[i] = precisions
+            new_log_dets[i] = log_det
+
+        self.state_means = new_means
+        self.state_precisions = new_precisions
+        self.state_covariances = new_covariances
+        self.state_log_dets = new_log_dets
+
+
+    def state_feature_wrapper(task):
+
+        state,features,nodes,beta_e,state_node_mask,node_features,node_feature_mask,prior_means,prior_covariance,prior_precision,precomputed_background_dot_product,prior_mean_precisions = task
+
+        print(f"State:{state}")
+        print(f"Total nodes:{np.sum(state_node_mask)}")
+
+        state_occupancy = np.sum(state_node_mask)
+
+        covariance_estimate = np.zeros((features,features))
+
+        state_feature_node_mask = np.zeros((features,nodes),dtype=bool)
+
+        feature_sums = np.sum(node_features[state_node_mask],axis=0)
+        state_feature_node_totals = np.ones(features) + np.sum(node_feature_mask[state_node_mask],axis=0)
+
+        state_feature_means = feature_sums / state_feature_node_totals
+
+        print(feature_sums[:10])
+        print(state_feature_node_totals[:10])
+        print(state_feature_means[:10])
+
+        centered_state_features = np.zeros((state_occupancy,features))
+        centered_state_features[node_feature_mask[state_node_mask]] = node_features[state_node_mask][node_feature_mask[state_node_mask]]
+        centered_state_features[node_feature_mask[state_node_mask]] -= np.tile(state_feature_means,(state_occupancy,1))[node_feature_mask[state_node_mask]]
+
+        raw_cross_product = np.dot(centered_state_features.T,centered_state_features)
+
+        posterior_covariance = (((prior_covariance * beta_e) + raw_cross_product) / (beta_e + state_occupancy)) + np.identity(features)
+
+        covariance_log_determinant = np.log2(np.linalg.slogdet(posterior_covariance)[1])/np.log2(np.e)
+
+        posterior_precision = np.linalg.inv(posterior_covariance)
+
+        occupied_mean_dot_product = np.dot((state_feature_means * state_occupancy),posterior_precision)
+
+        posterior_mean_numerator = occupied_mean_dot_product + precomputed_background_dot_product
+
+        posterior_mean_inverse_denominator = np.linalg.inv(occupied_mean_dot_product + prior_mean_precisions)
+
+        posterior_means = np.dot(posterior_mean_numerator, posterior_mean_inverse_denominator)
+
+        new_means = posterior_means
+
+        # new_means = ((state_feature_means * state_occupancy) + (prior_means * self.beta_e)) / (self.beta_e + state_occupancy)
+
+        new_precisions = posterior_precision
+
+        new_covariances = posterior_covariance
+
+        new_log_det = covariance_log_determinant
+
+        if np.isinf(covariance_log_determinant):
+            raise Exception("Infinite log determinant, singular covariance?")
+
+        return (new_means,new_precisions,new_covariances,new_log_det)
 
     def recompute_transition_counts(self,live_mask,oracle_indicator_l,oracle_indicator_r,states,node_states,child_state_l,child_state_r):
 
