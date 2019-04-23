@@ -873,6 +873,9 @@ class IHMM():
             # print(len(feature_means))
             # print(self.total_features)
 
+    def recompute_state_features_parallel_wrapper(task):
+        
+
 
     def recompute_transition_counts(self,live_mask,oracle_indicator_l,oracle_indicator_r,states,node_states,child_state_l,child_state_r):
 
