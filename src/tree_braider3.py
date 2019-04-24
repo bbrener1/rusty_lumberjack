@@ -103,9 +103,15 @@ class IHMM():
         self.state_precisions = np.zeros((self.hidden_states,self.total_features,self.total_features))
         self.state_precisions[:,np.identity(self.total_features,dtype=bool)] = 1
 
+        self.background_precision_prior = np.identity(self.total_features)
+        self.background_covariance_prior = np.identity(self.total_features)
+        self.background_mean_priors = np.zeros(self.total_features)
+
         self.state_log_dets = np.zeros(self.total_features)
 
         self.compute_data_properties()
+        self.beta_e = self.recompute_beta_e()
+        self.establish_parameters()
 
     ## Here we begin the methods for updating the state of the model over many "sweeps"
 
@@ -205,6 +211,8 @@ class IHMM():
         ## And finally here, on the basis of how often the oracle was used and the number of observed states, we sample the hyperparameters
 
         self.sample_hypers()
+
+
 
 
     def update_states(self):
@@ -553,18 +561,22 @@ class IHMM():
         sequence = np.array([likelihood(b) for b in range(1,beta_max)])
 
         beta_e = np.argmin(sequence) + 1
-        other_beta = np.argmax(sequence) + 1
+        # other_beta = np.argmax(sequence) + 1
 
         print("BETA_E DEBUG")
         print("beta_e")
         print(beta_e)
-        print("Trace sum")
-        print(trace_sum)
-        print("Log trace sum")
-        print(log_trace_sum)
-        print("Other")
-        print(other_beta)
-        print(sequence[:10])
+        # print("Trace sum")
+        # print(trace_sum)
+        # print("Log trace sum")
+        # print(log_trace_sum)
+        # print("Other")
+        # print(other_beta)
+        # print(sequence[:10])
+
+        if beta_e == len(sequence):
+            if beta_max < 999999:
+                beta_e = self.recompute_beta_e(beta_max = beta_max * 10)
 
         return beta_e
 
@@ -666,7 +678,7 @@ class IHMM():
         node_features = self.node_features
         hidden_states = self.hidden_states
 
-        background_mean_covariance_priors = (np.sum(self.state_covariances,axis=0) + self.data_covariance + np.identity(features)) / (hidden_states + 1)
+        background_mean_covariance_priors = (np.sum(self.state_covariances,axis=0) + self.data_covariance) / (hidden_states + 1)
 
         background_mean_precision_priors = np.linalg.inv(background_mean_covariance_priors)
 
@@ -691,17 +703,23 @@ class IHMM():
 
         features = self.total_features
 
-        sum_precision = (np.identity(features) + self.data_precision + (self.beta_e * np.sum(self.state_precisions[1:-1],axis=0)))
+        prior_covariance = (self.data_covariance + (self.beta_e * np.sum(self.state_covariances[1:],axis=0))) / (((self.hidden_states-1) * self.beta_e) + 1)
 
-        mean_precision = sum_precision / ((self.hidden_states * self.beta_e) + 1)
+        prior_precision = np.linalg.inv(prior_covariance)
+
+        # sum_precision = np.identity(features) + self.data_precision + (self.beta_e * np.sum(self.state_precisions[1:-1],axis=0))
+
+        # mean_precision = sum_precision / (self.beta_e + 1)
+        # mean_precision = sum_precision / ((self.hidden_states * self.beta_e) + 1)
 
         # prior_covariance = np.linalg.inv(mean_precision) * ((self.hidden_states * self.beta_e) + 1)
-        prior_covariance = np.linalg.inv(mean_precision)
+        # prior_covariance = np.linalg.inv(mean_precision)
 
-        prior_determinant = np.log2(np.linalg.slogdet(prior_covariance)[1]) / np.log2(np.e)
+        prior_determinant = np.linalg.slogdet(prior_covariance)[1] * np.log2(np.e)
 
         self.background_covariance_prior = prior_covariance
-        self.background_precision_prior = mean_precision
+        # self.background_precision_prior = sum_precision
+        self.background_precision_prior = prior_precision
         # self.background_precision_prior = mean_precision / ((self.hidden_states * self.beta_e) + 1)
         self.background_log_det = prior_determinant
 
@@ -835,7 +853,7 @@ class IHMM():
 
             posterior_covariance = (((prior_covariance * self.beta_e) + raw_cross_product) / (self.beta_e + state_occupancy)) + np.identity(features)
 
-            covariance_log_determinant = np.log2(np.linalg.slogdet(posterior_covariance)[1])/np.log2(np.e)
+            covariance_log_determinant = np.linalg.slogdet(posterior_covariance)[1] * np.log2(np.e)
 
 
             # print("DETERMINANT DEBUG")
@@ -908,6 +926,10 @@ class IHMM():
 
         new_log_dets = np.zeros(states)
 
+        print("PARALLEL BETA E DEBUG")
+        print(beta_e)
+        print(self.beta_e)
+
         tasks = [(i,features,nodes,beta_e,state_masks[i],node_features,node_feature_mask,prior_means,prior_covariance,prior_precision,precomputed_dot,prior_mean_precisions) for i in range(states)]
         # tasker = zip(range(states),repeat(features),repeat(nodes),repeat(beta_e),state_masks,repeat(node_features),repeat(node_feature_mask),repeat(prior_means),repeat(prior_covariance),repeat(prior_precision))
 
@@ -932,10 +954,12 @@ class IHMM():
 
         print(f"State:{state}")
         print(f"Total nodes:{np.sum(state_node_mask)}")
+        print("BETA E DEBUG")
+        print(beta_e)
 
         state_occupancy = np.sum(state_node_mask)
 
-        covariance_estimate = np.zeros((features,features))
+        # covariance_estimate = np.zeros((features,features))
 
         state_feature_node_mask = np.zeros((features,nodes),dtype=bool)
 
@@ -953,24 +977,42 @@ class IHMM():
         centered_state_features[node_feature_mask[state_node_mask]] -= np.tile(state_feature_means,(state_occupancy,1))[node_feature_mask[state_node_mask]]
 
         raw_cross_product = np.dot(centered_state_features.T,centered_state_features)
+        scaling_value = np.dot(node_feature_mask[state_node_mask].T,node_feature_mask[state_node_mask]) + 1
+        covariance_estimate = (raw_cross_product / scaling_value) + np.identity(features)
 
-        posterior_covariance = (((prior_covariance * beta_e) + raw_cross_product) / (beta_e + state_occupancy)) + np.identity(features)
+        # posterior_covariance = (((prior_covariance * beta_e) + raw_cross_product) / (beta_e + state_occupancy))
+        posterior_covariance = (((prior_covariance * beta_e) + (covariance_estimate * state_occupancy)) / (beta_e + state_occupancy))
 
-        covariance_log_determinant = np.log2(np.linalg.slogdet(posterior_covariance)[1])/np.log2(np.e)
+        print("Covariance Debug")
+        print(f"State occupancy:{state_occupancy}")
+        print(f"beta_e:{beta_e}")
+        # print("Raw")
+        # print(raw_cross_product[:10,:10])
+        print("Estimate")
+        print(covariance_estimate[:10,:10])
+        print("Prior")
+        print(prior_covariance[:10,:10])
+        print("Posterior")
+        print(posterior_covariance[:10,:10])
+
+        covariance_log_determinant = np.linalg.slogdet(posterior_covariance)[1] * np.log2(np.e)
+
+        print("Determinant debug:")
+        print(covariance_log_determinant)
 
         posterior_precision = np.linalg.inv(posterior_covariance)
+        #
+        # occupied_mean_dot_product = np.dot((state_feature_means * state_occupancy),posterior_precision)
+        #
+        # posterior_mean_numerator = occupied_mean_dot_product + precomputed_background_dot_product
+        #
+        # posterior_mean_inverse_denominator = np.linalg.inv(occupied_mean_dot_product + prior_mean_precisions)
+        #
+        # posterior_means = np.dot(posterior_mean_numerator, posterior_mean_inverse_denominator)
 
-        occupied_mean_dot_product = np.dot((state_feature_means * state_occupancy),posterior_precision)
+        # new_means = posterior_means
 
-        posterior_mean_numerator = occupied_mean_dot_product + precomputed_background_dot_product
-
-        posterior_mean_inverse_denominator = np.linalg.inv(occupied_mean_dot_product + prior_mean_precisions)
-
-        posterior_means = np.dot(posterior_mean_numerator, posterior_mean_inverse_denominator)
-
-        new_means = posterior_means
-
-        # new_means = ((state_feature_means * state_occupancy) + (prior_means * self.beta_e)) / (self.beta_e + state_occupancy)
+        new_means = ((state_feature_means * state_occupancy) + (prior_means * beta_e)) / (beta_e + state_occupancy)
 
         new_precisions = posterior_precision
 
@@ -981,7 +1023,7 @@ class IHMM():
         if np.isinf(covariance_log_determinant):
             raise Exception("Infinite log determinant, singular covariance?")
 
-        return (new_means,new_precisions,new_covariances,new_log_det)
+        return (new_means,new_covariances,new_precisions,new_log_det)
 
     def recompute_transition_counts(self,live_mask,oracle_indicator_l,oracle_indicator_r,states,node_states,child_state_l,child_state_r):
 
@@ -1098,7 +1140,7 @@ class IHMM():
             # print(np.dot(np.dot(state_centered_features,state_precision_mtx),state_centered_features).shape)
             # print(np.dot(np.dot(state_centered_features,state_precision_mtx),state_centered_features) + state_log_determinant + (k*np.log2(np.pi * 2)))
 
-            state_log_likelihood[state] = np.dot(np.dot(state_centered_features,state_precision_mtx),state_centered_features) + state_log_determinant + (k*np.log2(np.pi * 2))
+            state_log_likelihood[state] = -.5 * (np.dot(np.dot(state_centered_features,state_precision_mtx),state_centered_features) + state_log_determinant + (k*np.log2(np.pi * 2)))
 
         print(state_log_likelihood)
 
