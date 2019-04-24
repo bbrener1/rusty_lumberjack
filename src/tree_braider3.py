@@ -2,6 +2,7 @@
 
 import numpy as np
 import random
+import pickle
 from functools import reduce
 from scipy.misc import comb as nCk
 from tree_reader import Node as TreeReaderNode
