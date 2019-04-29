@@ -310,7 +310,8 @@ impl<'a> Tree {
 
 pub fn grow_branches(target:&mut Node, prototype:&Tree, size_limit:usize,depth_limit:usize,report_address:&str,level:usize) {
     if target.samples().len() > size_limit && level < depth_limit {
-        if target.feature_parallel_derive(Some(&prototype.root)).is_some() {
+        // if target.feature_parallel_derive(Some(&prototype.root)).is_some() {
+        if target.feature_parallel_derive(None).is_some() {
             for child in target.children.iter_mut() {
                 grow_branches(child, prototype, size_limit, depth_limit, report_address, level+1);
             }

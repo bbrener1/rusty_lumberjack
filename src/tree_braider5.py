@@ -28,7 +28,7 @@ import matplotlib.pyplot as plt
 ## These variables are sampled sequentially
 
 class IHMM():
-    def __init__(self,forest,alpha=1,beta=1,gamma=1,alpha_e=.5,beta_e=.5,start_states=20,inf_check=False,p=None,hierarchal=True):
+    def __init__(self,forest,alpha=1,beta=1,gamma=1,beta_e=None,start_states=20,inf_check=False,p=None,hierarchal=True):
 
         self.pool = mp.Pool(p)
 
@@ -41,14 +41,10 @@ class IHMM():
         self.beta = beta
         self.gamma = gamma
 
-        self.alpha_e = alpha_e
-        self.beta_e = beta_e
-
         self.hidden_states = start_states
 
         self.nodes = forest.nodes()
-        # self.live_nodes = forest.roots() + forest.stems()
-        self.live_nodes = forest.leaves()
+        self.live_nodes = forest.stems() + forest.roots()
         self.live_mask = np.zeros(len(self.nodes),dtype=bool)
 
         for node in self.live_nodes:
@@ -69,7 +65,8 @@ class IHMM():
             self.child_index_l[node.index] = node.children[0].index
             self.child_index_r[node.index] = node.children[1].index
 
-        self.node_samples = forest.node_sample_encoding(self.nodes)
+        self.node_sample_encoding = forest.node_sample_encoding(self.nodes)
+        self.node_samples = np.sum(self.node_sample_encoding,axis=0)
 
         self.node_features = np.zeros((self.total_nodes,self.total_features))
         self.node_feature_mask = np.zeros((self.total_nodes,self.total_features),dtype=bool)
@@ -83,38 +80,19 @@ class IHMM():
                 self.node_feature_mask[node.index,fi] = True
 
         for node in self.live_nodes:
-            self.node_states[node.index] = random.randint(1,self.hidden_states-1)
+            self.node_states[node.index] = random.randint(0,self.hidden_states) + 2
 
         self.oracle_indicator_l = np.random.rand(self.total_nodes) < .5
-        # self.oracle_indicator_l = np.random.rand(self.total_nodes) < 1/self.hidden_states
-        # self.oracle_indicator_l = np.ones(self.total_nodes,dtype=bool)
         self.oracle_indicator_l[np.logical_not(self.live_mask)] = False
 
         self.oracle_indicator_r = np.random.rand(self.total_nodes) < .5
-        # self.oracle_indicator_r = np.random.rand(self.total_nodes) < 1/self.hidden_states
-        # self.oracle_indicator_r = np.ones(self.total_nodes,dtype=bool)
         self.oracle_indicator_r[np.logical_not(self.live_mask)] = False
 
-        self.state_masks = np.zeros((self.hidden_states,self.total_nodes),dtype=bool)
+        if beta_e is None:
+            beta_e = np.sum(self.live_mask)
+        self.beta_e = beta_e
 
-        self.state_means = np.zeros((self.hidden_states,self.total_features))
-
-        self.state_covariances = np.zeros((self.hidden_states,self.total_features,self.total_features))
-        self.state_covariances[:,np.identity(self.total_features,dtype=bool)] = 1
-
-        self.state_precisions = np.zeros((self.hidden_states,self.total_features,self.total_features))
-        self.state_precisions[:,np.identity(self.total_features,dtype=bool)] = 1
-
-        self.background_precision_prior = np.identity(self.total_features)
-        self.background_covariance_prior = np.identity(self.total_features)
-        self.background_mean_priors = np.zeros(self.total_features)
-
-        self.state_log_dets = np.zeros(self.total_features)
-
-        self.compute_data_properties()
-        self.beta_e = self.recompute_beta_e()
-        self.establish_parameters()
-
+        self.initialize()
     ## Here we begin the methods for updating the state of the model over many "sweeps"
 
     ## Things that stay constant:
@@ -168,6 +146,15 @@ class IHMM():
     ##  - New states discovered
     ##  - Loop back to recomputing transitions & hypers
 
+    def initialize(self):
+        self.compute_data_properties()
+        self.initialize_states()
+        #
+        self.node_states = self.clean_state_indeces(self.node_states)
+        self.state_masks = self.recompute_state_masks(self.node_states)
+        self.reestablish_states(self.state_masks)
+
+
     def establish_parameters(self):
 
         ## This method establishes descriptive parameters given some sequence of hidden states over the node sequences.
@@ -188,26 +175,13 @@ class IHMM():
 
         self.state_masks = self.recompute_state_masks(self.node_states)
 
-        ## Here we compute the state log odds of emission for each sample for each state given the node assignments above
+        self.reestablish_states(self.state_masks)
 
-        self.recompute_component_mean_prior()
-        self.recompute_component_precision_prior()
-        self.recompute_state_features_parallel()
-
-        ## We would like to pad this matrix with the log odds of the oracle state. For it, we will use the log odds of all samples without partitioning
-
-        self.state_means = np.concatenate((self.state_means,np.array([self.background_mean_priors])),axis=0)
-        self.state_precisions = np.concatenate((self.state_precisions,np.array([self.background_precision_prior])),axis=0)
-        self.state_covariances = np.concatenate((self.state_covariances,np.array([self.background_covariance_prior])),axis=0)
-        self.state_log_dets = np.concatenate((self.state_log_dets,np.array([self.background_log_det])))
-
-        ## And here we count the transition counts
-
-        self.transition_counts = self.recompute_transition_counts(self.live_mask,self.oracle_indicator_l,self.oracle_indicator_r,self.hidden_states,self.node_states,self.child_state_l,self.child_state_r)
+        self.transition_counts = self.recompute_transition_counts(self.live_mask,self.oracle_indicator_l,self.oracle_indicator_r,self.node_states,self.child_state_l,self.child_state_r)
 
         ## Here we count which transitions occurred through an oracle in order to recalculate the oracle transition frequencies
 
-        self.oracle_transition_matrix = self.recompute_oracle_transition_matrix(self.hidden_states,self.oracle_indicator_l,self.oracle_indicator_r,self.node_states,self.child_state_l,self.child_state_r)
+        self.oracle_transition_matrix = self.recompute_oracle_transition_matrix(self.oracle_indicator_l,self.oracle_indicator_r,self.node_states,self.child_state_l,self.child_state_r)
         self.oracle_transition_counts = self.recompute_oracle_transition_counts(self.oracle_transition_matrix)
 
         ## And finally here, on the basis of how often the oracle was used and the number of observed states, we sample the hyperparameters
@@ -550,7 +524,7 @@ class IHMM():
         if beta_max is None:
             beta_max = max(k,features)
 
-        trace_product = self.state_precisions[:k,np.identity(features,dtype=bool)] * np.tile(self.background_precision_prior[np.identity(features,dtype=bool)],(k,1))
+        trace_product = self.state_precisions()[:k,np.identity(features,dtype=bool)] * np.tile([np.identity(features,dtype=bool)],(k,1))
 
         trace_sum = np.sum(trace_product + np.ones((k,features)))
 
@@ -585,145 +559,6 @@ class IHMM():
         # return self.total_features
         # return (self.total_features * 2) - 1
 
-    def compute_data_properties(self):
-
-        print("Computing Data Properties")
-
-        nodes = self.total_nodes
-        features = self.total_features
-        live_mask = self.live_mask
-        node_feature_mask = self.node_feature_mask
-        node_features = self.node_features
-        hidden_states = self.hidden_states
-
-
-        ## We need to compute the mean gain for each feature using only the values from nodes that actually contain that feautre:
-
-        feature_sums = np.zeros(features) + np.sum(node_features[live_mask],axis=0)
-        state_feature_node_totals = np.ones(features) + np.sum(node_feature_mask[live_mask],axis=0)
-
-        state_feature_means = feature_sums / state_feature_node_totals
-
-        ## Note, this is a minimum-mean-square-error estimate of the mean: https://scholarsarchive.byu.edu/cgi/viewcontent.cgi?article=1277&context=facpub
-
-        ## Now we will need a centered feature gain matrix
-
-        centered_state_features = np.zeros((np.sum(live_mask),features))
-        centered_state_features[node_feature_mask[live_mask]] = node_features[live_mask][node_feature_mask[live_mask]]
-        centered_state_features[node_feature_mask[live_mask]] -= np.tile(state_feature_means,(np.sum(live_mask),1))[node_feature_mask[live_mask]]
-
-        print(centered_state_features.shape)
-
-        raw_cross_product = np.dot(centered_state_features.T,centered_state_features)
-
-        scaling_value = np.dot(node_feature_mask[live_mask].T.astype(dtype=float),node_feature_mask[live_mask].astype(dtype=float))
-
-        # raw_cross_product += np.identity(features)
-        #
-        # scaling_value += np.identity(features)
-
-        covariance_estimate = raw_cross_product / (scaling_value + 1)
-
-        covariance_estimate += np.identity(features)
-
-        if np.any(np.linalg.matrix_rank(covariance_estimate) < self.total_features):
-            print("WARNING:")
-            print("Feature covariance matrix shape:")
-            print(covariance_estimate.shape)
-            print("Rank:")
-            print(np.linalg.matrix_rank(covariance_estimate))
-            raise Exception("Rank-deficient covariance matrix, you are probably using a forest that is too small. Please generate more trees")
-
-        # if self.inf_check:
-        #     print("Unrepresented features?")
-        #     if np.any(np.sum(node_feature_mask,axis=0) == 0):
-        #         raise Exception("Unrepresented features, covariance can't be computed")
-
-        if np.any(np.diagonal(covariance_estimate) == 0):
-            print("WARNING")
-            print("Zero self-covariance, probably an unrepresented feature")
-            print("Setting self-covariance (eg variance) to 1, and all other covariances to zero")
-            mask = np.diagonal(covariance_estimate) == 0
-            print("Affected features:")
-            print(np.arange(self.total_features)[mask])
-            covariance_estimate[mask] = 0
-            covariance_estimate[:,mask] = 0
-            covariance_estimate[mask,mask] = 1
-
-        if self.inf_check:
-            if np.any(np.linalg.eigvals(covariance_estimate) < 0):
-                print("Cov estimate:")
-                print(covariance_estimate.shape)
-                print("Rank:")
-                print(np.linalg.matrix_rank(covariance_estimate))
-                raise Exception("Negative eigenvalues in covariance")
-
-
-        precision_estimate = np.linalg.inv(covariance_estimate)
-
-        ## Let's test whether or not the estimate is a positive definite matrix:
-
-        if self.inf_check:
-            if not np.all(np.linalg.eigvals(precision_estimate) >= 0):
-                raise Exception("Negative eigenvalues in precision")
-
-        self.data_means = state_feature_means
-        self.data_covariance = covariance_estimate
-        self.data_precision = precision_estimate
-
-    def recompute_component_mean_prior(self):
-
-        nodes = self.total_nodes
-        features = self.total_features
-        live_mask = self.live_mask
-        node_feature_mask = self.node_feature_mask
-        node_features = self.node_features
-        hidden_states = self.hidden_states
-
-        background_mean_covariance_priors = (np.sum(self.state_covariances,axis=0) + self.data_covariance) / (hidden_states + 1)
-
-        background_mean_precision_priors = np.linalg.inv(background_mean_covariance_priors)
-
-        background_mean_prior_numerator = np.dot(self.data_means, self.data_precision)
-
-        background_mean_prior_numerator += np.dot(background_mean_precision_priors,np.sum(self.state_means,axis=0))
-
-        background_mean_inverse_denomenator = np.linalg.inv((self.data_precision + (hidden_states * background_mean_precision_priors)))
-        # background_mean_inverse_denomenator = background_mean_covariance_priors
-
-        background_mean_priors = np.dot(background_mean_prior_numerator,background_mean_inverse_denomenator)
-
-        self.background_mean_priors = background_mean_priors
-        self.background_mean_covariance_priors = background_mean_covariance_priors
-        self.background_mean_precision_priors = background_mean_precision_priors
-
-        self.precomputed_mean_dot = np.dot(background_mean_priors,background_mean_precision_priors)
-
-        # Now we can find a posterior distribution for the state mean and covariance:
-
-    def recompute_component_precision_prior(self):
-
-        features = self.total_features
-
-        prior_covariance = (self.data_covariance + (self.beta_e * np.sum(self.state_covariances[1:],axis=0))) / (((self.hidden_states-1) * self.beta_e) + 1)
-
-        prior_precision = np.linalg.inv(prior_covariance)
-
-        # sum_precision = np.identity(features) + self.data_precision + (self.beta_e * np.sum(self.state_precisions[1:-1],axis=0))
-
-        # mean_precision = sum_precision / (self.beta_e + 1)
-        # mean_precision = sum_precision / ((self.hidden_states * self.beta_e) + 1)
-
-        # prior_covariance = np.linalg.inv(mean_precision) * ((self.hidden_states * self.beta_e) + 1)
-        # prior_covariance = np.linalg.inv(mean_precision)
-
-        prior_determinant = np.linalg.slogdet(prior_covariance)[1] * np.log2(np.e)
-
-        self.background_covariance_prior = prior_covariance
-        # self.background_precision_prior = sum_precision
-        self.background_precision_prior = prior_precision
-        # self.background_precision_prior = mean_precision / ((self.hidden_states * self.beta_e) + 1)
-        self.background_log_det = prior_determinant
 
     def update_node_relations(self):
 
@@ -734,7 +569,10 @@ class IHMM():
 
         print("State Index Cleanup")
         new_states = sorted(list(set(node_states)))
-        print(new_states)
+        if new_states[:1] != [0,]:
+            new_states = [0,] + new_states
+        if new_states[1:2] != [1,]:
+            new_states = [0,1] + new_states[1:]
         new_indices = {old_index:i for i,old_index in enumerate(new_states)}
         print(new_indices)
 
@@ -743,19 +581,7 @@ class IHMM():
         for i,old_state in enumerate(node_states):
             new_state_sequence[i] = new_indices[old_state]
 
-        self.hidden_states = len(new_states)
-
-        # print(self.hidden_states)
-
-        new_state_means = np.zeros((self.hidden_states,self.total_features))
-
-        for old_index,state in enumerate(self.state_means):
-            if old_index in new_indices:
-                new_state_means[new_indices[old_index]] = state
-
-        self.state_means = new_state_means
-
-        # print(new_state_sequence)
+        self.hidden_states = len(new_states[2:])
 
         return new_state_sequence
 
@@ -763,12 +589,15 @@ class IHMM():
 
         print("Computing State Masks")
 
+        print("HIDDEN_STATES")
+        print(self.hidden_states)
+
         new_states = self.hidden_states
 
         new_state_masks = np.zeros((new_states,node_states.shape[0]),dtype=bool)
 
         for state in range(new_states):
-            new_state_masks[state] = node_states == state
+            new_state_masks[state] = node_states == state+2
 
         # print(new_state_masks.shape)
 
@@ -777,259 +606,212 @@ class IHMM():
 
         return new_state_masks
 
-    # def recompute_state_feature_gains(self,states,features,nodes,state_masks,node_feature_mask,gains):
-    def recompute_state_features(self):
+    def initialize_states(self):
 
-        print("Recomputing State Means and Covariance")
+        components = []
 
-        states = self.hidden_states
-        nodes = self.total_nodes
+        components.append(Component(np.zeros(self.total_nodes,dtype=bool),self.node_summary()))
+        components.append(Component(self.live_mask,self.node_summary()))
+
+        for component in components:
+            component.initialize()
+
+        self.components = components
+
+    def reestablish_states(self,state_masks):
+
+        summary = self.node_summary()
+
+        print("Reestablish debug")
+        print("hidden_states")
+        print(self.hidden_states)
+
+        mean_prior,mean_prior_precision,prior_power = self.mean_priors()
+        covariance_prior,precision_prior,prior_power = self.scale_priors()
+
+        print(self.hidden_states)
+        print(mean_prior)
+        print(covariance_prior)
+        print(precision_prior)
+
+        components = []
+
+        components.append(Component(np.zeros(self.total_nodes,dtype=bool),summary))
+        components.append(Component(self.live_mask,summary))
+
+        for mask in state_masks:
+            component = Component(mask,summary)
+            components.append(component)
+
+        # for component in components:
+        #     component.estimate_paramters(mean_prior,mean_prior_precision,covariance_prior,precision_prior,prior_power)
+
+        component_async_handles = []
+        component_results = []
+        for component in components:
+            component_async_handles.append(self.pool.apply_async(Component.estimate_async,(component,(mean_prior,mean_prior_precision,covariance_prior,precision_prior,prior_power))))
+        for i,cr in enumerate(component_async_handles):
+            component_results.append(cr.get())
+
+        self.components = component_results
+
+    def node_summary(self):
+        node_summary = {}
+        node_summary['beta_e'] = self.beta_e
+        node_summary['features'] = self.total_features
+        node_summary['live_mask'] = self.live_mask
+        node_summary['node_samples'] = self.node_samples
+        node_summary['node_features'] = self.node_features
+        node_summary['node_feature_mask'] = self.node_feature_mask
+        return node_summary
+
+    def node_masked_summary(self,mask):
+        node_summary = {}
+        node_summary['beta_e'] = self.beta_e
+        node_summary['features'] = self.total_features
+        node_summary['mask'] = mask
+        node_summary['node_features'] = self.node_features[mask]
+        node_summary['node_samples'] = self.node_samples[mask]
+        node_summary['node_feature_mask'] = self.node_feature_mask[mask]
+        return node_summary
+
+    def feature_masked_summary(self,mask):
+        node_summary = {}
+        node_summary['beta_e'] = self.beta_e
+        node_summary['features'] = self.total_features - np.sum(mask)
+        node_summary['mask'] = mask
+        node_summary['node_samples'] = self.node_samples
+        node_summary['node_features'] = self.node_features[:,mask]
+        node_summary['node_feature_mask'] = self.node_feature_mask[:,mask]
+        return node_summary
+
+    def double_masked_summary(self,node_mask,feature_mask):
+        node_summary = {}
+        node_summary['beta_e'] = self.beta_e
+        node_summary['features'] = self.total_features - np.sum(feature_mask)
+        node_summary['node_mask'] = node_mask
+        node_summary['feature_mask'] = feature_mask
+        node_summary['node_features'] = self.node_features[node_mask].T[feature_mask].T
+        node_summary['node_samples'] = self.node_samples[mask]
+        node_summary['node_feature_mask'] = self.node_feature_mask[node_mask].T[feature_mask].T
+        return node_summary
+
+
+    def estimate_node_means(node_mask,node_summary):
+
+        feature_sums = np.sum(node_summary['node_features'][node_mask],axis=0)
+        state_feature_node_totals = np.ones(node_summary['features']) + np.sum(node_summary['node_feature_mask'][node_mask],axis=0)
+
+        return (feature_sums / state_feature_node_totals , np.sum(node_mask))
+
+    def estimate_node_covariance_precision(node_mask,node_summary,prior=None,feature_means=None):
+
+        nodes = np.sum(node_mask)
+        features = node_summary['features']
+        node_samples = node_summary['node_samples']
+        node_features = node_summary['node_features']
+        node_feature_mask = node_summary['node_feature_mask']
+        mean_samples = np.mean(node_samples[node_mask])
+        if np.isnan(mean_samples):
+            mean_samples = 1
+
+        if prior is None:
+            prior = (np.identity(features),nodes)
+
+        prior_matrix,prior_power = prior
+
+        if feature_means is None:
+            feature_means = IHMM.estimate_node_means(node_mask,node_summary)[0]
+
+        centered_features = np.zeros((nodes,features))
+        centered_features[node_feature_mask[node_mask]] = node_features[node_mask][node_feature_mask[node_mask]]
+        centered_features[node_feature_mask[node_mask]] -= np.tile(feature_means,(nodes,1))[node_feature_mask[node_mask]]
+
+        raw_outer_sum = np.sum(np.array([np.outer(x,x) for x in centered_features]),axis=0)
+
+        scaling_value = (np.sum(np.array([np.outer(x,x) for x in node_feature_mask[node_mask]]),axis=0) + 1) / (nodes + 1)
+
+        scaled_outer_sum = (raw_outer_sum / scaling_value)
+
+        unscaled_covariance_estimate = scaled_outer_sum + (prior_matrix * (prior_power + 1))
+
+        unscaled_precision_estimate = np.linalg.inv(unscaled_covariance_estimate)
+
+        covariance_estimate = unscaled_covariance_estimate / (2 + nodes + features)
+
+        precision_estimate = (2 + nodes + features) * unscaled_precision_estimate
+
+        # precision_estimate = np.linalg.inv(covariance_estimate)
+
+        print("Scale Debug")
+        print(raw_outer_sum)
+        print(scaling_value)
+        print(scaled_outer_sum)
+        print(mean_samples)
+        print(unscaled_covariance_estimate)
+        # print(unscaled_precision_estimate)
+
+        return (covariance_estimate,precision_estimate)
+
+    def compute_data_properties(self):
+
+        self.data_means = IHMM.estimate_node_means(self.live_mask,self.node_summary())[0]
+        self.data_covariance,self.data_precision = IHMM.estimate_node_covariance_precision(self.live_mask,self.node_summary())
+
+    def mean_priors(self):
+
+        mean_prior = (np.sum(np.array([c.means for c in self.components[2:]]),axis=0) + self.data_means) / (self.hidden_states + 1)
+        mean_prior_precision = (np.sum(np.array([np.outer(c.means,c.means) for c in self.components[2:]]),axis=0) + (self.hidden_states * np.identity(self.total_features))) / (self.hidden_states + self.total_features + 2)
+
+        return (mean_prior,mean_prior_precision,self.beta_e)
+
+    def covariance_prior(self):
+        covariance_prior = (np.sum(np.array([c.covariance for c in self.components[2:]]),axis=0) + self.data_covariance) / (self.hidden_states + 1)
+        return covariance_prior
+
+    def precision_prior(self):
+        precision_prior = (np.sum(np.array([c.precision for c in self.components[2:]]),axis=0) + self.data_precision) / (self.hidden_states + 1)
+        return precision_prior
+
+
+    def scale_priors(self):
+
+        combined = (np.sum(np.array([(c.covariance,c.precision) for c in self.components[2:]]),axis=0) + np.array([self.data_covariance,self.data_precision])) / (self.hidden_states + 1)
+
+        covariance_prior = combined[0]
+        precision_prior = combined[1]
+
+        return (covariance_prior,precision_prior,self.beta_e)
+
+    def state_means(self):
+        states = len(self.components[1:])
         features = self.total_features
-        state_masks = self.state_masks
-        node_feature_mask = self.node_feature_mask
-        node_features = self.node_features
+        m = np.zeros((states,features))
+        for i,state in enumerate(self.components[1:]):
+            cv[i] = state.means
+        return m
 
-        prior_means = self.background_mean_priors
-        prior_mean_precisions = self.background_mean_precision_priors
-        prior_mean_covariances = self.background_mean_covariance_priors
-
-        prior_covariance = self.background_covariance_prior
-        prior_precision = self.background_precision_prior
-
-        precomputed_background_dot_product = self.precomputed_mean_dot
-
-        new_means = np.zeros((states,features))
-
-        new_covariances = np.zeros((states,features,features))
-        new_precisions = np.zeros((states,features,features))
-
-        new_log_dets = np.zeros(states)
-
-        for state,state_node_mask in list(enumerate(state_masks))[1:]:
-
-            print(f"State:{state}")
-            print(f"Total nodes:{np.sum(state_node_mask)}")
-
-            state_occupancy = np.sum(state_node_mask)
-
-            ## First we want:
-            ##  -only nodes in state
-            ##  -feature gains for each node
-            ##      -Not every node has gains for every feature, so we will need to be efficient about computing their means
-
-            covariance_estimate = np.zeros((features,features))
-
-            state_feature_node_mask = np.zeros((features,nodes),dtype=bool)
-
-            ## We need to compute the mean gain for each feature using only the values from nodes that actually contain that feautre:
-
-            feature_sums = np.sum(node_features[state_node_mask],axis=0)
-            state_feature_node_totals = np.ones(features) + np.sum(node_feature_mask[state_node_mask],axis=0)
-
-            state_feature_means = feature_sums / state_feature_node_totals
-
-            print(feature_sums[:10])
-            print(state_feature_node_totals[:10])
-            print(state_feature_means[:10])
-
-            ## Note, this is a minimum-mean-square-error estimate of the mean: https://scholarsarchive.byu.edu/cgi/viewcontent.cgi?article=1277&context=facpub
-
-            ## Now we will need a centered feature gain matrix
-
-            centered_state_features = np.zeros((state_occupancy,features))
-            centered_state_features[node_feature_mask[state_node_mask]] = node_features[state_node_mask][node_feature_mask[state_node_mask]]
-            centered_state_features[node_feature_mask[state_node_mask]] -= np.tile(state_feature_means,(state_occupancy,1))[node_feature_mask[state_node_mask]]
-
-            raw_cross_product = np.dot(centered_state_features.T,centered_state_features)
-
-            # scaling_value = np.dot(node_feature_mask[state_node_mask].T,node_feature_mask[state_node_mask])
-            # covariance_estimate = raw_cross_product / (scaling_value + 1)
-            # covariance_estimate = raw_cross_product / (np.sum(state_node_mask) + 1)
-            # covariance_estimate = raw_cross_product / np.sum(state_node_mask)
-
-            ## Let's test whether or not the estimate is a positive definite matrix:
-
-
-
-            # posterior_covariance = prior_covariance + raw_cross_product + (((state_occupancy * self.beta_e)/ (state_occupancy + self.beta_e)) * np.sum(np.power(prior_means - state_feature_means,2)))
-
-            posterior_covariance = (((prior_covariance * self.beta_e) + raw_cross_product) / (self.beta_e + state_occupancy)) + np.identity(features)
-
-            covariance_log_determinant = np.linalg.slogdet(posterior_covariance)[1] * np.log2(np.e)
-
-
-            # print("DETERMINANT DEBUG")
-            # print(raw_cross_product)
-            # print(self.beta_e)
-            # print(state_occupancy)
-            # print(np.any(np.isinf(posterior_covariance)))
-            # print(covariance_log_determinant)
-
-            posterior_precision = np.linalg.inv(posterior_covariance)
-
-            # occupied_mean_dot_product = np.dot((state_feature_means * state_occupancy),posterior_precision)
-            #
-            # posterior_mean_numerator = occupied_mean_dot_product + precomputed_background_dot_product
-            #
-            # posterior_mean_inverse_denominator = np.linalg.inv(occupied_mean_dot_product + prior_mean_precisions)
-
-            # posterior_means = np.dot(posterior_mean_numerator, posterior_mean_inverse_denominator)
-
-            # new_means[state] = posterior_means
-
-            new_means[state] = ((state_feature_means * state_occupancy) + (prior_means * self.beta_e)) / (self.beta_e + state_occupancy)
-
-            new_precisions[state] = posterior_precision
-
-            new_covariances[state] = posterior_covariance
-
-            new_log_dets[state] = covariance_log_determinant
-
-            if np.isinf(covariance_log_determinant):
-                raise Exception("Infinite log determinant, singular covariance?")
-
-            # if np.any(np.linalg.eigvals(covariance_estimate) < 0):
-            #     raise Exception("Covariance estimate not positive-definite")
-
-            # Now we can find a posterior distribution for the state mean and covariance:
-
-        self.state_means = new_means
-        self.state_precisions = new_precisions
-        self.state_covariances = new_covariances
-        self.state_log_dets = new_log_dets
-
-            # print(len(feature_means))
-            # print(self.total_features)
-
-    def recompute_state_features_parallel(self):
-
-        states = self.hidden_states
-        nodes = self.total_nodes
+    def state_covariances(self):
+        states = len(self.components[1:])
         features = self.total_features
-        state_masks = self.state_masks
-        node_feature_mask = self.node_feature_mask
-        node_features = self.node_features
-        beta_e = self.beta_e
+        cv = np.zeros((states,features,features))
+        for i,state in enumerate(self.components[1:]):
+            cv[i] = state.covariance
+        return cv
 
-        prior_means = self.background_mean_priors
-        prior_mean_precisions = self.background_mean_precision_priors
-        prior_mean_covariances = self.background_mean_covariance_priors
+    def state_precisions(self):
+        states = len(self.components[1:])
+        features = self.total_features
+        pr = np.zeros((states,features,features))
+        for i,state in enumerate(self.components[1:]):
+            pr[i] = state.precision
+        return pr
 
-        prior_covariance = self.background_covariance_prior
-        prior_precision = self.background_precision_prior
-
-        precomputed_dot = self.precomputed_mean_dot
-
-
-        new_means = np.zeros((states,features))
-
-        new_covariances = np.zeros((states,features,features))
-        new_precisions = np.zeros((states,features,features))
-
-        new_log_dets = np.zeros(states)
-
-        print("PARALLEL BETA E DEBUG")
-        print(beta_e)
-        print(self.beta_e)
-
-        tasks = [(i,features,nodes,beta_e,state_masks[i],node_features,node_feature_mask,prior_means,prior_covariance,prior_precision,precomputed_dot,prior_mean_precisions) for i in range(states)]
-        # tasker = zip(range(states),repeat(features),repeat(nodes),repeat(beta_e),state_masks,repeat(node_features),repeat(node_feature_mask),repeat(prior_means),repeat(prior_covariance),repeat(prior_precision))
-
-        results = self.pool.map(IHMM.state_feature_wrapper,tasks)
-
-        for i,result in enumerate(results):
-            means,covariances,precisions,log_det = result
-            new_means[i] = means
-            new_covariances[i] = covariances
-            new_precisions[i] = precisions
-            new_log_dets[i] = log_det
-
-        self.state_means = new_means
-        self.state_precisions = new_precisions
-        self.state_covariances = new_covariances
-        self.state_log_dets = new_log_dets
-
-
-    def state_feature_wrapper(task):
-
-        state,features,nodes,beta_e,state_node_mask,node_features,node_feature_mask,prior_means,prior_covariance,prior_precision,precomputed_background_dot_product,prior_mean_precisions = task
-
-        print(f"State:{state}")
-        print(f"Total nodes:{np.sum(state_node_mask)}")
-        print("BETA E DEBUG")
-        print(beta_e)
-
-        state_occupancy = np.sum(state_node_mask)
-
-        # covariance_estimate = np.zeros((features,features))
-
-        state_feature_node_mask = np.zeros((features,nodes),dtype=bool)
-
-        feature_sums = np.sum(node_features[state_node_mask],axis=0)
-        state_feature_node_totals = np.ones(features) + np.sum(node_feature_mask[state_node_mask],axis=0)
-
-        state_feature_means = feature_sums / state_feature_node_totals
-
-        print(feature_sums[:10])
-        print(state_feature_node_totals[:10])
-        print(state_feature_means[:10])
-
-        centered_state_features = np.zeros((state_occupancy,features))
-        centered_state_features[node_feature_mask[state_node_mask]] = node_features[state_node_mask][node_feature_mask[state_node_mask]]
-        centered_state_features[node_feature_mask[state_node_mask]] -= np.tile(state_feature_means,(state_occupancy,1))[node_feature_mask[state_node_mask]]
-
-        raw_cross_product = np.dot(centered_state_features.T,centered_state_features)
-        scaling_value = np.dot(node_feature_mask[state_node_mask].T,node_feature_mask[state_node_mask]) + 1
-        covariance_estimate = (raw_cross_product / scaling_value) + np.identity(features)
-
-        # posterior_covariance = (((prior_covariance * beta_e) + raw_cross_product) / (beta_e + state_occupancy))
-        posterior_covariance = (((prior_covariance * beta_e) + (covariance_estimate * state_occupancy)) / (beta_e + state_occupancy))
-
-        print("Covariance Debug")
-        print(f"State occupancy:{state_occupancy}")
-        print(f"beta_e:{beta_e}")
-        # print("Raw")
-        # print(raw_cross_product[:10,:10])
-        print("Estimate")
-        print(covariance_estimate[:10,:10])
-        print("Prior")
-        print(prior_covariance[:10,:10])
-        print("Posterior")
-        print(posterior_covariance[:10,:10])
-
-        covariance_log_determinant = np.linalg.slogdet(posterior_covariance)[1] * np.log2(np.e)
-
-        print("Determinant debug:")
-        print(covariance_log_determinant)
-
-        posterior_precision = np.linalg.inv(posterior_covariance)
-        #
-        # occupied_mean_dot_product = np.dot((state_feature_means * state_occupancy),posterior_precision)
-        #
-        # posterior_mean_numerator = occupied_mean_dot_product + precomputed_background_dot_product
-        #
-        # posterior_mean_inverse_denominator = np.linalg.inv(occupied_mean_dot_product + prior_mean_precisions)
-        #
-        # posterior_means = np.dot(posterior_mean_numerator, posterior_mean_inverse_denominator)
-
-        # new_means = posterior_means
-
-        new_means = ((state_feature_means * state_occupancy) + (prior_means * beta_e)) / (beta_e + state_occupancy)
-
-        new_precisions = posterior_precision
-
-        new_covariances = posterior_covariance
-
-        new_log_det = covariance_log_determinant
-
-        if np.isinf(covariance_log_determinant):
-            raise Exception("Infinite log determinant, singular covariance?")
-
-        return (new_means,new_covariances,new_precisions,new_log_det)
-
-    def recompute_transition_counts(self,live_mask,oracle_indicator_l,oracle_indicator_r,states,node_states,child_state_l,child_state_r):
+    def recompute_transition_counts(self,live_mask,oracle_indicator_l,oracle_indicator_r,node_states,child_state_l,child_state_r):
 
         print("Recomputing Transition Counts")
+
+        states = len(self.components)
 
         new_transition_counts = np.zeros((states,states))
 
@@ -1052,9 +834,11 @@ class IHMM():
 
         return new_transition_counts
 
-    def recompute_oracle_transition_matrix(self,states,oracle_indicator_l,oracle_indicator_r,node_states,child_state_l,child_state_r):
+    def recompute_oracle_transition_matrix(self,oracle_indicator_l,oracle_indicator_r,node_states,child_state_l,child_state_r):
 
         print("Recomputing oracle transition count")
+
+        states = len(self.components)
 
         new_oracle_transitions = np.zeros((states,states))
 
@@ -1085,36 +869,34 @@ class IHMM():
 
         return new_oracle_transitions
 
-    def compute_state_log_odds_given_features(self,node_features,node_feature_mask,live_mask,state_feature_means,state_precisions,state_log_dets):
+    def compute_state_log_odds_given_features(self,node_features,node_feature_mask,live_mask):
 
         print("Computing state log odds | features")
 
         ## Here we have a wrapper function that allows us to parallelize the node state odds computation
         ## An inner function allows us to compute multiple states at the same time in a process pool
 
-        feature_log_odds = np.zeros((node_features.shape[0],state_log_dets.shape[0]))
+        feature_log_odds = np.zeros((len(self.components[1:]),node_features.shape[0]))
 
         print("Node features")
         print(node_features[live_mask].shape)
         print(node_feature_mask[live_mask].shape)
 
-        node_output = self.pool.map(IHMM.node_state_log_odds_given_features,zip(range(np.sum(live_mask)),node_features[live_mask],node_feature_mask[live_mask],repeat(state_feature_means),repeat(state_precisions),repeat(state_log_dets)))
+        for i,component in enumerate(self.components[1:]):
+            feature_log_odds[i][live_mask] = np.array(self.pool.map(component.node_log_likelihood_async,zip(node_features[live_mask],node_feature_mask[live_mask])))
 
         print("Node ratio debug")
-        print(np.array(node_output).shape)
         print(feature_log_odds.shape)
-        print(feature_log_odds[live_mask].shape)
-
-        feature_log_odds[live_mask] = np.array(node_output)
+        print(feature_log_odds[:,live_mask].shape)
 
         # if np.isnan(node_output).any():
         #     raise Exception("Computed nan divergence log odds")
 
-        return feature_log_odds.T
+        return feature_log_odds
 
     def node_state_log_odds_given_features(task):
 
-        node_index,node_features,node_feature_mask,state_feature_means,state_feature_precisions,state_log_dets = task
+        node_index,node_features,node_feature_mask = task
 
         total_node_features = np.sum(node_feature_mask)
 
@@ -1126,27 +908,6 @@ class IHMM():
 
         state_log_likelihood = np.zeros(k)
 
-        print("Node:")
-        print(node_index)
-        # print(centered_features.shape)
-        # print(centered_features)
-        # print(masked_precisions.shape)
-        # print(masked_precisions)
-        # print(state_log_dets.shape)
-        # print(state_determinants)
-
-        for state,state_centered_features,state_precision_mtx,state_log_determinant in zip(range(k),centered_features,masked_precisions,state_log_dets):
-
-            # print(state_centered_features.shape)
-            # print(state_precision_mtx.shape)
-            # print(np.dot(np.dot(state_centered_features,state_precision_mtx),state_centered_features).shape)
-            # print(np.dot(np.dot(state_centered_features,state_precision_mtx),state_centered_features) + state_log_determinant + (k*np.log2(np.pi * 2)))
-
-            state_log_likelihood[state] = -.5 * (np.dot(np.dot(state_centered_features,state_precision_mtx),state_centered_features) + state_log_determinant + (k*np.log2(np.pi * 2)))
-
-        print(state_log_likelihood)
-
-        return state_log_likelihood
 
     def compute_state_odds_given_child_direct_transition(self,beta,transition_counts,node_states,node_child_states):
 
@@ -1441,41 +1202,76 @@ class IHMM():
     def state_lr_gradient(self,hidden_state):
         return self.state_sample_log_odds[hidden_state]
 
-    #
-    #
-    #
-    # def raw_transition_matrix(self):
-    #
-    #     states = self.hidden_states
-    #
-    #     new_transition_counts = np.zeros((states,states))
-    #
-    #     # transition_mask = np.logical_and(live_mask,np.logical_not(oracle_indicator))
-    #
-    #     transition_mask = self.live_mask
-    #
-    #     for ps,csl in zip(self.node_states[transition_mask],self.child_state_l[transition_mask]):
-    #         # print(csl)
-    #         # print(ps)
-    #         new_transition_counts[csl,ps] += 1
-    #
-    #     for ps,csr in zip(self.node_states[transition_mask],self.child_state_r[transition_mask]):
-    #         # print(csr)
-    #         # print(ps)
-    #         new_transition_counts[csr,ps] += 1
-    #
-    #     print(new_transition_counts)
-    #
-    #     return new_transition_counts
+class Component():
 
+    def __init__(self,node_mask,node_summary):
 
+        self.node_summary = node_summary
+        self.mask = node_mask
+        self.nodes = np.sum(self.mask)
 
-    #
-    # def resample_node_states(self,transition_odds,sample_odds,node_states,node_divergences,children_l,children_r):
-    #
-    #     state_log_odds = np.zeros((self.hidden_states,self.total_nodes))
-    #
-    #     state_log_odds += self.state_log_odds_given_child()
+    def estimate_async(self,task):
+        prior_means,prior_mean_precision,prior_covariance,prior_precision,prior_power = task
+        self.estimate_paramters(prior_means,prior_mean_precision,prior_covariance,prior_precision,prior_power)
+        return self
+
+    def initialize(self):
+
+        prior_means = np.zeros(self.node_summary['features'])
+        prior_mean_precision = np.identity(self.node_summary['features'])
+        prior_covariance = np.identity(self.node_summary['features'])
+        prior_precision = np.identity(self.node_summary['features'])
+        prior_power = 1
+
+        self.estimate_paramters(prior_means,prior_mean_precision,prior_covariance,prior_precision,prior_power)
+
+    def estimate_paramters(self,prior_means,prior_mean_precision,prior_covariance,prior_precision,prior_power):
+
+        estimated_means,mean_estimate_power = IHMM.estimate_node_means(self.mask,self.node_summary)
+
+        estimated_covariance,estimated_precision = IHMM.estimate_node_covariance_precision(self.mask,self.node_summary,feature_means=estimated_means)
+
+        posterior_precision = ((estimated_precision * self.nodes) + (prior_precision * prior_power)) / (self.nodes + prior_power)
+
+        posterior_covariance = np.linalg.inv(posterior_precision)
+
+        print("Parameter debug")
+        print(estimated_precision)
+        print(posterior_precision)
+        print(estimated_covariance)
+        print(posterior_covariance)
+
+        posterior_mean_numerator = self.nodes * np.dot(estimated_means,posterior_precision) + np.dot(prior_means,prior_mean_precision)
+        posterior_mean_inverse_denominator = np.linalg.inv((self.nodes * posterior_precision) + prior_mean_precision)
+
+        posterior_means = np.dot(posterior_mean_numerator,posterior_mean_inverse_denominator)
+
+        covariance_log_determinant = np.linalg.slogdet(posterior_covariance)[0] * np.log2(np.e)
+
+        self.means = posterior_means
+        self.precision = posterior_precision
+        self.covariance = posterior_covariance
+        self.covariance_log_determinant = covariance_log_determinant
+
+    def node_log_likelihood_async(self,task):
+
+        features,node_feature_mask = task
+        features = features[node_feature_mask]
+
+        # print("loglikedebug")
+        # print(features.shape)
+        # print(node_feature_mask.shape)
+
+        centered = features - self.means[node_feature_mask]
+        masked_precision = self.precision[node_feature_mask].T[node_feature_mask].T
+        masked_covariance = self.covariance[node_feature_mask].T[node_feature_mask].T
+
+        masked_determinant = np.linalg.slogdet(masked_covariance)[0]
+
+        precision_fit = np.dot(np.dot(centered,masked_precision),centered)
+        log_likelihood = masked_determinant + precision_fit + np.log2(2*np.pi)
+
+        return log_likelihood
 
 
 
