@@ -645,7 +645,7 @@ class IHMM():
         component_async_handles = []
         component_results = []
         for component in components:
-            component_async_handles.append(self.pool.apply_async(Component.estimate_async,(component,(mean_prior,mean_prior_precision,covariance_prior,precision_prior,prior_power))))
+            component_async_handles.append(self.pool.apply_async(Component.estimate_async,(component,mean_prior,mean_prior_precision,covariance_prior,precision_prior,prior_power))))
         for i,cr in enumerate(component_async_handles):
             component_results.append(cr.get())
 
@@ -1222,10 +1222,10 @@ class Component():
         self.mask = node_mask
         self.nodes = np.sum(self.mask)
 
-    def estimate_async(self,task):
-        prior_means,prior_mean_precision,prior_covariance,prior_precision,prior_power = task
-        self.estimate_paramters(prior_means,prior_mean_precision,prior_covariance,prior_precision,prior_power)
-        return self
+    def estimate_async(task):
+        component,prior_means,prior_mean_precision,prior_covariance,prior_precision,prior_power = task
+        component.estimate_paramters(prior_means,prior_mean_precision,prior_covariance,prior_precision,prior_power)
+        return component
 
     def initialize(self):
 
