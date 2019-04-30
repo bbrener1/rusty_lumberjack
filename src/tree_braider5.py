@@ -80,7 +80,7 @@ class IHMM():
                 self.node_feature_mask[node.index,fi] = True
 
         for node in self.live_nodes:
-            self.node_states[node.index] = random.randint(0,self.hidden_states) + 2
+            self.node_states[node.index] = random.randint(1,self.hidden_states) + 1
 
         self.oracle_indicator_l = np.random.rand(self.total_nodes) < .5
         self.oracle_indicator_l[np.logical_not(self.live_mask)] = False
@@ -193,14 +193,7 @@ class IHMM():
 
     def update_states(self):
 
-        # if not self.hierarchal:
-        #     self.transition_counts = np.ones(self.transition_counts.shape) * ((np.sum(oracle_transition_counts) / self.hidden_states) + 1)
-        #
-        # self.establish_parameters()
-        #
-        # if not self.hierarchal:
-        #     self.transition_counts = np.ones(self.transition_counts.shape) * ((np.sum(oracle_transition_counts) / self.hidden_states) + 1)
-
+        virtual_states = len(self.components)
 
         ### The above methods establish a description of the current state.
 
@@ -208,7 +201,7 @@ class IHMM():
 
         ## First we establish the log odds of a given state based on the divergence observed
 
-        self.state_log_odds_given_features = self.compute_state_log_odds_given_features(self.node_features,self.node_feature_mask,self.live_mask,self.state_means,self.state_precisions,self.state_log_dets)
+        self.state_log_odds_given_features = self.compute_state_log_odds_given_features(self.node_features,self.node_feature_mask,self.live_mask)
 
         # self.state_log_odds_given_divergence /= self.hidden_states
 
@@ -235,8 +228,8 @@ class IHMM():
 
         ## We extract the odds of visiting the oracle for each given node and tile them
 
-        self.oracle_odds_given_child_l = np.tile(self.direct_state_odds_given_child_l[-1],(self.hidden_states + 1,1))
-        self.oracle_odds_given_child_r = np.tile(self.direct_state_odds_given_child_r[-1],(self.hidden_states + 1,1))
+        self.oracle_odds_given_child_l = np.tile(self.direct_state_odds_given_child_l[0],(virtual_states-1,1))
+        self.oracle_odds_given_child_r = np.tile(self.direct_state_odds_given_child_r[0],(virtual_states-1,1))
 
         if self.inf_check:
             print(list(self.direct_state_odds_given_child_l))
@@ -264,9 +257,9 @@ class IHMM():
         # print(self.oracle_odds_given_child_r.shape)
 
         ### THIS IS IMPORTANT ###
-        ## We NOW set the bottom rows to zero, so that it will be filled in with the odds of a novel state momentarily
-        self.direct_state_odds_given_child_l[-1] = 0
-        self.direct_state_odds_given_child_r[-1] = 0
+        ## We NOW set the oracle rows to zero, so that it will be filled in with the odds of a novel state momentarily
+        self.direct_state_odds_given_child_l[0] = 0
+        self.direct_state_odds_given_child_r[0] = 0
 
         if self.inf_check:
             if np.isnan(self.direct_state_odds_given_child_l[:,self.live_mask]).any():
@@ -524,7 +517,7 @@ class IHMM():
         if beta_max is None:
             beta_max = max(k,features)
 
-        trace_product = self.state_precisions()[:k,np.identity(features,dtype=bool)] * np.tile([np.identity(features,dtype=bool)],(k,1))
+        trace_product = self.state_precisions()[:k,np.identity(features,dtype=bool)] * np.tile(self.precision_prior()[np.identity(features,dtype=bool)],(k,1))
 
         trace_sum = np.sum(trace_product + np.ones((k,features)))
 
@@ -776,10 +769,8 @@ class IHMM():
 
     def scale_priors(self):
 
-        combined = (np.sum(np.array([(c.covariance,c.precision) for c in self.components[2:]]),axis=0) + np.array([self.data_covariance,self.data_precision])) / (self.hidden_states + 1)
-
-        covariance_prior = combined[0]
-        precision_prior = combined[1]
+        covariance_prior = self.covariance_prior()
+        precision_prior = self.precision_prior()
 
         return (covariance_prior,precision_prior,self.beta_e)
 
@@ -914,9 +905,8 @@ class IHMM():
         ## Here we have to start considering the potential fact that an oracle may be sampled
         ## Since this is the first transition, for simplicity we will simply compute the odds of a direct transition and an oracle transition of any kind
 
-        padded_transition_counts = np.zeros((transition_counts.shape[0],transition_counts.shape[1]+1))
-        padded_transition_counts[:,:-1] += transition_counts
-        padded_transition_counts[:,-1] += beta
+        padded_transition_counts = transition_counts[:,1:]
+        padded_transition_counts[:,0] += beta
 
         # print("Transition odds debug")
         # print(padded_transition_counts)
@@ -939,13 +929,17 @@ class IHMM():
 
         node_transition_odds = padded_transition_counts[node_child_states]
 
+        print("transition_debug")
+        print(node_transition_odds[2000])
+        print(node_transition_odds.shape)
+
         # print("direct transition debug")
         # print(node_transition_odds.shape)
         # print(list(node_transition_odds))
 
-        node_transition_odds[np.arange(node_transition_odds.shape[0]),node_states] -= 1
+        # node_transition_odds[np.arange(node_transition_odds.shape[0]),node_states] -= 1
 
-        node_transition_odds[node_transition_odds < 0] = 0
+        # node_transition_odds[node_transition_odds < 0] = 0
         # print(list(node_transition_odds))
 
         node_transition_counter_odds = counter_odds[node_child_states]
@@ -958,7 +952,9 @@ class IHMM():
 
         node_state_odds = node_transition_odds.astype(dtype=float) / node_transition_counter_odds.astype(dtype=float)
 
-        node_state_odds[:,0] = 0
+        print("transition debug")
+        print(transition_counts.shape)
+        print(node_state_odds.shape)
 
         return node_state_odds.T
 
@@ -984,9 +980,9 @@ class IHMM():
         live_nodes = np.sum(live_mask)
 
         draw_index = self.pool.map(IHMM.log_sampling,state_log_odds[1:,live_mask].T)
-        draw_index = [i+1 for i in draw_index]
+        draw_index = [i+2 for i in draw_index]
 
-        new_state_indicator = [di >= state_log_odds.shape[0] - 1 for di in draw_index]
+        new_state_indicator = [di == 1 for di in draw_index]
 
         return np.array(draw_index), np.array(new_state_indicator)
 
@@ -996,9 +992,9 @@ class IHMM():
 
         print(oracle_transition_counts)
 
-        odds = np.ones(oracle_transition_counts.shape[0]+1)
-        odds[:-1] += oracle_transition_counts
-        odds[-1] += gamma
+        odds = np.ones(oracle_transition_counts[1:].shape[0])
+        odds += oracle_transition_counts[1:]
+        odds[0] += gamma
 
 
         counter_odds = np.sum(odds) * np.ones(odds.shape)
@@ -1037,7 +1033,7 @@ class IHMM():
 
         # print(self.hidden_states)
 
-        state_mask = np.equal(np.tile(np.arange(states),(live_nodes,1)).T,np.tile(node_state[live_mask],(states,1)))
+        state_mask = np.equal(np.tile(np.arange(states),(live_nodes,1)).T,np.tile(node_state[live_mask]-1,(states,1)))
 
         # print(np.sum(np.sum(state_mask,axis=0) < 1))
         # print(np.sum(np.sum(state_mask,axis=1) < 1))
