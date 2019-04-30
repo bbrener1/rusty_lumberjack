@@ -892,22 +892,22 @@ class IHMM():
         # print(node_features[live_mask].shape)
         # print(node_feature_mask[live_mask].shape)
 
-        # for i,component in enumerate(self.components[1:]):
-        #     print(f"Component {i} log likelihood")
+        for i,component in enumerate(self.components[1:]):
+            print(f"Component {i} log likelihood")
             # feature_log_odds[i][live_mask] = np.array(self.pool.map(component.node_log_likelihood_async,zip(node_features[live_mask],node_feature_mask[live_mask])))
 
-            # async_node_result_handles = []
-            # for nf,nfm in zip(node_features[live_mask],node_feature_mask[live_mask]):
-            #     async_node_result_handles.append(self.pool.apply_async(component.node_log_likelihood_async,((nf.copy(),nfm.copy()),)))
-            # feature_log_odds[i][live_mask] = np.array([anr.get() for anr in async_node_result_handles])
-
-        for i,(nf,nfm) in enumerate(zip(node_features[live_mask],node_feature_mask[live_mask])):
-            if i%10 == 0:
-                print(i)
             async_node_result_handles = []
-            for component in self.components[1:]:
+            for nf,nfm in zip(node_features[live_mask],node_feature_mask[live_mask]):
                 async_node_result_handles.append(self.pool.apply_async(Component.node_log_likelihood_async,((component,nf.copy(),nfm.copy()),)))
-            feature_log_odds[:,i] = np.array([anr.get() for anr in async_node_result_handles])
+            feature_log_odds[i][live_mask] = np.array([anr.get() for anr in async_node_result_handles])
+
+        # for i,(nf,nfm) in enumerate(zip(node_features[live_mask],node_feature_mask[live_mask])):
+        #     if i%10 == 0:
+        #         print(i)
+        #     async_node_result_handles = []
+        #     for component in self.components[1:]:
+        #         async_node_result_handles.append(self.pool.apply_async(Component.node_log_likelihood_async,((component,nf.copy(),nfm.copy()),)))
+        #     feature_log_odds[:,i] = np.array([anr.get() for anr in async_node_result_handles])
 
         # print("Node ratio debug")
         # print(feature_log_odds.shape)
