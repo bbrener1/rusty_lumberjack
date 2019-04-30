@@ -734,8 +734,8 @@ class IHMM():
 
         scaling_value = np.zeros((features,features))
         for nf in node_feature_mask[node_mask]:
-            scaling_value += np.outer(nf,nf) + 1
-        scaling_value / (nodes+1)
+            scaling_value += np.outer(nf,nf)
+        (scaling_value + 1) / (nodes+1)
 
 
         scaled_outer_sum = (raw_outer_sum / scaling_value)
