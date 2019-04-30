@@ -645,7 +645,7 @@ class IHMM():
         component_async_handles = []
         component_results = []
         for component in components:
-            component_async_handles.append(self.pool.apply_async(Component.estimate_async,(component,mean_prior,mean_prior_precision,covariance_prior,precision_prior,prior_power))))
+            component_async_handles.append(self.pool.apply_async(Component.estimate_async,(component,mean_prior,mean_prior_precision,covariance_prior,precision_prior,prior_power)))
         for i,cr in enumerate(component_async_handles):
             component_results.append(cr.get())
 
