@@ -624,10 +624,10 @@ class IHMM():
         mean_prior,mean_prior_precision,prior_power = self.mean_priors()
         covariance_prior,precision_prior,prior_power = self.scale_priors()
 
-        print(self.hidden_states)
-        print(mean_prior)
-        print(covariance_prior)
-        print(precision_prior)
+        # print(self.hidden_states)
+        # print(mean_prior)
+        # print(covariance_prior)
+        # print(precision_prior)
 
         components = []
 
