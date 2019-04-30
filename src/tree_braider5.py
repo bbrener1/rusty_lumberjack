@@ -902,6 +902,8 @@ class IHMM():
             # feature_log_odds[i][live_mask] = np.array([anr.get() for anr in async_node_result_handles])
 
         for i,(nf,nfm) in enumerate(zip(node_features[live_mask],node_feature_mask[live_mask])):
+            if i%10 == 0:
+                print(i)
             async_node_result_handles = []
             for component in self.components[1:]:
                 async_node_result_handles.append(self.pool.apply_async(component.node_log_likelihood_async,((nf.copy(),nfm.copy()),)))
@@ -1283,9 +1285,12 @@ class Component():
         self.covariance = posterior_covariance
         self.covariance_log_determinant = covariance_log_determinant
 
-    def node_log_likelihood_async(self,task):
+    def node_log_likelihood_async(task):
+        component,features,node_feature_mask = task
+        component.node_log_likelihood(featurse,node_feature_mask)
 
-        features,node_feature_mask = task
+    def node_log_likelihood(self,features,node_feature_mask):
+
         features = features[node_feature_mask]
 
         # print("loglikedebug")
