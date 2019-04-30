@@ -1287,7 +1287,7 @@ class Component():
 
     def node_log_likelihood_async(task):
         component,features,node_feature_mask = task
-        component.node_log_likelihood(featurse,node_feature_mask)
+        component.node_log_likelihood(features,node_feature_mask)
 
     def node_log_likelihood(self,features,node_feature_mask):
 
