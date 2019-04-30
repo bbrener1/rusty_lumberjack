@@ -73,7 +73,7 @@ class IHMM():
 
         for node in self.live_nodes:
             node_features = node.features
-            local_gains = np.log2(node.local_gains)
+            local_gains = np.log2(np.abs(node.local_gains + 1)) * np.sign(local_gains)
             # local_gains = node.local_gains
             # local_gains = node.medians
             for feature,gain in zip(node_features,local_gains):
@@ -722,9 +722,21 @@ class IHMM():
         centered_features[node_feature_mask[node_mask]] = node_features[node_mask][node_feature_mask[node_mask]]
         centered_features[node_feature_mask[node_mask]] -= np.tile(feature_means,(nodes,1))[node_feature_mask[node_mask]]
 
-        raw_outer_sum = np.sum(np.array([np.outer(x,x) for x in centered_features]),axis=0)
+        # raw_outer_sum = np.sum(np.array([np.outer(x,x) for x in centered_features]),axis=0)
 
-        scaling_value = (np.sum(np.array([np.outer(x,x) for x in node_feature_mask[node_mask]]),axis=0) + 1) / (nodes + 1)
+        ### Do this instead of the above, huge memory savings, don't have to hold a node x feature x feature matrix in mem
+
+        raw_outer_sum = np.zeros((features,features))
+        for nf in centered_features:
+            raw_outer_sum += np.outer(nf,nf)
+
+        # scaling_value = (np.sum(np.array([np.outer(x,x) for x in node_feature_mask[node_mask]]),axis=0) + 1) / (nodes + 1)
+
+        scaling_value = np.zeros((features,features))
+        for nf in node_feature_mask[node_mask]:
+            scaling_value += np.outer(nf,nf) + 1
+        scaling_value / (nodes+1)
+
 
         scaled_outer_sum = (raw_outer_sum / scaling_value)
 
