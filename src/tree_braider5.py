@@ -30,8 +30,8 @@ import matplotlib.pyplot as plt
 class IHMM():
     def __init__(self,forest,alpha=1,beta=1,gamma=1,beta_e=None,start_states=20,inf_check=False,p=None,hierarchal=True):
 
-        if __name__ == '__main__':
-            self.pool = mp.Pool(p)
+        # if __name__ == '__main__':
+        self.pool = mp.Pool(p)
 
         self.inf_check = inf_check
         self.hierarchal = hierarchal
