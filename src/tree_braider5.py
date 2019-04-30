@@ -30,7 +30,8 @@ import matplotlib.pyplot as plt
 class IHMM():
     def __init__(self,forest,alpha=1,beta=1,gamma=1,beta_e=None,start_states=20,inf_check=False,p=None,hierarchal=True):
 
-        self.pool = mp.Pool(p)
+        if __name__ == '__main__':
+            self.pool = mp.Pool(p)
 
         self.inf_check = inf_check
         self.hierarchal = hierarchal
@@ -886,16 +887,16 @@ class IHMM():
 
         feature_log_odds = np.zeros((len(self.components[1:]),node_features.shape[0]))
 
-        print("Node features")
-        print(node_features[live_mask].shape)
-        print(node_feature_mask[live_mask].shape)
+        # print("Node features")
+        # print(node_features[live_mask].shape)
+        # print(node_feature_mask[live_mask].shape)
 
         for i,component in enumerate(self.components[1:]):
             feature_log_odds[i][live_mask] = np.array(self.pool.map(component.node_log_likelihood_async,zip(node_features[live_mask],node_feature_mask[live_mask])))
 
-        print("Node ratio debug")
-        print(feature_log_odds.shape)
-        print(feature_log_odds[:,live_mask].shape)
+        # print("Node ratio debug")
+        # print(feature_log_odds.shape)
+        # print(feature_log_odds[:,live_mask].shape)
 
         # if np.isnan(node_output).any():
         #     raise Exception("Computed nan divergence log odds")
@@ -1285,7 +1286,8 @@ class Component():
         return log_likelihood
 
 
-
+if __name__ == '__main__':
+    main()
 
 
 
