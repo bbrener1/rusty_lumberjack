@@ -898,7 +898,7 @@ class IHMM():
 
             async_node_result_handles = []
             for nf,nfm in zip(node_features[live_mask],node_feature_mask[live_mask]):
-                async_node_result_handles.append(self.pool.apply_async(component.node_log_likelihood_async,((nf.deepcopy(),nfm.deepcopy()),)))
+                async_node_result_handles.append(self.pool.apply_async(component.node_log_likelihood_async,((nf.copy(),nfm.copy()),)))
             feature_log_odds[i][live_mask] = np.array([anr.get() for anr in async_node_result_handles])
 
         # print("Node ratio debug")
