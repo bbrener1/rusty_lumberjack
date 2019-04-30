@@ -30,6 +30,7 @@ import matplotlib.pyplot as plt
 class IHMM():
     def __init__(self,forest,alpha=1,beta=1,gamma=1,beta_e=None,start_states=20,inf_check=False,p=None,hierarchal=True):
 
+        export OPENBLAS_NUM_THREADS = 1
         # if __name__ == '__main__':
         self.pool = mp.Pool(p)
 
@@ -647,6 +648,7 @@ class IHMM():
         for component in components:
             component_async_handles.append(self.pool.apply_async(Component.estimate_async,((component,mean_prior,mean_prior_precision,covariance_prior,precision_prior,prior_power),)))
         for i,cr in enumerate(component_async_handles):
+            print(f"Computing component {i}")
             component_results.append(cr.get())
 
         self.components = component_results
@@ -892,7 +894,7 @@ class IHMM():
         # print(node_feature_mask[live_mask].shape)
 
         for i,component in enumerate(self.components[1:]):
-            print("Component 1 log likelihood")
+            print(f"Component {i} log likelihood")
             feature_log_odds[i][live_mask] = np.array(self.pool.map(component.node_log_likelihood_async,zip(node_features[live_mask],node_feature_mask[live_mask])))
 
         # print("Node ratio debug")
