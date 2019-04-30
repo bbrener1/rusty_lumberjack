@@ -894,7 +894,12 @@ class IHMM():
 
         for i,component in enumerate(self.components[1:]):
             print(f"Component {i} log likelihood")
-            feature_log_odds[i][live_mask] = np.array(self.pool.map(component.node_log_likelihood_async,zip(node_features[live_mask],node_feature_mask[live_mask])))
+            # feature_log_odds[i][live_mask] = np.array(self.pool.map(component.node_log_likelihood_async,zip(node_features[live_mask],node_feature_mask[live_mask])))
+
+            async_node_result_handles = []
+            for nf,nfm in zip(node_features[live_mask],node_feature_mask[live_mask]):
+                async_node_result_handles.append(self.pool.apply_async(component.node_log_likelihood_async,((nf,nfm),)))
+            feature_log_odds[i][live_mask] = np.array([anr.get() for anr in async_node_result_handles])
 
         # print("Node ratio debug")
         # print(feature_log_odds.shape)
@@ -999,8 +1004,13 @@ class IHMM():
 
         live_nodes = np.sum(live_mask)
 
-        draw_index = self.pool.map(IHMM.log_sampling,state_log_odds[1:,live_mask].T)
-        draw_index = [i+2 for i in draw_index]
+        draw_index_async_handle = []
+        for odds in state_log_odds[:,live_mask].T:
+            draw_index_async_handle.append(self.pool.apply_async,odds)
+        draw_index = [dih.get() + 1 for dih in draw_index_async_handle]
+
+        draw_index = self.pool.map(IHMM.log_sampling,state_log_odds[:,live_mask].T)
+        draw_index = [i+1 for i in draw_index]
 
         new_state_indicator = [di == 1 for di in draw_index]
 
