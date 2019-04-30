@@ -892,6 +892,7 @@ class IHMM():
         # print(node_feature_mask[live_mask].shape)
 
         for i,component in enumerate(self.components[1:]):
+            print("Component 1 log likelihood")
             feature_log_odds[i][live_mask] = np.array(self.pool.map(component.node_log_likelihood_async,zip(node_features[live_mask],node_feature_mask[live_mask])))
 
         # print("Node ratio debug")
