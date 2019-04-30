@@ -73,7 +73,7 @@ class IHMM():
 
         for node in self.live_nodes:
             node_features = node.features
-            local_gains = node.medians
+            local_gains = node.local_gains
             for feature,gain in zip(node_features,local_gains):
                 fi = self.feature_dictionary[feature]
                 self.node_features[node.index,fi] = gain
@@ -1114,8 +1114,6 @@ class IHMM():
 
         return states + 1
 
-    def lr_finite(self,state):
-        return expit(np.log2(self.state_raw_emission_counts[state][:,0]/self.state_raw_emission_counts[state][:,1]))
 
     def state_node_odds(self,state):
 
