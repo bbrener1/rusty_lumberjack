@@ -73,7 +73,7 @@ class IHMM():
 
         for node in self.live_nodes:
             node_features = node.features
-            local_gains = np.log2(np.abs(node.local_gains + 1)) * np.sign(local_gains)
+            local_gains = np.log2(np.abs(node.local_gains) + 1) * np.sign(node.local_gains)
             # local_gains = node.local_gains
             # local_gains = node.medians
             for feature,gain in zip(node_features,local_gains):
