@@ -30,7 +30,6 @@ import matplotlib.pyplot as plt
 class IHMM():
     def __init__(self,forest,alpha=1,beta=1,gamma=1,beta_e=None,start_states=20,inf_check=False,p=None,hierarchal=True):
 
-        export OPENBLAS_NUM_THREADS = 1
         # if __name__ == '__main__':
         self.pool = mp.Pool(p)
 
