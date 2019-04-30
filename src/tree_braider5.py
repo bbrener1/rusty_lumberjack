@@ -73,7 +73,9 @@ class IHMM():
 
         for node in self.live_nodes:
             node_features = node.features
-            local_gains = node.local_gains
+            local_gains = np.log2(node.local_gains)
+            # local_gains = node.local_gains
+            # local_gains = node.medians
             for feature,gain in zip(node_features,local_gains):
                 fi = self.feature_dictionary[feature]
                 self.node_features[node.index,fi] = gain
@@ -736,12 +738,12 @@ class IHMM():
 
         # precision_estimate = np.linalg.inv(covariance_estimate)
 
-        print("Scale Debug")
-        print(raw_outer_sum)
-        print(scaling_value)
-        print(scaled_outer_sum)
-        print(mean_samples)
-        print(unscaled_covariance_estimate)
+        # print("Scale Debug")
+        # print(raw_outer_sum)
+        # print(scaling_value)
+        # print(scaled_outer_sum)
+        # print(mean_samples)
+        # print(unscaled_covariance_estimate)
         # print(unscaled_precision_estimate)
 
         return (covariance_estimate,precision_estimate)
@@ -1229,11 +1231,11 @@ class Component():
 
         posterior_covariance = np.linalg.inv(posterior_precision)
 
-        print("Parameter debug")
-        print(estimated_precision)
-        print(posterior_precision)
-        print(estimated_covariance)
-        print(posterior_covariance)
+        # print("Parameter debug")
+        # print(estimated_precision)
+        # print(posterior_precision)
+        # print(estimated_covariance)
+        # print(posterior_covariance)
 
         posterior_mean_numerator = self.nodes * np.dot(estimated_means,posterior_precision) + np.dot(prior_means,prior_mean_precision)
         posterior_mean_inverse_denominator = np.linalg.inv((self.nodes * posterior_precision) + prior_mean_precision)
