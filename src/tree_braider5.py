@@ -894,12 +894,12 @@ class IHMM():
 
         for i,component in enumerate(self.components[1:]):
             print(f"Component {i} log likelihood")
-            # feature_log_odds[i][live_mask] = np.array(self.pool.map(component.node_log_likelihood_async,zip(node_features[live_mask],node_feature_mask[live_mask])))
+            feature_log_odds[i][live_mask] = np.array(self.pool.map(component.node_log_likelihood_async,zip(node_features[live_mask],node_feature_mask[live_mask])))
 
-            async_node_result_handles = []
-            for nf,nfm in zip(node_features[live_mask],node_feature_mask[live_mask]):
-                async_node_result_handles.append(self.pool.apply_async(Component.node_log_likelihood_async,((component,nf.copy(),nfm.copy()),)))
-            feature_log_odds[i][live_mask] = np.array([anr.get() for anr in async_node_result_handles])
+            # async_node_result_handles = []
+            # for nf,nfm in zip(node_features[live_mask],node_feature_mask[live_mask]):
+            #     async_node_result_handles.append(self.pool.apply_async(Component.node_log_likelihood_async,((component,nf.copy(),nfm.copy()),)))
+            # feature_log_odds[i][live_mask] = np.array([anr.get() for anr in async_node_result_handles])
 
         # for i,(nf,nfm) in enumerate(zip(node_features[live_mask],node_feature_mask[live_mask])):
         #     if i%10 == 0:
