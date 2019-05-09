@@ -13,9 +13,11 @@ extern crate num_cpus;
 extern crate rand;
 extern crate time;
 extern crate smallvec;
-// extern crate nalgebra;
 
-
+#[macro_use(array,azip)]
+extern crate ndarray;
+extern crate ndarray_linalg;
+extern crate num_traits;
 
 
 mod rank_vector;
@@ -29,6 +31,8 @@ mod feature_thread_pool;
 mod split_thread_pool;
 mod randutils;
 mod tree_braider4;
+mod multivariate_normal;
+mod dirichlet;
 
 use io::Parameters;
 use io::construct;

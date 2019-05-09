@@ -930,7 +930,7 @@ impl<T: Borrow<[Node]> + BorrowMut<[Node]> + Index<usize,Output=Node> + IndexMut
     }
 
     #[inline]
-    pub fn split_indecies(&self, split:&f64) -> (Vec<usize>,Vec<usize>) {
+    pub fn split_indices(&self, split:&f64) -> (Vec<usize>,Vec<usize>) {
 
         let (mut left,mut right) = (Vec::with_capacity(self.len()),Vec::with_capacity(self.len()));
 
@@ -1547,7 +1547,7 @@ mod rank_vector_tests {
     //
     //     b.iter(|| vector.mad());
     // }
-    // 
+    //
     // #[bench]
     // fn bench_rv3_mad_smallvec(b: &mut Bencher) {
     //     let mut vector = RankVector::<Vec<Node>>::link(&vec![10.,-3.,0.,5.,-2.,-1.,15.,20.],);

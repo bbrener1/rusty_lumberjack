@@ -1278,7 +1278,7 @@ class Component():
 
         posterior_means = np.dot(posterior_mean_numerator,posterior_mean_inverse_denominator)
 
-        covariance_log_determinant = np.linalg.slogdet(posterior_covariance)[0] * np.log2(np.e)
+        covariance_log_determinant = np.linalg.slogdet(posterior_covariance)[1] * np.log2(np.e)
 
         self.means = posterior_means
         self.precision = posterior_precision
@@ -1301,7 +1301,7 @@ class Component():
         masked_precision = self.precision[node_feature_mask].T[node_feature_mask].T
         masked_covariance = self.covariance[node_feature_mask].T[node_feature_mask].T
 
-        masked_determinant = np.linalg.slogdet(masked_covariance)[0]
+        masked_determinant = np.linalg.slogdet(masked_covariance)[1]
 
         precision_fit = np.dot(np.dot(centered,masked_precision),centered)
         log_likelihood = masked_determinant + precision_fit + np.log2(2*np.pi)

@@ -450,7 +450,7 @@ impl RankTableWrapper {
     }
 }
 
-#[derive(Debug,Clone,Serialize,Deserialize,PartialEq,Eq)]
+#[derive(Debug,Clone,Serialize,Deserialize,PartialEq,Eq,Hash)]
 pub struct Feature {
     name: String,
     index: usize,
