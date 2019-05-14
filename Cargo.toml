@@ -1,13 +1,29 @@
 [package]
 name = "lumberjack_1"
 version = "0.1.0"
-authors = ["boris"]
+authors = ["boris_b_jhu"]
+
+[workspace]
 
 [dependencies]
-rand = "0.5.0"
+rand = "0.6"
 time = "0.1"
 serde = "1.0"
 serde_json = "1.0"
 serde_derive = "1.0"
-num_cpus = "1.8.0"
-smallvec = "0.6.1"
+num_cpus = "1"
+smallvec = "0.6"
+
+ihmm = {path = "./ihmm"}
+trees = {path = "./trees"}
+
+ndarray = "0.12"
+ndarray-linalg = { version = "0.10" }
+
+# ndarray-linalg = { version = "0.10" }
+# openblas-src = { version = "0.7.0", feature=['static']}
+
+# ndarray-linalg = { version = "0.10", feature=["intel_mkl"] }
+intel-mkl-src = {version = "0.4"}
+
+num-traits = "0.2"
