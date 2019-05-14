@@ -10,16 +10,17 @@ use serde_json;
 
 extern crate rand;
 use rand::Rng;
-use rank_table::RankTable;
-use rank_table::RankTableWrapper;
-use rank_table::Feature;
-use rank_table::Sample;
-use rank_table::Prerequisite;
-use split_thread_pool::SplitMessage;
-use io::DropMode;
-use io::PredictionMode;
-use io::Parameters;
-use io::DispersionMode;
+
+use crate::rank_table::RankTable;
+use crate::rank_table::RankTableWrapper;
+use crate::Feature;
+use crate::Sample;
+use crate::Prerequisite;
+use crate::split_thread_pool::SplitMessage;
+use crate::io::DropMode;
+use crate::io::PredictionMode;
+use crate::io::Parameters;
+use crate::io::DispersionMode;
 
 use std::fs::File;
 use std::io::Write;
@@ -508,7 +509,7 @@ impl Node {
 
             children: stripped_children,
 
-            feature: self.feature,
+            nfeature: self.feature,
             split: self.split,
 
             features: features,
@@ -538,7 +539,7 @@ impl Node {
 
             children: stripped_children,
 
-            feature: self.feature.clone(),
+            nfeature: self.feature.clone(),
             split: self.split.clone(),
 
             features: self.output_features().iter().cloned().collect(),
@@ -761,7 +762,7 @@ pub struct StrippedNode {
 
     pub children: Vec<StrippedNode>,
 
-    feature: Option<Feature>,
+    nfeature: Option<Feature>,
     split: Option<f64>,
 
     prerequisites: Vec<Prerequisite>,
@@ -784,11 +785,11 @@ impl StrippedNode {
     }
 
     pub fn feature(&self) -> &Option<Feature> {
-        &self.feature
+        &self.nfeature
     }
 
     pub fn feature_name(&self) -> Option<&String> {
-        self.feature.as_ref().map(|f| f.name())
+        self.nfeature.as_ref().map(|f| f.name())
     }
 
     pub fn features(&self) -> &[Feature] {
@@ -920,7 +921,40 @@ impl StrippedNode {
         encoding
     }
 
-    pub fn from_json(input:&str) -> Result<Vec<StrippedNode>,serde_json::Error> {
+    pub fn from_json(input:&str) -> Result<StrippedNode,serde_json::Error> {
+        // eprintln!("{:?}", input);
+        // let v = serde_json::from_str(input)?;
+        //
+        // let dropout = v["dropout"];
+        // let children = v["children"];
+        // let nfeature = v["nfeature"];
+        // let split = v["split"];
+        // let features = v["features"];
+        // let samples = v["samples"];
+        // let prerequisites = v["prerequisites"];
+        // let medians = v["medians"];
+        // let dispersions = v["dispersions"];
+        // let weights = v["weights"];
+        // let local_gains = v["local_gains"];
+        // let absolute_gains = v["absolute_gains"];
+        //
+        // let sn = StrippedNode {
+        //     dropout,
+        //     children,
+        //     nfeature,
+        //     split,
+        //     features,
+        //     samples,
+        //     prerequisites,
+        //     medians,
+        //     dispersions,
+        //     weights,
+        //     local_gains,
+        //     absolute_gains,
+        // };
+        // eprintln!("{:?}",v);
+        // Ok(sn)
+
         serde_json::from_str(input)
     }
 
@@ -943,12 +977,12 @@ impl StrippedNode {
         eprintln!("{:?}",tree_locations);
         let mut nodes = vec![];
         for tl in tree_locations {
-            nodes.append(&mut StrippedNode::from_file(&tl)?);
+            nodes.push(StrippedNode::from_file(&tl)?);
         };
         Ok(nodes)
     }
 
-    pub fn from_file(location:&str) -> Result<Vec<StrippedNode>,Box<Error>> {
+    pub fn from_file(location:&str) -> Result<StrippedNode,Box<Error>> {
         let mut json_file = File::open(location)?;
         let mut json_string = String::new();
         json_file.read_to_string(&mut json_string)?;
@@ -961,8 +995,9 @@ impl StrippedNode {
 mod node_testing {
 
     use super::*;
-    use feature_thread_pool::FeatureThreadPool;
-    use split_thread_pool::SplitThreadPool;
+    // use ndarray_linalg;
+    use crate::feature_thread_pool::FeatureThreadPool;
+    use crate::split_thread_pool::SplitThreadPool;
 
     fn blank_parameter() -> Arc<Parameters> {
         let mut parameters = Parameters::empty();
@@ -972,6 +1007,28 @@ mod node_testing {
         Arc::new(parameters)
     }
 
+    fn blank_stripped() -> StrippedNode {
+        StrippedNode {
+            dropout: DropMode::No,
+
+            children: vec![],
+
+            nfeature: None,
+            split: None,
+
+            features: vec![],
+            samples: vec![],
+
+            prerequisites: vec![],
+
+            medians: vec![],
+            dispersions: vec![],
+            weights: vec![],
+
+            local_gains: None,
+            absolute_gains: None,
+        }
+    }
 
     fn blank_node() -> Node {
         let input_counts = &vec![];
@@ -1044,6 +1101,23 @@ mod node_testing {
         assert_eq!(&root.children[0].sample_names(),&vec!["1".to_string(),"4".to_string(),"5".to_string(),"3".to_string()]);
         assert_eq!(&root.children[1].sample_names(),&vec!["0".to_string(),"6".to_string(),"7".to_string()]);
 
+    }
+
+    #[test]
+    fn node_test_stripped_file() {
+        let mut root = StrippedNode::from_file("../testing/iris_forest/run.50.compact").unwrap();
+    }
+
+    #[test]
+    fn node_test_stripped_location() {
+        let mut roots = StrippedNode::from_location("../testing/iris_forest/").unwrap();
+    }
+
+    #[test]
+    fn node_test_json() {
+        let n = blank_stripped();
+        let ns = n.to_string();
+        let r = StrippedNode::from_json(&ns).unwrap();
     }
 
 }

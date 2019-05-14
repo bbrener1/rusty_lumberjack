@@ -8,7 +8,7 @@ pub fn logit(p:f64) -> f64 {
     (p/(1.-p)).ln()
 }
 
-pub fn weighted_choice(weights: &Vec<f64>, rng: &mut ThreadRng) -> usize {
+pub fn weighted_choice<T: Rng>(weights: &Vec<f64>, rng: &mut T) -> usize {
 
     let mut descending_weight:f64 = weights.iter().sum();
 
@@ -31,7 +31,7 @@ pub fn weighted_sampling_with_replacement(draws: usize,weights: &Vec<f64>) -> Ve
     let mut drawn_indecies: Vec<usize> = Vec::with_capacity(draws);
     let mut weight_sum: f64 = weights.iter().sum();
 
-    let mut weighted_choices: Vec<f64> = (0..draws).map(|_| rng.gen_range::<f64>(0.,weight_sum)).collect();
+    let mut weighted_choices: Vec<f64> = (0..draws).map(|_| rng.gen_range::<f64,f64,f64>(0.,weight_sum)).collect();
     weighted_choices.sort_unstable_by(|a,b| a.partial_cmp(&b).unwrap_or(Ordering::Greater));
 
     let mut current_choice = weighted_choices.pop().unwrap_or(-1.);

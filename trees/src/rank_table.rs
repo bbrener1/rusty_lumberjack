@@ -4,16 +4,20 @@ use std::collections::HashMap;
 use std::cmp::Ordering;
 use std::sync::Arc;
 use std::sync::mpsc;
-use feature_thread_pool::FeatureMessage;
 extern crate rand;
 use std::f64;
-use io::NormMode;
-use io::DispersionMode;
-use rank_vector::RankVector;
-use rank_vector::Node;
-use rank_vector::Stencil;
-use io::DropMode;
-use io::Parameters;
+
+use crate::feature_thread_pool::FeatureMessage;
+use crate::Feature;
+use crate::Sample;
+use crate::Prerequisite;
+use crate::io::NormMode;
+use crate::io::DispersionMode;
+use crate::rank_vector::RankVector;
+use crate::rank_vector::Node;
+use crate::rank_vector::Stencil;
+use crate::io::DropMode;
+use crate::io::Parameters;
 
 
 // #[derive(Debug,Clone,Serialize,Deserialize)]
@@ -450,84 +454,6 @@ impl RankTableWrapper {
     }
 }
 
-#[derive(Debug,Clone,Serialize,Deserialize,PartialEq,Eq,Hash)]
-pub struct Feature {
-    name: String,
-    index: usize,
-}
-
-impl Feature {
-
-    pub fn vec(input: Vec<usize>) -> Vec<Feature> {
-        input.iter().map(|x| Feature::q(x)).collect()
-    }
-
-    pub fn nvec(input: &Vec<String>) -> Vec<Feature> {
-        input.iter().enumerate().map(|(i,f)| Feature::new(f,&i)).collect()
-    }
-
-    pub fn q(index:&usize) -> Feature {
-        Feature {name: index.to_string(),index:*index}
-    }
-
-    pub fn new(name:&str,index:&usize) -> Feature {
-        Feature {name: name.to_owned(),index:*index}
-    }
-
-    pub fn name(&self) -> &String {
-        &self.name
-    }
-
-    pub fn index(&self) -> &usize {
-        &self.index
-    }
-}
-
-#[derive(Debug,Clone,Serialize,Deserialize,PartialEq)]
-pub struct Sample {
-    name: String,
-    index: usize,
-}
-
-impl Sample {
-
-    pub fn vec(input: Vec<usize>) -> Vec<Sample> {
-        input.iter().map(|x| Sample::q(x)).collect()
-    }
-
-    pub fn nvec(input: &Vec<String>) -> Vec<Sample> {
-        input.iter().enumerate().map(|(i,s)| Sample::new(s,&i)).collect()
-    }
-
-    pub fn q(index:&usize) -> Sample {
-        Sample {name: index.to_string(),index:*index}
-    }
-
-    pub fn new(name:&str,index:&usize) -> Sample {
-        Sample {name: name.to_owned(),index:*index}
-    }
-
-    pub fn name(&self) -> &String {
-        &self.name
-    }
-
-    pub fn index(&self) -> &usize {
-        &self.index
-    }
-}
-
-#[derive(Debug,Clone,Serialize,Deserialize)]
-pub struct Prerequisite {
-    feature: Feature,
-    split: f64,
-    orientation: bool
-}
-
-impl Prerequisite {
-    pub fn new(feature:Feature,split:f64,orientation:bool) -> Prerequisite {
-        Prerequisite {feature,split,orientation}
-    }
-}
 
 
 pub fn l2_minimum(mtx_in:&Vec<Vec<f64>>, weights: &Vec<f64>) -> Option<(usize,f64)> {
@@ -598,7 +524,7 @@ mod rank_table_tests {
 
     use super::*;
     use smallvec::SmallVec;
-    use feature_thread_pool::FeatureThreadPool;
+    use crate::feature_thread_pool::FeatureThreadPool;
 
     fn blank_parameter() -> Arc<Parameters> {
         let mut parameters = Parameters::empty();

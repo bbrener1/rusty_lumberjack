@@ -5,28 +5,27 @@ use std::io::BufRead;
 use std::io;
 use std::collections::HashMap;
 use std::sync::mpsc;
-
+use std::sync::Arc;
 
 use std::fs::OpenOptions;
 
-use tree::Tree;
-use tree::PredictiveTree;
 
 extern crate rand;
 use rand::seq;
 
-use io::DropMode;
-use io::Parameters;
-use io::TreeBackups;
-use rank_table::Feature;
-use rank_table::Sample;
-use split_thread_pool::SplitThreadPool;
-use tree_thread_pool::TreeThreadPool;
-use std::sync::Arc;
+use crate::tree::Tree;
+use crate::tree::PredictiveTree;
+use crate::io::DropMode;
+use crate::io::Parameters;
+use crate::io::TreeBackups;
+use crate::Feature;
+use crate::Sample;
+use crate::split_thread_pool::SplitThreadPool;
+use crate::tree_thread_pool::TreeThreadPool;
 // use predictor::predict;
 // use compact_predictor::compact_predict;
 // use weigh_leaves::weigh_leaves;
-use node::StrippedNode;
+use crate::node::StrippedNode;
 // use compact_predictor::node_sample_encoding;
 
 impl Forest {
@@ -393,28 +392,28 @@ mod random_forest_tests {
 
     #[test]
     fn test_forest_initialization_trivial() {
-        Forest::initialize(&vec![],&vec![], Arc::new(Parameters::empty()) , "./testing/test_trees");
+        Forest::initialize(&vec![],&vec![], Arc::new(Parameters::empty()) , "../testing/test_trees");
     }
 
     #[test]
     fn test_forest_initialization_simple() {
         let counts = vec![vec![10.,-3.,0.,5.,-2.,-1.,15.,20.]];
-        Forest::initialize(&counts,&counts, Arc::new(Parameters::empty()), "./testing/test_trees");
+        Forest::initialize(&counts,&counts, Arc::new(Parameters::empty()), "../testing/test_trees");
     }
 
     #[test]
     fn test_forest_initialization_iris() {
-        let counts = read_matrix("./testing/iris.drop");
-        let features = read_header("./testing/iris.features");
-        Forest::initialize(&counts,&counts, Arc::new(Parameters::empty()),"./testing/err");
+        let counts = read_matrix("../testing/iris.drop");
+        let features = read_header("../testing/iris.features");
+        Forest::initialize(&counts,&counts, Arc::new(Parameters::empty()),"../testing/err");
     }
 
     #[test]
     fn test_forest_initialization_iris_nan() {
         let mut params = Parameters::empty();
         params.dropout = DropMode::NaNs;
-        let counts = read_matrix("./testing/iris.nan");
-        let features = read_header("./testing/iris.features");
+        let counts = read_matrix("../testing/iris.nan");
+        let features = read_header("../testing/iris.features");
         Forest::initialize(&counts,&counts, Arc::new(params),"./testing/err");
     }
 

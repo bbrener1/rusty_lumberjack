@@ -14,14 +14,14 @@ use serde_json;
 extern crate rand;
 
 
-use node::{Node,NodeWrapper,StrippedNode};
-use rank_table::{Feature,Sample};
-use split_thread_pool::SplitThreadPool;
-use split_thread_pool::SplitMessage;
-use io::DispersionMode;
-use io::DropMode;
-use io::PredictionMode;
-use io::Parameters;
+use crate::node::{Node,NodeWrapper,StrippedNode};
+use crate::{Feature,Sample};
+use crate::split_thread_pool::SplitThreadPool;
+use crate::split_thread_pool::SplitMessage;
+use crate::io::DispersionMode;
+use crate::io::DropMode;
+use crate::io::PredictionMode;
+use crate::io::Parameters;
 
 #[derive(Clone)]
 pub struct Tree {

@@ -1,7 +1,18 @@
+#[macro_use(array,azip)]
+extern crate ndarray;
+extern crate ndarray_linalg;
+extern crate trees;
+extern crate num_traits;
+extern crate serde_json;
+extern crate rand;
+
+mod dirichlet;
+mod multivariate_normal;
+
+use trees::node::StrippedNode;
+use trees::{Feature,Sample,Prerequisite};
+
 use std::collections::{HashMap,HashSet};
-use node::StrippedNode;
-use rank_table::{Feature,Sample};
-use serde_json;
 
 use std::fs::File;
 use std::io::Write;
@@ -13,12 +24,11 @@ use std::path::Path;
 use std::ffi::OsStr;
 use std::env;
 
-use f64::consts::E;
-use f64::consts::PI;
+use std::f64::consts::E;
+use std::f64::consts::PI;
 
 use ndarray as nd;
 use ndarray_linalg as ndl;
-use num_traits;
 
 use ndarray::{Ix1,Ix2,Axis};
 use ndarray::{Array,ArrayView};
@@ -26,7 +36,6 @@ use ndarray_linalg::error::LinalgError;
 // use ndarray_linalg::solve::{Inverse,Determinant};
 use ndarray_linalg::solveh::{InverseH,DeterminantH};
 
-use rand;
 use rand::{thread_rng,Rng};
 
 use multivariate_normal::MVN;
@@ -216,7 +225,7 @@ pub mod tree_braider_tests {
     use super::*;
 
     pub fn iris_forest() -> Vec<MarkovNode> {
-        MarkovNode::from_stripped_vec(&StrippedNode::from_location("./testing/iris_forest/").unwrap())
+        MarkovNode::from_stripped_vec(&StrippedNode::from_location("../testing/iris_forest/").unwrap())
     }
 
     pub fn iris_model() -> IHMM {
@@ -228,7 +237,7 @@ pub mod tree_braider_tests {
     #[test]
     fn test_markov_import() {
         eprintln!("Test readout");
-        let stripped_nodes = StrippedNode::from_location("./testing/iris_forest/").unwrap();
+        let stripped_nodes = StrippedNode::from_location("../testing/iris_forest/").unwrap();
         eprintln!("Stripped nodes read");
         MarkovNode::from_stripped_vec(&stripped_nodes);
     }

@@ -1,5 +1,5 @@
-use f64::consts::E;
-use f64::consts::PI;
+use std::f64::consts::E;
+use std::f64::consts::PI;
 
 use ndarray as nd;
 use ndarray_linalg as ndl;
@@ -39,7 +39,7 @@ impl Dirichlet {
 mod dirichlet_tests {
 
     use super::*;
-    use tree_braider4::MarkovNode;
-    use tree_braider4::tree_braider_tests::iris_forest;
+    use crate::MarkovNode;
+    use crate::tree_braider_tests::iris_forest;
 
 }

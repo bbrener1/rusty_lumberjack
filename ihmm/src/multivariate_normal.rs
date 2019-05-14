@@ -1,5 +1,5 @@
-use f64::consts::E;
-use f64::consts::PI;
+use std::f64::consts::E;
+use std::f64::consts::PI;
 
 use ndarray as nd;
 use ndarray_linalg as ndl;
@@ -127,7 +127,10 @@ impl MVN {
 
         let (sign,ldet):(f64,f64) = posterior_covariance.sln_deth()?;
 
-        assert!(sign > 0.);
+        if sign > 0. {
+            eprintln!("{:?}", sign);
+            eprintln!("{:}")
+        }
 
         let cdet: f64 = ldet * f64::log2(E);
 
@@ -253,9 +256,11 @@ pub fn array_double_select<T:Copy>(data:&ArrayView<T,Ix2>,mask:&[usize]) -> Arra
 #[cfg(test)]
 mod tree_braider_tests {
 
+    extern crate intel_mkl_src;
+
     use super::*;
-    use tree_braider4::MarkovNode;
-    use tree_braider4::tree_braider_tests::iris_forest;
+    use crate::MarkovNode;
+    use crate::tree_braider_tests::iris_forest;
 
     #[test]
     fn test_mvn_array_mask() {

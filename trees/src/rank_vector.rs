@@ -8,7 +8,7 @@ use std::ops::IndexMut;
 use std::fmt::Debug;
 use std::clone::Clone;
 use std::borrow::{Borrow,BorrowMut};
-use io::DropMode;
+use crate::io::DropMode;
 
 #[derive(Clone,Debug,Serialize,Deserialize)]
 pub struct RankVector<T> {
@@ -1382,7 +1382,6 @@ mod rank_vector_tests {
     use super::*;
     use rand::{thread_rng,Rng};
     use rand::distributions::Standard;
-    use rand::seq::sample_indices;
     // use test::Bencher;
 
     #[test]

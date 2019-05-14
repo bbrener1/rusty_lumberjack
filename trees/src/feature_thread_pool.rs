@@ -16,9 +16,9 @@ extern crate rand;
 
 use smallvec::SmallVec;
 
-use rank_vector::RankVector;
-use rank_vector::Node;
-use io::DispersionMode;
+use crate::rank_vector::RankVector;
+use crate::rank_vector::Node;
+use crate::io::DispersionMode;
 
 impl FeatureThreadPool{
     pub fn new(size: usize) -> Sender<FeatureMessage> {

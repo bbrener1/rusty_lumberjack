@@ -12,10 +12,10 @@ extern crate rand;
 use rand::thread_rng;
 use rand::Rng;
 
-use tree::Tree;
-use tree::PredictiveTree;
-use Parameters;
-use io::DispersionMode;
+use crate::tree::Tree;
+use crate::tree::PredictiveTree;
+use crate::io::Parameters;
+use crate::io::DispersionMode;
 
 impl TreeThreadPool{
     pub fn new(prototype:&Tree, parameters: Arc<Parameters>) -> Sender<(usize, mpsc::Sender<PredictiveTree>)> {

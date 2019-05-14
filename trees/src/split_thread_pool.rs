@@ -12,9 +12,9 @@ use std::thread;
 extern crate rand;
 
 
-use rank_table::RankTable;
-use feature_thread_pool::FeatureThreadPool;
-use feature_thread_pool::FeatureMessage;
+use crate::rank_table::RankTable;
+use crate::feature_thread_pool::FeatureThreadPool;
+use crate::feature_thread_pool::FeatureMessage;
 
 
 impl SplitThreadPool{
