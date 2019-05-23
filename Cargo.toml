@@ -19,11 +19,15 @@ trees = {path = "./trees"}
 
 ndarray = "0.12"
 ndarray-linalg = { version = "0.10" }
-
 # ndarray-linalg = { version = "0.10" }
 # openblas-src = { version = "0.7.0", feature=['static']}
 
 # ndarray-linalg = { version = "0.10", feature=["intel_mkl"] }
-intel-mkl-src = {version = "0.4"}
+# intel-mkl-src = {version = "0.4"}
 
 num-traits = "0.2"
+
+# This patch fixes an SVD off-by-one segfaulting bug. Try removing after next release of ndarray-linalg
+
+[patch.crates-io]
+ndarray-linalg = { git = "https://github.com/jturner314/ndarray-linalg.git", branch = "revert-version-number" }
