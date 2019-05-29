@@ -228,7 +228,9 @@ impl Node {
 
             let own_dispersions = self.dispersions.iter().map(|x| x * os);
 
-            let local_gains = own_dispersions.zip(left_dispersions.zip(right_dispersions)).map(|(o,(l,r))| o - (l+r)).collect();
+            let mut local_gains: Vec<f64> = own_dispersions.zip(left_dispersions.zip(right_dispersions)).map(|(o,(l,r))| o - (l+r)).collect();
+
+            local_gains = local_gains.iter().map(|g| g/(self.samples().len() as f64)).collect();
 
             self.local_gains = Some(local_gains);
 
@@ -509,7 +511,7 @@ impl Node {
 
             children: stripped_children,
 
-            nfeature: self.feature,
+            feature: self.feature,
             split: self.split,
 
             features: features,
@@ -539,7 +541,7 @@ impl Node {
 
             children: stripped_children,
 
-            nfeature: self.feature.clone(),
+            feature: self.feature.clone(),
             split: self.split.clone(),
 
             features: self.output_features().iter().cloned().collect(),
@@ -629,8 +631,8 @@ impl Node {
         &self.absolute_gains
     }
 
-    pub fn local_gains(&self) -> &Option<Vec<f64>> {
-        &self.local_gains
+    pub fn local_gains(&self) -> Option<&Vec<f64>> {
+        self.local_gains.as_ref()
     }
 
     pub fn covs(&self) -> Vec<f64> {
@@ -762,7 +764,7 @@ pub struct StrippedNode {
 
     pub children: Vec<StrippedNode>,
 
-    nfeature: Option<Feature>,
+    feature: Option<Feature>,
     split: Option<f64>,
 
     prerequisites: Vec<Prerequisite>,
@@ -785,11 +787,11 @@ impl StrippedNode {
     }
 
     pub fn feature(&self) -> &Option<Feature> {
-        &self.nfeature
+        &self.feature
     }
 
     pub fn feature_name(&self) -> Option<&String> {
-        self.nfeature.as_ref().map(|f| f.name())
+        self.feature.as_ref().map(|f| f.name())
     }
 
     pub fn features(&self) -> &[Feature] {
@@ -820,8 +822,8 @@ impl StrippedNode {
         &self.absolute_gains
     }
 
-    pub fn local_gains(&self) -> &Option<Vec<f64>> {
-        &self.local_gains
+    pub fn local_gains(&self) -> Option<&Vec<f64>> {
+        self.local_gains.as_ref()
     }
 
     pub fn set_weights(&mut self, weights: Vec<f64>) {
@@ -927,7 +929,7 @@ impl StrippedNode {
         //
         // let dropout = v["dropout"];
         // let children = v["children"];
-        // let nfeature = v["nfeature"];
+        // let feature = v["feature"];
         // let split = v["split"];
         // let features = v["features"];
         // let samples = v["samples"];
@@ -941,7 +943,7 @@ impl StrippedNode {
         // let sn = StrippedNode {
         //     dropout,
         //     children,
-        //     nfeature,
+        //     feature,
         //     split,
         //     features,
         //     samples,
@@ -1013,7 +1015,7 @@ mod node_testing {
 
             children: vec![],
 
-            nfeature: None,
+            feature: None,
             split: None,
 
             features: vec![],

@@ -52,7 +52,7 @@ impl<T: Hash + Eq + Copy + Debug> Dirichlet<T> {
     pub fn log_odds(&self,key:&T) -> Option<f64> {
         let total = (self.samples + (self.categories.len() * self.a.get())) as f64;
         let key_count = self.categories.get(key).map(|kc| (kc + self.a.get()) as f64);
-        let odds = key_count.map(|kc| kc / total);
+        let odds = key_count.map(|kc| kc / (total-kc+1.));
         odds.map(|o| o.log2())
     }
 }

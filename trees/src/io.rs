@@ -485,19 +485,21 @@ impl Parameters {
 
         let processors = num_cpus::get();
 
-        let dropout: DropMode;
+        // let dropout: DropMode;
+        //
+        // if input_counts.iter().flat_map(|x| x).any(|x| x.is_nan()) || output_counts.iter().flat_map(|x| x).any(|x| x.is_nan()) {
+        //     dropout = DropMode::NaNs;
+        // }
+        // else if input_counts.iter().flat_map(|x| x.iter().map(|y| if *y == 0. {1.} else {0.})).sum::<f64>() > ((samples * input_features) as f64 / 4.) ||
+        //         output_counts.iter().flat_map(|x| x.iter().map(|y| if *y == 0. {1.} else {0.})).sum::<f64>() > ((samples * output_features) as f64 / 4.)
+        // {
+        //     dropout = DropMode::Zeros;
+        // }
+        // else {
+        //     dropout = DropMode::No;
+        // }
 
-        if input_counts.iter().flat_map(|x| x).any(|x| x.is_nan()) || output_counts.iter().flat_map(|x| x).any(|x| x.is_nan()) {
-            dropout = DropMode::NaNs;
-        }
-        else if input_counts.iter().flat_map(|x| x.iter().map(|y| if *y == 0. {1.} else {0.})).sum::<f64>() > ((samples * input_features) as f64 / 4.) ||
-                output_counts.iter().flat_map(|x| x.iter().map(|y| if *y == 0. {1.} else {0.})).sum::<f64>() > ((samples * output_features) as f64 / 4.)
-        {
-            dropout = DropMode::Zeros;
-        }
-        else {
-            dropout = DropMode::No;
-        }
+        let dropout = DropMode::No;
 
         let prediction_mode: PredictionMode;
 

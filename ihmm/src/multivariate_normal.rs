@@ -22,6 +22,7 @@ pub struct MVN {
     precision: Array<f64,Ix2>,
     cdet: f64,
     pdet: f64,
+    rank: f64,
     samples: u32,
 }
 
@@ -35,6 +36,7 @@ impl MVN {
             precision: Array::eye(features as usize),
             pdet: 0.,
             cdet: 0.,
+            rank: features as f64,
             samples: samples,
         }
     }
@@ -45,7 +47,7 @@ impl MVN {
         let mut covariance = Array::eye(f);
         covariance.diag_mut().assign(variances);
         let precision = covariance.inv().unwrap();
-        let (pseudo_precision,pdet) = pinv(&covariance.view()).unwrap();
+        let (pseudo_precision,pdet,rank) = pinv_pdet(&covariance.view()).unwrap();
         let cdet = covariance.sln_det().unwrap().1 * f64::log2(E);
 
 
@@ -56,6 +58,7 @@ impl MVN {
             pseudo_precision,
             pdet,
             cdet,
+            rank,
             samples,
         }
     }
@@ -83,6 +86,66 @@ impl MVN {
         Ok(prior)
     }
 
+    pub fn uninformed_estimate_masked(&mut self,data:&ArrayView<f64,Ix2>,mask:&ArrayView<bool,Ix2>) -> Result<&mut MVN,LinalgError> {
+
+        let (samples,features) = data.dim();
+
+        let feature_sums = data.sum_axis(Axis(0));
+        let float_mask = mask.map(|b| if *b {1.} else {0.});
+
+        let feature_populations = float_mask.sum_axis(Axis(0)) + 1.0;
+        let feature_means = feature_sums/feature_populations;
+
+        // eprintln!("Estimated means: {:?}", feature_means);
+        // eprintln!("Samples in estimate:{:?}",samples);
+
+        // eprintln!("Posterior means: {:?}", posterior_means);
+
+        let mut centered_data = data.to_owned();
+
+        for i in 0..samples {
+            let fm = feature_means.view();
+            let m = mask.row(i);
+            let mut c = centered_data.row_mut(i);
+            azip!(mut c,fm,m in {*c = if m {*c-fm} else {0.} });
+        }
+
+        // eprintln!("Centered data:{:?}",centered_data);
+
+        let mut outer_feature_sum: Array<f64,Ix2> = Array::zeros((features,features));
+
+        for (i,sample) in centered_data.axis_iter(Axis(0)).enumerate() {
+            outer_feature_sum += &outer_product(&sample, &sample);
+        }
+
+        let mut scale_factor: Array<f64,Ix2> = Array::ones((features,features));
+
+        for (i,sample) in float_mask.axis_iter(Axis(0)).enumerate() {
+            scale_factor += &outer_product(&sample, &sample);
+        }
+
+        scale_factor /= samples as f64;
+
+        let s = outer_feature_sum / scale_factor;
+
+        let mut covariance_estimate = &s / samples as f64;
+
+        let (mut precision_estimate,mut covariance_log_determinant, mut determinant_rank) = pinv_pdet(&covariance_estimate.view())?;
+
+        self.means = feature_means;
+        self.covariance = covariance_estimate;
+        self.precision = precision_estimate.clone();
+        self.pseudo_precision = precision_estimate.clone();
+        self.pdet = covariance_log_determinant;
+        self.cdet = covariance_log_determinant;
+        self.rank = determinant_rank;
+        self.samples = samples as u32;
+
+        Ok(self)
+
+    }
+
+
     pub fn estimate_masked(&mut self,data:&ArrayView<f64,Ix2>,mask:&ArrayView<bool,Ix2>) -> Result<&mut MVN,LinalgError> {
 
         let (samples,features) = data.dim();
@@ -94,6 +157,7 @@ impl MVN {
         let mut posterior_precision = Array::eye(features);
         let mut posterior_pseudo_precision = Array::eye(features);
         let mut posterior_pseudo_determinant = 1.;
+        let mut posterior_rank = 0.;
 
         let feature_populations = float_mask.sum_axis(Axis(0)) + 1.0;
         let feature_means = feature_sums/feature_populations;
@@ -155,22 +219,22 @@ impl MVN {
             posterior_covariance.assign(&mut (ln / inverse_wishart_scale));
             posterior_precision.assign(&mut posterior_covariance.inv()?);
 
-            let (mut p_i,mut p_d) = pinv(&posterior_covariance.view())?;
+            let (mut p_i,mut p_d, mut p_r) = pinv_pdet(&posterior_covariance.view())?;
 
             posterior_pseudo_determinant = p_d;
             posterior_pseudo_precision.assign(&mut p_i);
-
+            posterior_rank = p_r;
         }
 
 
         let (sign,ldet):(f64,f64) = posterior_covariance.sln_det()?;
 
-        if !(sign > 0.) {
-            eprintln!("{:?}", sign);
-            eprintln!("{:?}",ldet);
-            eprintln!("{:?}",posterior_covariance);
-            eprintln!("WARNING MATRIX MAY NOT BE POSITIVE DEFINITE");
-        }
+        // if !(sign > 0.) {
+        //     eprintln!("{:?}", sign);
+        //     eprintln!("{:?}",ldet);
+        //     eprintln!("{:?}",posterior_covariance);
+        //     eprintln!("WARNING MATRIX MAY NOT BE POSITIVE DEFINITE");
+        // }
 
         let cdet: f64 = ldet * f64::log2(E);
 
@@ -178,7 +242,9 @@ impl MVN {
         self.covariance = posterior_covariance;
         self.precision = posterior_precision;
         self.pseudo_precision = posterior_pseudo_precision;
+        self.pdet = posterior_pseudo_determinant;
         self.cdet = cdet;
+        self.rank = posterior_rank;
         self.samples = self.samples + samples as u32;
 
         Ok(self)
@@ -189,35 +255,46 @@ impl MVN {
 
         let centered_data = data - &self.means;
 
-        // -0.5 * (self.cdet + centered_data.dot(&self.precision).dot(&centered_data) + (self.dim().1 as f64 * f64::log2(2.*PI)))
 
-        -0.5 * (self.pdet + centered_data.dot(&self.pseudo_precision).dot(&centered_data) + (self.dim().1 as f64 * f64::log2(2.*PI)))
+        let pd = self.pdet;
+        let f = centered_data.dot(&self.pseudo_precision).dot(&centered_data);
+        let dn = self.rank * f64::log2(2.*PI);
+
+        -0.5 * (pd + f + dn)
+
+    }
+
+    pub fn unadjusted_log_likelihood(&self,data:&ArrayView<f64,Ix1>) -> f64 {
+
+        let centered_data = data - &self.means;
+
+        let f = centered_data.dot(&self.pseudo_precision).dot(&centered_data);
+
+        -0.5 * (f)
 
     }
 
     pub fn masked_likelihood(&self,data:&ArrayView<f64,Ix1>,mask:&ArrayView<bool,Ix1>) -> f64 {
-        // eprintln!("Deriving masked model");
         let masked_normal = self.derive_masked_MVN(mask);
-        // eprintln!("{:?}",masked_normal);
-        // eprintln!("{:?}",(data,mask));
         let masked_data = array_mask(data, mask);
-        // eprintln!("{:?}",masked_data.to_vec());
-        // eprintln!("Masked normal debug!");
-        // eprintln!("{:?}",masked_normal.means.to_vec());
-        // eprintln!("{:?}",masked_normal.covariance);
-        // eprintln!("{:?}",masked_normal.precision);
-        // eprintln!("Evaluating masked likelihood");
         let likelihood = masked_normal.log_likelihood(&masked_data.view());
-        // eprintln!("Likelihood: {:?}", likelihood);
         likelihood
     }
+
+    pub fn unadjusted_masked_likelihood(&self,data:&ArrayView<f64,Ix1>,mask:&ArrayView<bool,Ix1>) -> f64 {
+        let masked_normal = self.derive_masked_MVN(mask);
+        let masked_data = array_mask(data, mask);
+        let likelihood = masked_normal.unadjusted_log_likelihood(&masked_data.view());
+        likelihood
+    }
+
 
     pub fn derive_masked_MVN(&self,mask:&ArrayView<bool,Ix1>) -> MVN {
 
         let means = array_mask(&self.means.view(), mask);
         let covariance = array_double_mask(&self.covariance.view(), mask);
         let precision = covariance.inv().unwrap();
-        let (pseudo_precision,pdet) = pinv(&covariance.view()).unwrap();
+        let (pseudo_precision,pdet,rank) = pinv_pdet(&covariance.view()).unwrap();
         let cdet = covariance.sln_det().unwrap().1;
 
         let samples = means.dim() as u32;
@@ -229,6 +306,7 @@ impl MVN {
             pseudo_precision,
             pdet,
             cdet,
+            rank,
             samples,
         }
     }
@@ -239,6 +317,14 @@ impl MVN {
 
     pub fn means(&self) -> ArrayView<f64,Ix1> {
         self.means.view()
+    }
+
+    pub fn pdet(&self) -> &f64 {
+        &self.pdet
+    }
+
+    pub fn cdet(&self) -> &f64 {
+        &self.cdet
     }
 
     pub fn variances(&self) -> ArrayView<f64,Ix1> {
@@ -299,7 +385,7 @@ pub fn masked_array_properties(data:&ArrayView<f64,Ix2>,mask: &ArrayView<bool,Ix
 
 }
 
-pub fn pinv(mtx:&ArrayView<f64,Ix2>) -> Result<(Array<f64,Ix2>,f64),LinalgError> {
+pub fn pinv_pdet(mtx:&ArrayView<f64,Ix2>) -> Result<(Array<f64,Ix2>,f64,f64),LinalgError> {
     let (r,c) = mtx.dim();
     // eprintln!("Inverting:");
     // eprintln!("{:?}",mtx);
@@ -307,11 +393,12 @@ pub fn pinv(mtx:&ArrayView<f64,Ix2>) -> Result<(Array<f64,Ix2>,f64),LinalgError>
         // eprintln!("{:?},{:?},{:?}",u,sig,vt);
         let lower_bound = (EPSILON * 10.);
         let i_sig = sig.mapv(|v| if v > lower_bound {1./v} else {0.} );
+        let rank = sig.mapv(|v| if v > lower_bound {1.} else {0.}).sum();
         let pdet = sig.iter().fold(0.,|acc,sv| if *sv > lower_bound {acc + sv.log2()} else {acc});
         let mut t_sig = Array::zeros((c,r));
         t_sig.diag_mut().assign(&i_sig);
         let p_i = vt.t().dot(&t_sig).dot(&u.t());
-        Ok((p_i,pdet))
+        Ok((p_i,pdet,rank))
     }
     else {Err(LinalgError::Lapack{return_code:0})}
 
@@ -434,11 +521,11 @@ mod tree_braider_tests {
     #[test]
     fn test_pinv() {
         let a = array![[1.,2.,3.],[4.,5.,6.],[7.,8.,9.]];
-        eprintln!("{:?}",pinv(&a.view()));
+        eprintln!("{:?}",pinv_pdet(&a.view()));
         let b = array![[1.,0.,0.],[0.,1.,0.],[0.,0.,1.]];
-        eprintln!("{:?}",pinv(&b.view()));
+        eprintln!("{:?}",pinv_pdet(&b.view()));
         let c = array![[1.,0.],[0.,1.]];
-        eprintln!("{:?}",pinv(&c.view()));
+        eprintln!("{:?}",pinv_pdet(&c.view()));
         // panic!();
     }
 
