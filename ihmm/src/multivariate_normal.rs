@@ -17,13 +17,13 @@ use ndarray_linalg::svd::SVD;
 #[derive(Debug,Clone)]
 pub struct MVN {
     means: Array<f64,Ix1>,
+    variances: Array<f64,Ix1>,
     covariance: Array<f64,Ix2>,
     pseudo_precision: Array<f64,Ix2>,
-    precision: Array<f64,Ix2>,
-    cdet: f64,
     pdet: f64,
     rank: f64,
     samples: u32,
+    prior_strength: (Array<f64,Ix1>),
 }
 
 impl MVN {
@@ -31,35 +31,37 @@ impl MVN {
     pub fn identity_prior(samples:u32,features:u32) -> MVN {
         MVN {
             means: Array::zeros(features as usize),
+            variances: Array::ones(features as usize),
             covariance: Array::eye(features as usize),
             pseudo_precision: Array::eye(features as usize),
-            precision: Array::eye(features as usize),
             pdet: 0.,
-            cdet: 0.,
             rank: features as f64,
             samples: samples,
+            prior_strength: Array::from_vec(vec![samples as f64;features as usize]),
         }
     }
 
-    pub fn scaled_identity_prior(means:&ArrayView<f64,Ix1>,variances:&ArrayView<f64,Ix1>,samples:u32) -> MVN {
+    pub fn set_samples(&mut self,samples: usize) {
+        self.samples = samples as u32;
+        self.prior_strength = Array::from_vec(vec![samples as f64; self.prior_strength.len()]);
+    }
+
+    pub fn scaled_identity_prior(means:&ArrayView<f64,Ix1>,variances:&ArrayView<f64,Ix1>,prior_strength:&ArrayView<f64,Ix1>,samples:u32) -> MVN {
 
         let f = variances.dim();
         let mut covariance = Array::eye(f);
-        covariance.diag_mut().assign(variances);
-        let precision = covariance.inv().unwrap();
         let (pseudo_precision,pdet,rank) = pinv_pdet(&covariance.view()).unwrap();
-        let cdet = covariance.sln_det().unwrap().1 * f64::log2(E);
 
 
         MVN {
             means: means.to_owned(),
+            variances: variances.to_owned(),
             covariance,
-            precision,
             pseudo_precision,
             pdet,
-            cdet,
             rank,
             samples,
+            prior_strength: prior_strength.to_owned(),
         }
     }
 
@@ -70,12 +72,12 @@ impl MVN {
         // let prior_strength = std::cmp::max(rank_deficit,1) as u32;
         // let prior_strength = samples as u32;
         // let mut prior = MVN::identity_prior(prior_strength as u32, features as u32);
-        let (means,variances) = masked_array_properties(data, mask);
+        let (means,variances,strength) = masked_array_properties(data, mask);
 
         eprintln!("Estimating against scaled identity");
         eprintln!("mean:{:?},var:{:?}",means,variances);
 
-        let mut prior = MVN::scaled_identity_prior(&means.view(), &variances.view(), prior_strength);
+        let mut prior = MVN::scaled_identity_prior(&means.view(), &variances.view(), &strength.view(), samples as u32);
 
         // eprintln!("{:?}",prior);
 
@@ -90,31 +92,13 @@ impl MVN {
 
         let (samples,features) = data.dim();
 
-        let feature_sums = data.sum_axis(Axis(0));
+        let (scaled,feature_means,variances,prior_strength) = scale(data,mask);
+
         let float_mask = mask.map(|b| if *b {1.} else {0.});
-
-        let feature_populations = float_mask.sum_axis(Axis(0)) + 1.0;
-        let feature_means = feature_sums/feature_populations;
-
-        // eprintln!("Estimated means: {:?}", feature_means);
-        // eprintln!("Samples in estimate:{:?}",samples);
-
-        // eprintln!("Posterior means: {:?}", posterior_means);
-
-        let mut centered_data = data.to_owned();
-
-        for i in 0..samples {
-            let fm = feature_means.view();
-            let m = mask.row(i);
-            let mut c = centered_data.row_mut(i);
-            azip!(mut c,fm,m in {*c = if m {*c-fm} else {0.} });
-        }
-
-        // eprintln!("Centered data:{:?}",centered_data);
 
         let mut outer_feature_sum: Array<f64,Ix2> = Array::zeros((features,features));
 
-        for (i,sample) in centered_data.axis_iter(Axis(0)).enumerate() {
+        for (i,sample) in scaled.axis_iter(Axis(0)).enumerate() {
             outer_feature_sum += &outer_product(&sample, &sample);
         }
 
@@ -133,13 +117,16 @@ impl MVN {
         let (mut precision_estimate,mut covariance_log_determinant, mut determinant_rank) = pinv_pdet(&covariance_estimate.view())?;
 
         self.means = feature_means;
+        self.variances = variances;
         self.covariance = covariance_estimate;
-        self.precision = precision_estimate.clone();
-        self.pseudo_precision = precision_estimate.clone();
+        self.pseudo_precision = precision_estimate;
         self.pdet = covariance_log_determinant;
-        self.cdet = covariance_log_determinant;
         self.rank = determinant_rank;
         self.samples = samples as u32;
+        self.prior_strength = prior_strength;
+
+        // eprintln!("Uninformed estimate");
+        // eprintln!("{:?}",self);
 
         Ok(self)
 
@@ -149,40 +136,29 @@ impl MVN {
     pub fn estimate_masked(&mut self,data:&ArrayView<f64,Ix2>,mask:&ArrayView<bool,Ix2>) -> Result<&mut MVN,LinalgError> {
 
         let (samples,features) = data.dim();
-
-        let feature_sums = data.sum_axis(Axis(0));
+        let (scaled,sample_means,sample_variances,prior_strength) = scale(data,mask);
         let float_mask = mask.map(|b| if *b {1.} else {0.});
 
         let mut posterior_covariance = Array::eye(features);
-        let mut posterior_precision = Array::eye(features);
         let mut posterior_pseudo_precision = Array::eye(features);
         let mut posterior_pseudo_determinant = 1.;
         let mut posterior_rank = 0.;
 
-        let feature_populations = float_mask.sum_axis(Axis(0)) + 1.0;
-        let feature_means = feature_sums/feature_populations;
-
-        // eprintln!("Estimated means: {:?}", feature_means);
+        eprintln!("====================");
+        eprintln!("Estimated means: {:?}", sample_means);
         // eprintln!("Samples in estimate:{:?}",samples);
 
-        let posterior_means = ((&self.means * self.samples as f64) + (&feature_means * samples as f64)) / (self.samples as usize + samples) as f64;
-
+        let posterior_means = ((&self.means * &self.prior_strength) + (&sample_means * &prior_strength)) / (&self.prior_strength + &prior_strength);
+        let posterior_variances = ((&self.variances * &self.prior_strength) + (&sample_variances * &prior_strength)) / (&self.prior_strength + &prior_strength);
         // eprintln!("Posterior means: {:?}", posterior_means);
 
-        let mut centered_data = data.to_owned();
+        eprintln!("====================");
+        eprintln!("Posterior means: {:?}", posterior_means);
 
-        for i in 0..samples {
-            let fm = feature_means.view();
-            let m = mask.row(i);
-            let mut c = centered_data.row_mut(i);
-            azip!(mut c,fm,m in {*c = if m {*c-fm} else {0.} });
-        }
-
-        // eprintln!("Centered data:{:?}",centered_data);
 
         let mut outer_feature_sum: Array<f64,Ix2> = Array::zeros((features,features));
 
-        for (i,sample) in centered_data.axis_iter(Axis(0)).enumerate() {
+        for (i,sample) in scaled.axis_iter(Axis(0)).enumerate() {
             outer_feature_sum += &outer_product(&sample, &sample);
         }
 
@@ -196,7 +172,7 @@ impl MVN {
 
         let s = outer_feature_sum / scale_factor;
 
-        let mut covariance_estimate = &s / samples as f64;
+        let mut covariance_estimate = &s / (samples + 1) as f64;
 
         // eprintln!("Covariance estimate: {:?}", covariance_estimate);
 
@@ -204,20 +180,21 @@ impl MVN {
 
             let lo = &self.covariance * self.samples as f64;
 
-            let prior_mean_delta = &feature_means - &self.means;
+            let prior_mean_delta = &sample_means - &self.means;
             let mean_delta_outer = outer_product(&prior_mean_delta.view(),&prior_mean_delta.view());
 
-            let mean_delta_scale = ((self.samples as usize * samples) / (self.samples as usize + samples)) as f64;
+            let mean_delta_scale = (((self.samples + 1) as usize * (samples + 1)) / (self.samples as usize + samples + 1)) as f64;
 
             // let mut ln = lo + &s + &(mean_delta_scale * mean_delta_outer);
             let mut ln = &lo + &s + &(mean_delta_scale * mean_delta_outer);
 
-            let inverse_wishart_scale = (self.samples as usize + samples - features - 1) as f64;
+            // let inverse_wishart_scale = std::cmp::max((self.samples as usize + samples - features - 1),1) as f64;
+            let inverse_wishart_scale = (self.samples as usize + samples) as f64;
+
 
             // eprintln!("Inverse wishart scale: {:?}",inverse_wishart_scale);
 
             posterior_covariance.assign(&mut (ln / inverse_wishart_scale));
-            posterior_precision.assign(&mut posterior_covariance.inv()?);
 
             let (mut p_i,mut p_d, mut p_r) = pinv_pdet(&posterior_covariance.view())?;
 
@@ -226,26 +203,14 @@ impl MVN {
             posterior_rank = p_r;
         }
 
-
-        let (sign,ldet):(f64,f64) = posterior_covariance.sln_det()?;
-
-        // if !(sign > 0.) {
-        //     eprintln!("{:?}", sign);
-        //     eprintln!("{:?}",ldet);
-        //     eprintln!("{:?}",posterior_covariance);
-        //     eprintln!("WARNING MATRIX MAY NOT BE POSITIVE DEFINITE");
-        // }
-
-        let cdet: f64 = ldet * f64::log2(E);
-
         self.means = posterior_means;
+        self.variances = posterior_variances;
         self.covariance = posterior_covariance;
-        self.precision = posterior_precision;
         self.pseudo_precision = posterior_pseudo_precision;
         self.pdet = posterior_pseudo_determinant;
-        self.cdet = cdet;
         self.rank = posterior_rank;
         self.samples = self.samples + samples as u32;
+        self.prior_strength = &self.prior_strength + &prior_strength;
 
         Ok(self)
 
@@ -253,12 +218,23 @@ impl MVN {
 
     pub fn log_likelihood(&self,data:&ArrayView<f64,Ix1>) -> f64 {
 
-        let centered_data = data - &self.means;
 
+        let centered_data = (data - &self.means);
+
+        let scaled_data: Array<f64,Ix1> = centered_data.iter().zip(&self.variances).map(|(cd,v)| if *v > 0. {cd/(v.sqrt())} else {0.}).collect();
 
         let pd = self.pdet;
-        let f = centered_data.dot(&self.pseudo_precision).dot(&centered_data);
+        let f = scaled_data.dot(&self.pseudo_precision).dot(&scaled_data);
         let dn = self.rank * f64::log2(2.*PI);
+
+        // eprintln!("D:{:?}",data);
+        // eprintln!("M:{:?}",self.means);
+        // eprintln!("V:{:?}",self.variances);
+        //
+        // eprintln!("S:{:?}",scaled_data);
+        // eprintln!("P:{:?}",self.pseudo_precision);
+        //
+        // eprintln!("PD,F,DN:{},{},{}",pd,f,dn);
 
         -0.5 * (pd + f + dn)
 
@@ -266,9 +242,11 @@ impl MVN {
 
     pub fn unadjusted_log_likelihood(&self,data:&ArrayView<f64,Ix1>) -> f64 {
 
-        let centered_data = data - &self.means;
+        let centered_data = (data - &self.means);
 
-        let f = centered_data.dot(&self.pseudo_precision).dot(&centered_data);
+        let scaled_data: Array<f64,Ix1> = centered_data.iter().zip(&self.variances).map(|(cd,v)| if *v > 0. {cd/(v.sqrt())} else {0.}).collect();
+
+        let f = scaled_data.dot(&self.pseudo_precision).dot(&scaled_data);
 
         -0.5 * (f)
 
@@ -292,22 +270,23 @@ impl MVN {
     pub fn derive_masked_MVN(&self,mask:&ArrayView<bool,Ix1>) -> MVN {
 
         let means = array_mask(&self.means.view(), mask);
+        let variances = array_mask(&self.variances.view(), mask);
         let covariance = array_double_mask(&self.covariance.view(), mask);
-        let precision = covariance.inv().unwrap();
+        let prior_strength = array_mask(&self.prior_strength.view(), mask);
         let (pseudo_precision,pdet,rank) = pinv_pdet(&covariance.view()).unwrap();
-        let cdet = covariance.sln_det().unwrap().1;
+
 
         let samples = means.dim() as u32;
 
         MVN{
             means,
+            variances,
             covariance,
-            precision,
             pseudo_precision,
             pdet,
-            cdet,
             rank,
             samples,
+            prior_strength,
         }
     }
 
@@ -323,12 +302,8 @@ impl MVN {
         &self.pdet
     }
 
-    pub fn cdet(&self) -> &f64 {
-        &self.cdet
-    }
-
     pub fn variances(&self) -> ArrayView<f64,Ix1> {
-        self.covariance.diag()
+        self.variances.diag()
     }
 
 }
@@ -369,7 +344,8 @@ pub fn array_double_select<T:Copy>(data:&ArrayView<T,Ix2>,mask:&[usize]) -> Arra
     double_selected
 }
 
-pub fn masked_array_properties(data:&ArrayView<f64,Ix2>,mask: &ArrayView<bool,Ix2>) -> (Array<f64,Ix1>,Array<f64,Ix1>) {
+
+pub fn masked_array_properties(data:&ArrayView<f64,Ix2>,mask: &ArrayView<bool,Ix2>) -> (Array<f64,Ix1>,Array<f64,Ix1>,Array<f64,Ix1>) {
 
     let feature_sums = data.sum_axis(Axis(0));
     let float_mask = mask.map(|b| if *b {1.} else {0.});
@@ -381,9 +357,10 @@ pub fn masked_array_properties(data:&ArrayView<f64,Ix2>,mask: &ArrayView<bool,Ix
 
     let variances = (&feature_square_sums / &feature_populations) - &feature_means.mapv(|x| x.powi(2));
 
-    (feature_means,variances)
+    (feature_means,variances,feature_populations)
 
 }
+
 
 pub fn pinv_pdet(mtx:&ArrayView<f64,Ix2>) -> Result<(Array<f64,Ix2>,f64,f64),LinalgError> {
     let (r,c) = mtx.dim();
@@ -391,10 +368,17 @@ pub fn pinv_pdet(mtx:&ArrayView<f64,Ix2>) -> Result<(Array<f64,Ix2>,f64,f64),Lin
     // eprintln!("{:?}",mtx);
     if let (Some(u),sig,Some(vt)) = mtx.svd(true,true)? {
         // eprintln!("{:?},{:?},{:?}",u,sig,vt);
-        let lower_bound = (EPSILON * 10.);
+        let lower_bound = (EPSILON * 1000000.);
         let i_sig = sig.mapv(|v| if v > lower_bound {1./v} else {0.} );
+        // let i_sig = sig.mapv(|v| (-(v+1.).log2()).exp2());
+        // let i_sig = sig.mapv(|v| (1./(1.+v)));
         let rank = sig.mapv(|v| if v > lower_bound {1.} else {0.}).sum();
-        let pdet = sig.iter().fold(0.,|acc,sv| if *sv > lower_bound {acc + sv.log2()} else {acc});
+        let l_sig = sig.mapv(|v| if v > lower_bound {v.log2()} else {0.});
+        // let l_sig = sig.mapv(|v| (v+1.).log2());
+        // eprintln!("IS:{:?}",i_sig);
+        // eprintln!("{:?}",l_sig);
+        let pdet = l_sig.iter().sum();
+        // let pdet = sig.iter().fold(0.,|acc,sv| if *sv > lower_bound {acc + sv.log2()} else {acc});
         let mut t_sig = Array::zeros((c,r));
         t_sig.diag_mut().assign(&i_sig);
         let p_i = vt.t().dot(&t_sig).dot(&u.t());
@@ -403,6 +387,27 @@ pub fn pinv_pdet(mtx:&ArrayView<f64,Ix2>) -> Result<(Array<f64,Ix2>,f64,f64),Lin
     else {Err(LinalgError::Lapack{return_code:0})}
 
 }
+
+pub fn scale(data:&ArrayView<f64,Ix2>,mask:&ArrayView<bool,Ix2>) -> (Array<f64,Ix2>,Array<f64,Ix1>,Array<f64,Ix1>,Array<f64,Ix1>) {
+    let (means,variances,prior_strength) = masked_array_properties(data, mask);
+    let mut scaled = data.to_owned();
+    for (mut row,row_mask) in scaled.axis_iter_mut(Axis(0)).zip(mask.axis_iter(Axis(0))) {
+        for ((element,element_mask),(mean,variance)) in row.iter_mut().zip(row_mask.iter()).zip(means.iter().zip(variances.iter())) {
+            if *element_mask {
+                *element = *element - mean;
+                if *variance > 0. {
+                    *element /= variance.sqrt();
+                }
+                else {
+                    *element = 0.
+                }
+            }
+        }
+    }
+    return (scaled,means,variances,prior_strength);
+}
+
+
 
 // pub fn array_mask_row<T: Copy + num_traits::Zero>(data:&ArrayView<T,Ix2>,mask:&ArrayView<bool,Ix1>) -> Array<T,Ix2> {
 //     let d: usize = mask.mapv(|b| if b {1_u32} else {0_u32}).into_iter().sum::<u32>() as usize;
@@ -444,8 +449,13 @@ mod tree_braider_tests {
     // extern crate netlib_src;
 
     use super::*;
+    use crate::read_matrix;
     use crate::MarkovNode;
     use crate::tree_braider_tests::iris_forest;
+
+    pub fn iris_matrix() -> Array<f64,Ix2> {
+        read_matrix("../testing/iris.trunc").unwrap()
+    }
 
     #[test]
     fn test_mvn_array_mask() {
@@ -483,8 +493,8 @@ mod tree_braider_tests {
         normal.estimate_masked(&data.view(), &mask.view());
         eprintln!("{:?}",normal.means);
         eprintln!("{:?}",normal.covariance);
-        eprintln!("{:?}",normal.precision);
-        eprintln!("{:?}",normal.cdet);
+        eprintln!("{:?}",normal.pseudo_precision);
+        eprintln!("{:?}",normal.pdet);
         // panic!();
     }
 
@@ -495,8 +505,8 @@ mod tree_braider_tests {
         let normal = MVN::estimate_against_identity(&data.view(), &mask.view(), None).unwrap();
         eprintln!("{:?}",normal.means);
         eprintln!("{:?}",normal.covariance);
-        eprintln!("{:?}",normal.precision);
-        eprintln!("{:?}",normal.cdet);
+        eprintln!("{:?}",normal.pseudo_precision);
+        eprintln!("{:?}",normal.pdet);
         // panic!();
     }
 
@@ -514,12 +524,12 @@ mod tree_braider_tests {
         let normal = MVN::estimate_against_identity(&data.view(), &mask.view(), None).unwrap();
         eprintln!("{:?}",data.axis_iter(Axis(0)).zip(mask.axis_iter(Axis(0))).map(|(d,m)| normal.masked_likelihood(&d, &m)).collect::<Vec<f64>>());
         eprintln!("{:?}",normal.means);
-        eprintln!("{:?}",normal.cdet);
+        eprintln!("{:?}",normal.pdet);
         eprintln!("{:?}",normal.covariance);
     }
 
     #[test]
-    fn test_pinv() {
+    fn test_mvn_pinv() {
         let a = array![[1.,2.,3.],[4.,5.,6.],[7.,8.,9.]];
         eprintln!("{:?}",pinv_pdet(&a.view()));
         let b = array![[1.,0.,0.],[0.,1.,0.],[0.,0.,1.]];
@@ -528,5 +538,13 @@ mod tree_braider_tests {
         eprintln!("{:?}",pinv_pdet(&c.view()));
         // panic!();
     }
+
+    #[test]
+    fn test_mvn_scale() {
+        let iris = iris_matrix();
+        let mask = Array::from_shape_fn((150,4),|_| true);
+        eprintln!("{:?}",scale(&iris.view(), &mask.view()));
+    }
+
 
 }

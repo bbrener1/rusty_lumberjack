@@ -9,6 +9,8 @@ edition = "2018"
 serde_json = "1.0"
 rand = "0.6"
 
+rayon = "1.0"
+
 trees = {path = "../trees"}
 
 ndarray = "0.12"
