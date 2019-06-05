@@ -163,9 +163,9 @@ impl IHMM {
         let mut adjusted_feature_log_odds: Vec<f64> = self.hidden_states.iter().map(|s| s.feature_log_odds(&features,&mask)).collect();
         // let mut feature_log_odds: Vec<f64> = self.hidden_states.iter().map(|s| s.unadjusted_feature_log_odds(&features,&mask)).collect();
         // feature_log_odds = feature_log_odds.iter().map(|o| o * 2.).collect();
-        let mut mixture_log_odds: Vec<f64> = self.hidden_states.iter().map(|s| 0.).collect();
+        // let mut mixture_log_odds: Vec<f64> = self.hidden_states.iter().map(|s| 0.).collect();
         // let mut mixture_log_odds: Vec<f64> = self.hidden_states.iter().map(|s| s.mixture_log_odds(parent_state)).collect();
-        // let mut mixture_log_odds: Vec<f64> = self.hidden_states.iter().map(|s| s.mixture_log_odds(cls) + s.mixture_log_odds(crs)).collect();
+        let mut mixture_log_odds: Vec<f64> = self.hidden_states.iter().map(|s| s.mixture_log_odds(cls) + s.mixture_log_odds(crs)).collect();
         let mut log_odds: Vec<f64> = adjusted_feature_log_odds.iter().zip(mixture_log_odds.iter()).map(|(f,m)| f+m).collect();
         let log_max: f64 = log_odds.iter().fold(std::f64::NEG_INFINITY,|acc,o| f64::max(acc,*o));
         log_odds = log_odds.iter().map(|o| o - log_max).collect();
@@ -580,7 +580,7 @@ pub mod tree_braider_tests {
     fn test_markov_multipart() {
         let mut model = iris_model();
         // let mut model = gene_model();
-        model.initialize(30);
+        model.initialize(10);
         for state in &model.hidden_states {
             eprintln!("Population: {:?}",state.nodes.len());
             eprintln!("MEANS");
@@ -589,7 +589,7 @@ pub mod tree_braider_tests {
             eprintln!("{:?}",state.emission_model.pdet());
         }
         model.repartition_hidden_states();
-        for i in 0..1000 {
+        for i in 0..100000 {
             eprintln!("###############################");
             eprintln!("###############################");
             eprintln!("############   {:?}   #############",i);
