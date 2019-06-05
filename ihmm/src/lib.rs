@@ -87,7 +87,7 @@ impl HiddenState {
     }
 
     fn feature_log_odds(&self,data:&ArrayView<f64,Ix1>,mask:&ArrayView<bool,Ix1>) -> f64 {
-        self.emission_model.masked_likelihood(data, mask)
+        self.emission_model.masked_odds(data, mask)
     }
 
     fn unadjusted_feature_log_odds(&self,data:&ArrayView<f64,Ix1>,mask:&ArrayView<bool,Ix1>) -> f64 {

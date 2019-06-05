@@ -50,7 +50,7 @@ impl<T: Hash + Eq + Copy + Debug> Dirichlet<T> {
         let total = (samples + (categories.len() * dispersion.get())) as f64;
 
         for (key,key_count) in categories.iter() {
-            let odds = (key_count + dispersion.get()) as f64 / (key_count+1) as f64;
+            let odds = (key_count + dispersion.get()) as f64 / (total+1.);
             log_odds.insert(*key, odds.log2());
         }
 

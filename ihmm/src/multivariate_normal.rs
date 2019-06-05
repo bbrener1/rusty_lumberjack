@@ -216,7 +216,7 @@ impl MVN {
 
     }
 
-    pub fn log_likelihood(&self,data:&ArrayView<f64,Ix1>) -> f64 {
+    pub fn log_odds(&self,data:&ArrayView<f64,Ix1>) -> f64 {
 
 
         let centered_data = (data - &self.means);
@@ -236,7 +236,9 @@ impl MVN {
         //
         // eprintln!("PD,F,DN:{},{},{}",pd,f,dn);
 
-        -0.5 * (pd + f + dn)
+        let log_likelihood = -0.5 * (pd + f + dn);
+
+        log_likelihood - ((1. - log_likelihood.exp2()).log2())
 
     }
 
@@ -253,10 +255,10 @@ impl MVN {
     }
 
 
-    pub fn masked_likelihood(&self,data:&ArrayView<f64,Ix1>,mask:&ArrayView<bool,Ix1>) -> f64 {
+    pub fn masked_odds(&self,data:&ArrayView<f64,Ix1>,mask:&ArrayView<bool,Ix1>) -> f64 {
         let masked_normal = self.derive_masked_MVN(mask);
         let masked_data = array_mask(data, mask);
-        let likelihood = masked_normal.log_likelihood(&masked_data.view());
+        let likelihood = masked_normal.log_odds(&masked_data.view());
         likelihood
     }
 
@@ -524,7 +526,7 @@ mod tree_braider_tests {
         let nodes = iris_forest();
         let (data,mask) = MarkovNode::encode(&nodes);
         let normal = MVN::estimate_against_identity(&data.view(), &mask.view(), None).unwrap();
-        eprintln!("{:?}",data.axis_iter(Axis(0)).zip(mask.axis_iter(Axis(0))).map(|(d,m)| normal.masked_likelihood(&d, &m)).collect::<Vec<f64>>());
+        eprintln!("{:?}",data.axis_iter(Axis(0)).zip(mask.axis_iter(Axis(0))).map(|(d,m)| normal.masked_odds(&d, &m)).collect::<Vec<f64>>());
         eprintln!("{:?}",normal.means);
         eprintln!("{:?}",normal.pdet);
         eprintln!("{:?}",normal.covariance);
