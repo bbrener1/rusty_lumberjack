@@ -447,6 +447,7 @@ mod tree_braider_tests {
     // extern crate intel_mkl_src;
     // extern crate openblas_src;
     // extern crate netlib_src;
+    extern crate blas_src;
 
     use super::*;
     use crate::read_matrix;

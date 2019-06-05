@@ -19,6 +19,7 @@ trees = {path = "./trees"}
 
 ndarray = "0.12"
 ndarray-linalg = { version = "0.10" }
+blas-src = { version = "0.2", features = ["intel-mkl"]}
 # ndarray-linalg = { version = "0.10" }
 # openblas-src = { version = "0.7.0", feature=['static']}
 
