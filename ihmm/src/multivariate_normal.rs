@@ -252,6 +252,7 @@ impl MVN {
 
     }
 
+
     pub fn masked_likelihood(&self,data:&ArrayView<f64,Ix1>,mask:&ArrayView<bool,Ix1>) -> f64 {
         let masked_normal = self.derive_masked_MVN(mask);
         let masked_data = array_mask(data, mask);

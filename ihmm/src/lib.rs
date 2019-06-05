@@ -175,7 +175,7 @@ impl IHMM {
             let mut unadjusted_feature_log_odds: Vec<f64> = self.hidden_states.iter().map(|s| s.unadjusted_feature_log_odds(&features,&mask)).collect();
             eprintln!("FU:{:?}",unadjusted_feature_log_odds);
             eprintln!("FA:{:?}",adjusted_feature_log_odds);
-            // eprintln!("M:{:?}",mixture_log_odds);
+            eprintln!("M:{:?}",mixture_log_odds);
             eprintln!("L:{:?}",log_odds);
         }
         assert!(log_max.is_finite());
@@ -578,8 +578,8 @@ pub mod tree_braider_tests {
 
     #[test]
     fn test_markov_multipart() {
-        let mut model = iris_model();
-        // let mut model = gene_model();
+        // let mut model = iris_model();
+        let mut model = gene_model();
         model.initialize(10);
         for state in &model.hidden_states {
             eprintln!("Population: {:?}",state.nodes.len());

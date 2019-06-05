@@ -22,6 +22,7 @@ use ndarray_linalg::solveh::{InverseH,DeterminantH};
 #[derive(Debug,Clone)]
 pub struct Dirichlet<T: Hash + Eq + Copy + Debug> {
     categories: HashMap<T,usize>,
+    log_odds: HashMap<T,f64>,
     a: NonZeroUsize,
     samples: usize,
 }
@@ -31,6 +32,7 @@ impl<T: Hash + Eq + Copy + Debug> Dirichlet<T> {
     pub fn blank(dispersion:NonZeroUsize) -> Dirichlet<T> {
         Dirichlet {
             categories: HashMap::new(),
+            log_odds: HashMap::new(),
             a: dispersion,
             samples: 0
         }
@@ -42,18 +44,28 @@ impl<T: Hash + Eq + Copy + Debug> Dirichlet<T> {
             *categories.entry(*element).or_insert(0) += 1;
         }
         let samples = elements.len();
+
+        let mut log_odds = HashMap::new();
+
+        let total = (samples + (categories.len() * dispersion.get())) as f64;
+
+        for (key,key_count) in categories.iter() {
+            let odds = (key_count + dispersion.get()) as f64 / (key_count+1) as f64;
+            log_odds.insert(*key, odds.log2());
+        }
+
         Dirichlet {
             categories,
+            log_odds,
             a: dispersion,
             samples,
         }
+
+
     }
 
     pub fn log_odds(&self,key:&T) -> Option<f64> {
-        let total = (self.samples + (self.categories.len() * self.a.get())) as f64;
-        let key_count = self.categories.get(key).map(|kc| (kc + self.a.get()) as f64);
-        let odds = key_count.map(|kc| kc / (total-kc+1.));
-        odds.map(|o| o.log2())
+        self.log_odds.get(key).map(|v| *v)
     }
 }
 
