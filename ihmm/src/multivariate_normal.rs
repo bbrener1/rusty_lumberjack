@@ -444,7 +444,7 @@ pub fn scale(data:&ArrayView<f64,Ix2>,mask:&ArrayView<bool,Ix2>) -> (Array<f64,I
 #[cfg(test)]
 mod tree_braider_tests {
 
-    extern crate intel_mkl_src;
+    // extern crate intel_mkl_src;
     // extern crate openblas_src;
     // extern crate netlib_src;
 
