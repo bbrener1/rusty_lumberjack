@@ -384,8 +384,8 @@ pub fn pinv_pdet(mtx:&ArrayView<f64,Ix2>) -> Result<(Array<f64,Ix2>,f64,f64),Lin
         let p_i = vt.t().dot(&t_sig).dot(&u.t());
         Ok((p_i,pdet,rank))
     }
+    // else {Err(LinalgError::from(LapackError::new(0)))}
     else {Err(LinalgError::Lapack{return_code:0})}
-
 }
 
 pub fn scale(data:&ArrayView<f64,Ix2>,mask:&ArrayView<bool,Ix2>) -> (Array<f64,Ix2>,Array<f64,Ix1>,Array<f64,Ix1>,Array<f64,Ix1>) {
