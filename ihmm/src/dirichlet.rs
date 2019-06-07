@@ -62,7 +62,6 @@ impl<T: Hash + Eq + Copy + Debug> SymmetricDirichlet<T> {
         }
     }
 
-
     pub fn estimate(&mut self, elements:&[T]) -> &mut SymmetricDirichlet<T> {
         for element in elements {
             *self.categories.entry(*element).or_insert(0) += 1;
@@ -148,6 +147,10 @@ impl<T: Hash + Eq + Copy + Debug> SymmetricDirichlet<T> {
 
     pub fn probability(&self,key:&T) -> Option<f64> {
         self.categories.get(key).map(|&v| v as f64 / self.total() as f64)
+    }
+
+    pub fn oracle_odds(&self) -> f64 {
+        self.a.get() as f64 / self.total() as f64
     }
 
     pub fn total(&self) -> usize {
