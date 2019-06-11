@@ -61,6 +61,7 @@ use dirichlet::{SymmetricDirichlet,Categorical};
 
 pub struct MarkovNode {
     index: usize,
+    oracle: bool,
     hidden_state: Option<usize>,
     parent: Option<usize>,
     children: Option<(usize,usize)>,
@@ -79,10 +80,12 @@ struct HiddenState {
 
 impl HiddenState {
 
-    fn blank(features:usize) -> HiddenState {
+    fn blank(features:usize,states:usize) -> HiddenState {
         let emission_model = MVN::identity_prior(1, features as u32);
-        let direct_transition_model = SymmetricDirichlet::blank(NonZeroUsize::new(1).unwrap());
-        let oracle_transition_model = SymmetricDirichlet::blank(NonZeroUsize::new(1).unwrap());
+        let mut potential_states = vec![None];
+        potential_states.extend((0..states).map(|i| Some(i)));
+        let direct_transition_model = SymmetricDirichlet::blank_categories(&potential_states, NonZeroUsize::new(1).unwrap());
+        let oracle_transition_model = SymmetricDirichlet::blank_categories(&potential_states, NonZeroUsize::new(1).unwrap());
         let nodes = vec![];
         HiddenState{
             nodes,
@@ -93,14 +96,14 @@ impl HiddenState {
     }
 
     fn feature_log_odds(&self,data:&ArrayView<f64,Ix1>,mask:&ArrayView<bool,Ix1>) -> f64 {
-        self.emission_model.masked_odds(data, mask)
+        self.emission_model.masked_likelihood(data, mask)
     }
 
     fn mixture_log_odds(&self,state:Option<usize>) -> f64 {
         let dto = self.direct_transition_odds(state);
         let oo = self.oracle_odds();
         let oto = self.oracle_transition_odds(state);
-        (dto * oo * oto).log2()
+        (dto + (oo * oto)).log2()
     }
 
     fn oracle_odds(&self) -> f64 {
@@ -112,18 +115,28 @@ impl HiddenState {
     }
 
     fn direct_transition_odds(&self,state:Option<usize>) -> f64 {
-        self.direct_transition_model.log_odds(&state).unwrap_or(1.)
+        self.direct_transition_model.odds(&state).unwrap_or(0.)
     }
 
-    fn sample_oracle_transitions(&self, state:Option<usize>,transitions:usize) -> (usize,usize) {
+    fn oracle_transition_probability(&self, state:Option<usize>) -> f64 {
         let oracle_odds = self.oracle_odds();
         let direct_transition_odds = self.direct_transition_odds(state);
         let oracle_transition_odds = self.oracle_transition_odds(state);
+
+        // eprintln!("Oracle Sampling Debug");
+        // eprintln!("{:?}",state);
+        // eprintln!("{:?}",self);
+        // eprintln!("{:?}",oracle_odds);
+        // eprintln!("{:?}",direct_transition_odds);
+        // eprintln!("{:?}",oracle_transition_odds);
+
         let oracle_transition_probability = (oracle_odds * oracle_transition_odds) / ((oracle_odds * oracle_transition_odds) + direct_transition_odds);
-        let oracle_transitions = Binomial::new(transitions as u64,oracle_transition_probability).sample(&mut thread_rng()) as usize;
-        let direct_transitions = transitions - oracle_transitions;
-        (direct_transitions,oracle_transitions)
+
+        // eprintln!("{:?}",oracle_transition_probability);
+
+        return oracle_transition_probability
     }
+
 
     fn set_emission_model(&mut self, model:MVN) {
         self.emission_model = model;
@@ -145,8 +158,8 @@ pub struct IHMM {
     beta: NonZeroUsize,
     gamma: NonZeroUsize,
     beta_e: f64,
-    prior_emission_model: MVN,
     oracle_transition_model: SymmetricDirichlet<Option<usize>>,
+    prior_emission_model: MVN,
     hidden_states: Vec<HiddenState>,
 }
 
@@ -173,16 +186,20 @@ impl IHMM {
         eprintln!("Initializing");
         let features = self.encoding.0.dim().1;
         for _ in 0..states {
-            self.hidden_states.push(HiddenState::blank(features));
+            self.hidden_states.push(HiddenState::blank(features,states));
         }
         eprintln!("Estimating prior");
         self.prior_emission_model = self.estimate_prior_features();
         for ni in self.live_indices() {
             self.nodes[ni].hidden_state = Some(thread_rng().gen_range(0,states));
+            self.nodes[ni].oracle = rand::random::<f64>() < (1./(states as f64));
         }
+        self.oracle_transition_model = SymmetricDirichlet::blank_categories(&self.current_states(), self.gamma);
+        self.estimate_states();
     }
 
     fn sample_node_state(&self, node_index: usize) -> Option<usize> {
+
         let (features,mask) = self.node_encoding(node_index);
         let node = &self.nodes[node_index];
         // let parent_state = self.nodes[node.parent?].hidden_state;
@@ -202,28 +219,39 @@ impl IHMM {
         }
         eprint!("]\n");
 
-        let new_state_log_odds = {
-            let new_state_feature_log_odds = self.new_state_feature_log_odds(&features, &mask);
-            let new_state_mixture_log_odds = self.new_state_mixture_log_odds(cls) + self.new_state_mixture_log_odds(crs);
-            new_state_feature_log_odds + new_state_mixture_log_odds
-        };
+        // let new_state_log_odds = {
+        //     let new_state_feature_log_odds = self.new_state_feature_log_odds(&features, &mask);
+        //     let new_state_mixture_log_odds = self.new_state_mixture_log_odds(cls) + self.new_state_mixture_log_odds(crs);
+        //     new_state_feature_log_odds + new_state_mixture_log_odds
+        // };
 
-        state_log_odds.push(new_state_log_odds);
+        // state_log_odds.push(new_state_log_odds);
 
         let log_max: f64 = state_log_odds.iter().fold(std::f64::NEG_INFINITY,|acc,o| f64::max(acc,*o));
         state_log_odds = state_log_odds.iter().map(|o| o - log_max).collect();
-        state_log_odds = state_log_odds.iter().map(|o| o * 0.3).collect();
+        // state_log_odds = state_log_odds.iter().map(|o| o * 0.3).collect();
         assert!(log_max.is_finite());
         eprintln!("LOG_ODDS:{:?}",state_log_odds);
         let state = sample_log_odds(state_log_odds);
-        // eprintln!("{:?}",state);
+        eprintln!("S:{:?}",state);
         state
+    }
+
+    pub fn sample_oracle_transition(&self, s1:Option<usize>,s2:Option<usize>) -> bool {
+        if let Some(s1i) = s1 {
+            if let Some(s1s) = self.hidden_states.get(s1i) {
+                let oracle_transition_probability = s1s.oracle_transition_probability(s2);
+                return rand::random::<f64>() < oracle_transition_probability
+            }
+            else { true }
+        }
+        else { true }
     }
 
 
     fn resample_states(&mut self) {
         let hidden_states: Vec<Option<usize>> = self.live_indices().into_iter().map(|ni| {
-        // let hidden_states: Vec<Option<usize>> = self.live_indices().par_iter().map(|ni| {
+        // let hidden_states: Vec<Option<usize>> = self.live_indices().into_par_iter().map(|ni| {
             self.sample_node_state(ni)
         }).collect();
         for (ni,state) in self.live_indices().into_iter().zip(hidden_states) {
@@ -231,16 +259,31 @@ impl IHMM {
         }
     }
 
+    fn resample_oracles(&mut self) {
+        let node_states = self.nodes.iter().map(|n| n.hidden_state);
+        let parent_states: Vec<Option<usize>> = self.get_node_parent_states(&(0..self.nodes.len()).collect::<Vec<usize>>());
+        let transitions = node_states.zip(parent_states.into_iter());
+        let oracles: Vec<bool> = transitions.map(|(s1,s2)| self.sample_oracle_transition(s1, s2)).collect();
+        for (ni,oracle) in oracles.into_iter().enumerate() {
+            self.nodes[ni].oracle = oracle;
+        }
+    }
+
     fn sweep(&mut self) {
         self.resample_states();
+        self.resample_oracles();
         self.remove_unrepresented_states();
         self.estimate_states();
     }
 
     fn remove_unrepresented_states(&mut self) {
+        eprintln!("Cleaning up unrepresented states");
         // eprintln!("{:?}",self.nodes.iter().map(|n| n.hidden_state).collect::<Vec<Option<usize>>>());
         let mut current_states: Vec<Option<usize>> = self.hidden_states.iter().map(|_| None).collect();
         let represented_states: Vec<usize> = self.represented_states().iter().flat_map(|rs| *rs).collect();
+        current_states.push(Some(represented_states.len()));
+        eprintln!("{:?}",current_states);
+        eprintln!("{:?}",represented_states);
         for (new_state, old_state) in represented_states.iter().enumerate() {
             current_states[*old_state] = Some(new_state)
         }
@@ -251,37 +294,35 @@ impl IHMM {
             }
         }
         // eprintln!("{:?}",self.nodes.iter().map(|n| n.hidden_state).collect::<Vec<Option<usize>>>());
-        let old_hidden_states: Vec<HiddenState> = replace(&mut self.hidden_states, vec![]);
-        let mut old_hidden_states: Vec<Option<HiddenState>> = old_hidden_states.into_iter().map(|hs| Some(hs)).collect();
-        let new_hidden_states = represented_states.into_iter().map(|rs| old_hidden_states[rs].take().unwrap()).collect();
-        self.hidden_states = new_hidden_states;
+
     }
+
 
     fn estimate_states(&mut self) {
 
-        let mut emission_models = vec![];
-        let mut direct_transition_models = vec![];
-        let mut oracle_transitions = HashMap::new();
+        let mut new_states = vec![];
 
-        for (si,state) in self.hidden_states.iter().enumerate() {
-            let state_emission_model = self.estimate_state_emissions(Some(si)).unwrap();
-            let (state_direct_transitions,state_oracle_transitions) = self.estimate_state_transitions(Some(si)).unwrap();
-            emission_models.push(state_emission_model);
-            direct_transition_models.push(SymmetricDirichlet::from_map(state_direct_transitions,self.beta));
-            for (os,otc) in state_oracle_transitions.into_iter() {
-                *oracle_transitions.entry(os).or_insert(0) += otc;
-            }
+        let represented_states: Vec<Option<usize>> = self.represented_states().into_iter().filter(|s| s.is_some()).collect();
+
+        eprintln!("Estimating states:{:?}",represented_states);
+
+        let oracle_transition_model = self.estimate_oracle_transitions();
+        self.oracle_transition_model = oracle_transition_model.clone();
+
+        for state in represented_states {
+            let indices = self.state_indices(state);
+            let state_emission_model = self.estimate_emissions(&indices);
+            let state_transition_model = self.estimate_direct_transitions(&indices);
+            let state = HiddenState {
+                nodes:indices,
+                direct_transition_model: state_transition_model,
+                oracle_transition_model: oracle_transition_model.clone(),
+                emission_model: state_emission_model,
+            };
+            new_states.push(state)
         }
 
-        let oracle_transition_model = SymmetricDirichlet::from_map(oracle_transitions, self.gamma);
-
-        for (si,state) in self.hidden_states.iter_mut().rev().enumerate() {
-            state.set_emission_model(emission_models.pop().unwrap());
-            state.set_direct_transition_model(direct_transition_models.pop().unwrap());
-            state.set_oracle_transition_model(oracle_transition_model.clone());
-        }
-
-        self.oracle_transition_model = oracle_transition_model;
+        self.hidden_states = new_states;
     }
 
     fn estimate_emissions(&self, indices:&[usize]) -> MVN {
@@ -296,36 +337,28 @@ impl IHMM {
     }
 
 
-    fn estimate_state_emissions(&self, state:Option<usize>) -> Option<MVN> {
-        let indices = self.state_indices(state);
-        Some(self.estimate_emissions(&indices))
+    fn estimate_direct_transitions(&self, indices:&[usize]) -> SymmetricDirichlet<Option<usize>> {
+        let transitions = self.get_transitions(indices);
+        let mut transition_map: HashMap<Option<usize>,usize> = self.current_states().into_iter().map(|cs| (cs,0)).collect();
+        for (_,state,oracle) in transitions {
+            if !oracle {
+                *transition_map.entry(state).or_insert(0) += 1;
+            }
+        }
+        let model = SymmetricDirichlet::from_map(transition_map, self.beta);
+        model
     }
 
-    fn estimate_state_transitions(&self, state:Option<usize>) -> Option<(HashMap<Option<usize>,usize>,HashMap<Option<usize>,usize>)> {
-
-        if let Some(si) = state {
-
-            let indices = self.state_indices(state);
-
-            let current_states = self.current_states();
-
-            let transitions = self.get_state_transitions(state);
-
-            let mut direct_transitions = HashMap::new();
-            let mut oracle_transitions = HashMap::new();
-
-            for target_state in current_states {
-                let state_transition_count = transitions[&target_state];
-                let (direct_count,oracle_count) = self.hidden_states[si].sample_oracle_transitions(target_state,state_transition_count);
-                *direct_transitions.entry(target_state).or_insert(0) += direct_count;
-                *oracle_transitions.entry(target_state).or_insert(0) += direct_count;
+    fn estimate_oracle_transitions(&self) -> SymmetricDirichlet<Option<usize>> {
+        let transitions = self.get_transitions(&self.live_indices());
+        let mut transition_map: HashMap<Option<usize>,usize> = self.current_states().into_iter().map(|cs| (cs,0)).collect();
+        for (_,state,oracle) in transitions {
+            if oracle {
+                *transition_map.entry(state).or_insert(0) += 1;
             }
-
-            Some((direct_transitions,oracle_transitions))
-
         }
-
-        else {None}
+        let model = SymmetricDirichlet::from_map(transition_map, self.gamma);
+        model
     }
 
     fn estimate_prior_features(&mut self) -> MVN {
@@ -335,7 +368,7 @@ impl IHMM {
     }
 
     fn new_state_feature_log_odds(&self,data:&ArrayView<f64,Ix1>,mask:&ArrayView<bool,Ix1>) -> f64 {
-        self.prior_emission_model.masked_odds(data,mask)
+        self.prior_emission_model.masked_likelihood(data,mask)
     }
 
     fn new_state_mixture_log_odds(&self,adjacent_state: Option<usize>) -> f64 {
@@ -344,40 +377,6 @@ impl IHMM {
         (oracle_odds * double_oracle_odds).log2()
     }
 
-
-    fn generate_parent_transition_matrix(&self) -> Array<i32,Ix2> {
-        let s = self.hidden_states.len();
-        let mut transitions = Array::zeros((s,s));
-        for node in &self.nodes {
-            let ni = node.index;
-            if let Some(pi) = node.parent {
-                let parent = &self.nodes[pi];
-                if let (Some(ns),Some(ps)) = (node.hidden_state,parent.hidden_state) {
-                    transitions[[ns,ps]] += 1;
-                }
-            }
-        }
-        transitions
-    }
-
-    fn generate_child_transition_matrix(&self) -> Array<i32,Ix2> {
-        let s = self.hidden_states.len();
-        let mut transitions = Array::zeros((s,s));
-        for node in &self.nodes {
-            let ni = node.index;
-            if let Some((cli,cri)) = node.children {
-                let cl = &self.nodes[cli];
-                let cr = &self.nodes[cri];
-                if let (Some(ns),Some(cls)) = (node.hidden_state,cl.hidden_state) {
-                    transitions[[ns,cls]] += 1;
-                }
-                if let (Some(ns),Some(crs)) = (node.hidden_state,cr.hidden_state) {
-                    transitions[[ns,crs]] += 1;
-                }
-            }
-        }
-        transitions
-    }
 
     fn get_node_parent_states(&self,indices:&[usize]) -> Vec<Option<usize>> {
         let mut parent_states = Vec::with_capacity(indices.len());
@@ -406,8 +405,7 @@ impl IHMM {
         child_states
     }
 
-    fn get_state_transitions(&self,state:Option<usize>) -> HashMap<Option<usize>,usize> {
-        let indices = self.state_indices(state);
+    fn get_transition_counts(&self,indices:&[usize]) -> HashMap<Option<usize>,usize> {
         let child_states = self.get_node_child_states(&indices);
         let mut state_map: HashMap<Option<usize>,usize> = self.current_states().into_iter().map(|s| (s,0)).collect();
         for cs in child_states {
@@ -416,15 +414,20 @@ impl IHMM {
         return state_map
     }
 
-    fn get_transitions(&self,indices:&[usize]) -> HashMap<Option<usize>,usize> {
-        let child_states = self.get_node_child_states(&indices);
-        let mut state_map: HashMap<Option<usize>,usize> = self.current_states().into_iter().map(|s| (s,0)).collect();
-        for cs in child_states {
-            *state_map.entry(cs).or_insert(0) += 1
+    fn get_transitions(&self, indices:&[usize]) -> Vec<(Option<usize>,Option<usize>,bool)> {
+        let mut transitions = Vec::with_capacity(indices.len());
+        for ni in indices {
+            let node = &self.nodes[*ni];
+            let node_state = node.hidden_state;
+            if let Some((cli,cri)) = node.children {
+                let left_child = &self.nodes[cli];
+                let right_child = &self.nodes[cri];
+                transitions.push((node_state,left_child.hidden_state,left_child.oracle));
+                transitions.push((node_state,right_child.hidden_state,right_child.oracle));
+            }
         }
-        return state_map
+        transitions
     }
-
 
     fn represented_states(&self) -> Vec<Option<usize>> {
         let state_set: HashSet<Option<usize>> = self.nodes.iter().map(|n| n.hidden_state).collect();
@@ -534,6 +537,7 @@ impl MarkovNode {
             features,
             emissions,
             hidden_state: None,
+            oracle: false,
 
         };
 
@@ -611,6 +615,12 @@ fn read_matrix(location:&str) -> Result<Array<f64,Ix2>,Box<Error>> {
         row.assign(&Array::from_vec(vector));
     }
     Ok(array)
+}
+
+pub struct Transition {
+    state:(Option<usize>,Option<usize>),
+    node:(usize,usize),
+    oracle:bool
 }
 
 
@@ -698,26 +708,29 @@ pub mod tree_braider_tests {
             eprintln!("PDET");
             eprintln!("{:?}",state.emission_model.pdet());
         }
-        for i in 0..100000 {
+        for i in 0..1000 {
+            model.sweep();
+            for state in &model.hidden_states {
+                eprintln!("{:?}",state);
+            //     eprintln!("Population: {:?}",state.nodes.len());
+            //     eprintln!("PDET:{:?}",state.emission_model.pdet());
+            //     eprintln!("MEANS");
+            //     eprintln!("{:?}",state.emission_model.means());
+            //     eprintln!("VARIANCES");
+            //     eprintln!("{:?}",state.emission_model.variances());
+            }
             eprintln!("###############################");
             eprintln!("###############################");
             eprintln!("############   {:?}   #############",i);
             eprintln!("###############################");
             eprintln!("###############################");
-            for state in &model.hidden_states {
-                eprintln!("Population: {:?}",state.nodes.len());
-                eprintln!("PDET:{:?}",state.emission_model.pdet());
-                eprintln!("MEANS");
-                eprintln!("{:?}",state.emission_model.means());
-                eprintln!("VARIANCES");
-                eprintln!("{:?}",state.emission_model.variances());
-            }
-            model.sweep();
+            eprintln!("Populations:{:?}",model.hidden_states.iter().map(|hs| hs.nodes.len()).collect::<Vec<usize>>());
+            eprintln!("PDET:{:?}",model.hidden_states.iter().map(|hs| *hs.emission_model.pdet()).collect::<Vec<f64>>());
+            eprintln!("ORACLE MIXTURE:{:?}",model.oracle_transition_model);
         }
-        for state in &model.hidden_states {
-            eprintln!("{:?}", state);
-        }
-        eprintln!("{:?}", model.generate_child_transition_matrix());
+        // for state in &model.hidden_states {
+        //     eprintln!("{:?}", state);
+        // }
         // assert_eq!(model.hidden_states.len(),5);
         panic!();
     }
