@@ -700,7 +700,7 @@ pub mod tree_braider_tests {
     fn test_markov_multipart() {
         let mut model = iris_model();
         // let mut model = gene_model();
-        model.initialize(10);
+        model.initialize(20);
         for state in &model.hidden_states {
             eprintln!("Population: {:?}",state.nodes.len());
             eprintln!("MEANS");
@@ -708,7 +708,7 @@ pub mod tree_braider_tests {
             eprintln!("PDET");
             eprintln!("{:?}",state.emission_model.pdet());
         }
-        for i in 0..1000 {
+        for i in 0..100000 {
             model.sweep();
             for state in &model.hidden_states {
                 eprintln!("{:?}",state);
