@@ -159,6 +159,7 @@ pub struct IHMM {
     gamma: NonZeroUsize,
     beta_e: f64,
     oracle_transition_model: SymmetricDirichlet<Option<usize>>,
+    dp_transition_model: SymmetricDirichlet<Option<usize>>,
     prior_emission_model: MVN,
     hidden_states: Vec<HiddenState>,
 }
@@ -171,12 +172,13 @@ impl IHMM {
         let features = encoding.0.dim().1;
 
         IHMM {
-            beta: NonZeroUsize::new(1).unwrap(),
+            beta: NonZeroUsize::new(20).unwrap(),
             gamma: NonZeroUsize::new(1).unwrap(),
             beta_e: 0.,
             hidden_states: vec![],
             prior_emission_model: MVN::identity_prior(1, features as u32),
             oracle_transition_model: SymmetricDirichlet::blank(NonZeroUsize::new(1).unwrap()),
+            dp_transition_model: SymmetricDirichlet::blank(NonZeroUsize::new(1).unwrap()),
             nodes: nodes,
             encoding: encoding,
         }
@@ -210,12 +212,14 @@ impl IHMM {
         let mut state_log_odds = Vec::with_capacity(self.hidden_states.len() + 1);
 
         eprint!("{:?}:[",node_index);
-        for state in &self.hidden_states {
-            let adjusted_feature_log_odds = state.feature_log_odds(&features,&mask);
-            let mixture_log_odds = state.mixture_log_odds(cls) + state.mixture_log_odds(crs);
-            eprint!("({:?},",adjusted_feature_log_odds);
+        for (si,state) in self.hidden_states.iter().enumerate() {
+            let feature_log_odds = state.feature_log_odds(&features,&mask);
+            // let mixture_log_odds = state.mixture_log_odds(cls) + state.mixture_log_odds(crs);
+            let mixture_log_odds = self.dp_transition_model.log_odds(&Some(si)).unwrap();
+            // let mixture_log_odds = 0.;
+            eprint!("({:?},",feature_log_odds);
             eprint!("{:?}),",mixture_log_odds);
-            state_log_odds.push(adjusted_feature_log_odds + mixture_log_odds);
+            state_log_odds.push(feature_log_odds + mixture_log_odds);
         }
         eprint!("]\n");
 
@@ -250,8 +254,8 @@ impl IHMM {
 
 
     fn resample_states(&mut self) {
-        // let hidden_states: Vec<Option<usize>> = self.live_indices().into_iter().map(|ni| {
-        let hidden_states: Vec<Option<usize>> = self.live_indices().into_par_iter().map(|ni| {
+        let hidden_states: Vec<Option<usize>> = self.live_indices().into_iter().map(|ni| {
+        // let hidden_states: Vec<Option<usize>> = self.live_indices().into_par_iter().map(|ni| {
             self.sample_node_state(ni)
         }).collect();
         for (ni,state) in self.live_indices().into_iter().zip(hidden_states) {
@@ -278,12 +282,12 @@ impl IHMM {
 
     fn remove_unrepresented_states(&mut self) {
         eprintln!("Cleaning up unrepresented states");
-        // eprintln!("{:?}",self.nodes.iter().map(|n| n.hidden_state).collect::<Vec<Option<usize>>>());
+        // eprintln!("OHS:{:?}",self.nodes.iter().map(|n| n.hidden_state).collect::<Vec<Option<usize>>>());
         let mut current_states: Vec<Option<usize>> = self.hidden_states.iter().map(|_| None).collect();
         let represented_states: Vec<usize> = self.represented_states().iter().flat_map(|rs| *rs).collect();
         current_states.push(Some(represented_states.len()));
-        eprintln!("{:?}",current_states);
-        eprintln!("{:?}",represented_states);
+        eprintln!("CS:{:?}",current_states);
+        eprintln!("RS:{:?}",represented_states);
         for (new_state, old_state) in represented_states.iter().enumerate() {
             current_states[*old_state] = Some(new_state)
         }
@@ -293,7 +297,7 @@ impl IHMM {
                 node.hidden_state = current_states[old_state];
             }
         }
-        // eprintln!("{:?}",self.nodes.iter().map(|n| n.hidden_state).collect::<Vec<Option<usize>>>());
+        // eprintln!("NHS:{:?}",self.nodes.iter().map(|n| n.hidden_state).collect::<Vec<Option<usize>>>());
 
     }
 
@@ -306,8 +310,17 @@ impl IHMM {
 
         eprintln!("Estimating states:{:?}",represented_states);
 
+        for (i,s) in self.hidden_states.iter().enumerate(){
+            eprintln!("FM{:?}:{:?}",i,s.emission_model.means());
+        }
+
         let oracle_transition_model = self.estimate_oracle_transitions();
         self.oracle_transition_model = oracle_transition_model.clone();
+
+        let population_model = self.estimate_population_model();
+        self.dp_transition_model = population_model;
+
+        eprintln!("DPM:{:?}",self.dp_transition_model);
 
         for state in represented_states {
             let indices = self.state_indices(state);
@@ -323,6 +336,11 @@ impl IHMM {
         }
 
         self.hidden_states = new_states;
+
+        for (i,s) in self.hidden_states.iter().enumerate(){
+            eprintln!("NM{:?}:{:?}",i,s.emission_model.means());
+        }
+
     }
 
     fn estimate_emissions(&self, indices:&[usize]) -> MVN {
@@ -334,6 +352,15 @@ impl IHMM {
         emission_model.estimate_masked(&data.view(), &mask.view());
 
         emission_model
+    }
+
+    fn estimate_population_model(&self) -> SymmetricDirichlet<Option<usize>> {
+        let mut state_populations:HashMap<Option<usize>,usize> = self.represented_states().into_iter().filter(|rs| rs.is_some()).map(|s| (s,0)).collect();
+        for (state,count) in state_populations.iter_mut() {
+            *count = self.state_indices(*state).len();
+        }
+        let population_model = SymmetricDirichlet::from_map(state_populations, self.beta);
+        population_model
     }
 
 
@@ -351,7 +378,7 @@ impl IHMM {
 
     fn estimate_oracle_transitions(&self) -> SymmetricDirichlet<Option<usize>> {
         let transitions = self.get_transitions(&self.live_indices());
-        let mut transition_map: HashMap<Option<usize>,usize> = self.current_states().into_iter().map(|cs| (cs,0)).collect();
+        let mut transition_map: HashMap<Option<usize>,usize> = self.represented_states().into_iter().map(|cs| (cs,0)).collect();
         for (_,state,oracle) in transitions {
             if oracle {
                 *transition_map.entry(state).or_insert(0) += 1;
@@ -525,8 +552,8 @@ impl MarkovNode {
         let parent = None;
         let samples = original.samples().to_vec();
         let features = original.features().to_vec();
-        // let emissions = original.medians().to_vec();
-        let emissions = original.local_gains().unwrap_or(&vec![0.;features.len()]).to_vec();
+        let emissions = original.medians().to_vec();
+        // let emissions = original.local_gains().unwrap_or(&vec![0.;features.len()]).to_vec();
 
 
         let wrapped = MarkovNode{

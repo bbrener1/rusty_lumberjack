@@ -221,7 +221,8 @@ impl MVN {
 
         let centered_data = (data - &self.means);
 
-        let scaled_data: Array<f64,Ix1> = centered_data.iter().zip(&self.variances).map(|(cd,v)| if *v > 0. {cd/(v.sqrt())} else {0.}).collect();
+        // let scaled_data: Array<f64,Ix1> = centered_data.iter().zip(&self.variances).map(|(cd,v)| if *v > 0. {cd/(v.sqrt())} else {0.}).collect();
+        let scaled_data: Array<f64,Ix1> = centered_data.iter().zip(&self.variances).map(|(cd,v)| if *v > 0. {cd/v} else {0.}).collect();
 
         let pd = self.pdet;
         let f = scaled_data.dot(&self.pseudo_precision).dot(&scaled_data);
@@ -250,17 +251,17 @@ impl MVN {
         // log_odds
     }
 
-    pub fn unadjusted_log_likelihood(&self,data:&ArrayView<f64,Ix1>) -> f64 {
-
-        let centered_data = (data - &self.means);
-
-        let scaled_data: Array<f64,Ix1> = centered_data.iter().zip(&self.variances).map(|(cd,v)| if *v > 0. {cd/(v.sqrt())} else {0.}).collect();
-
-        let f = scaled_data.dot(&self.pseudo_precision).dot(&scaled_data);
-
-        -0.5 * (f)
-
-    }
+    // pub fn unadjusted_log_likelihood(&self,data:&ArrayView<f64,Ix1>) -> f64 {
+    //
+    //     let centered_data = (data - &self.means);
+    //
+    //     let scaled_data: Array<f64,Ix1> = centered_data.iter().zip(&self.variances).map(|(cd,v)| if *v > 0. {cd/(v.sqrt())} else {0.}).collect();
+    //
+    //     let f = scaled_data.dot(&self.pseudo_precision).dot(&scaled_data);
+    //
+    //     -0.5 * (f)
+    //
+    // }
 
 
     pub fn masked_likelihood(&self,data:&ArrayView<f64,Ix1>,mask:&ArrayView<bool,Ix1>) -> f64 {
@@ -270,12 +271,12 @@ impl MVN {
         likelihood
     }
 
-    pub fn unadjusted_masked_likelihood(&self,data:&ArrayView<f64,Ix1>,mask:&ArrayView<bool,Ix1>) -> f64 {
-        let masked_normal = self.derive_masked_MVN(mask);
-        let masked_data = array_mask(data, mask);
-        let likelihood = masked_normal.unadjusted_log_likelihood(&masked_data.view());
-        likelihood
-    }
+    // pub fn unadjusted_masked_likelihood(&self,data:&ArrayView<f64,Ix1>,mask:&ArrayView<bool,Ix1>) -> f64 {
+    //     let masked_normal = self.derive_masked_MVN(mask);
+    //     let masked_data = array_mask(data, mask);
+    //     let likelihood = masked_normal.unadjusted_log_likelihood(&masked_data.view());
+    //     likelihood
+    // }
 
 
     pub fn derive_masked_MVN(&self,mask:&ArrayView<bool,Ix1>) -> MVN {
