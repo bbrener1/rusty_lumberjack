@@ -254,8 +254,8 @@ impl IHMM {
 
 
     fn resample_states(&mut self) {
-        // let hidden_states: Vec<Option<usize>> = self.live_indices().into_iter().map(|ni| {
-        let hidden_states: Vec<Option<usize>> = self.live_indices().into_par_iter().map(|ni| {
+        let hidden_states: Vec<Option<usize>> = self.live_indices().into_iter().map(|ni| {
+        // let hidden_states: Vec<Option<usize>> = self.live_indices().into_par_iter().map(|ni| {
             self.sample_node_state(ni)
         }).collect();
         for (ni,state) in self.live_indices().into_iter().zip(hidden_states) {
