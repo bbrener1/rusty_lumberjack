@@ -13,6 +13,7 @@ extern crate num_cpus;
 extern crate rand;
 extern crate time;
 extern crate smallvec;
+extern crate rayon;
 
 #[macro_use(array,azip)]
 extern crate ndarray;
@@ -125,6 +126,31 @@ impl Prerequisite {
     }
 }
 
+#[derive(Debug,Clone,Serialize,Deserialize)]
+pub struct Split {
+    feature: Feature,
+    value: f64,
+    dispersion: f64,
+}
+
+impl Split {
+    pub fn new(feature: Feature,value:f64,dispersion:f64) -> Split {
+        Split {
+            feature,
+            value,
+            dispersion,
+        }
+    }
+
+    pub fn left(&self) -> Prerequisite {
+        Prerequisite::new(self.feature.clone(), self.value, false)
+    }
+
+    pub fn right(&self) -> Prerequisite {
+        Prerequisite::new(self.feature.clone(), self.value, true)
+    }
+
+}
 
 fn read_header(location: &str) -> Vec<String> {
 
@@ -171,23 +197,52 @@ fn read_sample_names(location: &str) -> Vec<String> {
 }
 
 
-fn argmin(in_vec: &Vec<f64>) -> (usize,f64) {
-    let mut min_ind = 0;
-    let mut min_val: f64 = 1./0.;
-    for (i,val) in in_vec.iter().enumerate() {
-        // println!("Argmin debug:{},{},{}",i,val,min_val);
-        // match val.partial_cmp(&min_val).unwrap_or(Ordering::Less) {
-        //     Ordering::Less => println!("Less"),
-        //     Ordering::Equal => println!("Equal"),
-        //     Ordering::Greater => println!("Greater")
-        // }
-        match val.partial_cmp(&min_val).unwrap_or(Ordering::Less) {
-            Ordering::Less => {min_val = val.clone(); min_ind = i.clone()},
-            Ordering::Equal => {},
-            Ordering::Greater => {}
+fn argmin(in_vec: &[f64]) -> Option<(usize,f64)> {
+    let mut minimum = None;
+    for (j,&val) in in_vec.iter().enumerate() {
+        let check = if let Some((i,m)) = minimum.take() {
+            match val.partial_cmp(&m).unwrap_or(Ordering::Greater) {
+                Ordering::Less => {Some((j,val))},
+                Ordering::Equal => {Some((i,m))},
+                Ordering::Greater => {Some((i,m))},
+            }
         }
-    }
-    (min_ind,min_val)
+        else {
+            if !val.is_nan() {
+                Some((j,val))
+            }
+            else {
+                None
+            }
+        };
+        minimum = check;
+
+    };
+    minimum
+}
+
+fn argmax(in_vec: &[f64]) -> Option<(usize,f64)> {
+    let mut minimum = None;
+    for (j,&val) in in_vec.iter().enumerate() {
+        let check = if let Some((i,m)) = minimum.take() {
+            match val.partial_cmp(&m).unwrap_or(Ordering::Less) {
+                Ordering::Less => {Some((i,m))},
+                Ordering::Equal => {Some((i,m))},
+                Ordering::Greater => {Some((j,val))},
+            }
+        }
+        else {
+            if !val.is_nan() {
+                Some((j,val))
+            }
+            else {
+                None
+            }
+        };
+        minimum = check;
+
+    };
+    minimum
 }
 
 
@@ -435,5 +490,61 @@ fn pearsonr(vec1:&Vec<f64>,vec2:&Vec<f64>) -> f64 {
     let r = covariance / (std_dev1*std_dev2);
 
     if r.is_nan() {0.} else {r}
+
+}
+
+pub fn l1_sum(mtx_in:&Vec<Vec<f64>>, weights: &[f64]) -> Vec<f64> {
+    let weight_sum = weights.iter().sum::<f64>();
+
+    let sample_sums = mtx_in.iter().map(|sample| {
+        sample.iter().enumerate().map(|(i,feature)| feature * weights[i] ).sum::<f64>() / weight_sum
+    }).map(|sum| if sum.is_normal() || sum == 0. {sum} else {f64::INFINITY}).collect();
+    sample_sums
+}
+
+pub fn l2_sum(mtx_in:&Vec<Vec<f64>>, weights: &[f64]) -> Vec<f64> {
+    let weight_sum = weights.iter().sum::<f64>();
+
+    let sample_sums = mtx_in.iter().map(|sample| {
+        sample.iter().enumerate().map(|(i,feature)| feature.powi(2) * weights[i] ).sum::<f64>() / weight_sum
+    }).map(|sum| if sum.is_normal() || sum == 0. {sum} else {f64::INFINITY}).collect();
+    sample_sums
+}
+
+#[cfg(test)]
+pub mod tree_lib_tests {
+
+    use super::*;
+
+    #[test]
+    fn test_argmin() {
+
+        let na = std::f64::NAN;
+
+        assert_eq!(argmin(&vec![1.]),Some((0,1.)));
+        assert_eq!(argmin(&vec![1.,2.]),Some((0,1.)));
+        assert_eq!(argmin(&vec![]),None);
+        assert_eq!(argmin(&vec![1.,na]),Some((0,1.)));
+        assert_eq!(argmin(&vec![na,1.]),Some((1,1.)));
+        assert_eq!(argmin(&vec![na,na]),None);
+        assert_eq!(argmin(&vec![1.,1.]),Some((0,1.)));
+
+    }
+
+    #[test]
+    fn test_argmax() {
+
+        let na = std::f64::NAN;
+
+        assert_eq!(argmax(&vec![1.]),Some((0,1.)));
+        assert_eq!(argmax(&vec![1.,2.]),Some((1,2.)));
+        assert_eq!(argmax(&vec![]),None);
+        assert_eq!(argmax(&vec![1.,na]),Some((0,1.)));
+        assert_eq!(argmax(&vec![na,1.]),Some((1,1.)));
+        assert_eq!(argmax(&vec![na,na]),None);
+        assert_eq!(argmax(&vec![1.,1.]),Some((0,1.)));
+
+
+    }
 
 }

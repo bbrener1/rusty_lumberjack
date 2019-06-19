@@ -890,26 +890,6 @@ pub fn read_sample_names(location: &str) -> Vec<String> {
 }
 
 
-fn argmin(in_vec: &Vec<f64>) -> (usize,f64) {
-    let mut min_ind = 0;
-    let mut min_val: f64 = 1./0.;
-    for (i,val) in in_vec.iter().enumerate() {
-        // println!("Argmin debug:{},{},{}",i,val,min_val);
-        // match val.partial_cmp(&min_val).unwrap_or(Ordering::Less) {
-        //     Ordering::Less => println!("Less"),
-        //     Ordering::Equal => println!("Equal"),
-        //     Ordering::Greater => println!("Greater")
-        // }
-        match val.partial_cmp(&min_val).unwrap_or(Ordering::Less) {
-            Ordering::Less => {min_val = val.clone(); min_ind = i.clone()},
-            Ordering::Equal => {},
-            Ordering::Greater => {}
-        }
-    }
-    (min_ind,min_val)
-}
-
-
 
 fn matrix_flip<T:Clone>(in_mat: &Vec<Vec<T>>) -> Vec<Vec<T>> {
 

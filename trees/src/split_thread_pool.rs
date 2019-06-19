@@ -15,6 +15,7 @@ extern crate rand;
 use crate::rank_table::RankTable;
 use crate::feature_thread_pool::FeatureThreadPool;
 use crate::feature_thread_pool::FeatureMessage;
+use crate::{argmax,argmin};
 
 
 impl SplitThreadPool{
@@ -95,7 +96,10 @@ fn compute (prot_table: Arc<RankTable>, draw_order: Vec<usize> , drop_set: HashS
 
     // println!("Computing in split thread pool");
 
-    prot_table.parallel_split_order_min(&draw_order,&drop_set,Some(&weights),pool)
+    let dispersion = prot_table.order_dispersions(&draw_order,&drop_set,&weights)?;
+
+    let (split_index,split_dispersion) = argmin(&dispersion)?;
+    Some((split_index,draw_order[split_index],split_dispersion))
 
     // println!("parallel: {:?}", result);
 }

@@ -5,22 +5,26 @@ use std::cmp::Ordering;
 use std::sync::mpsc;
 use std::f64;
 use std::mem::replace;
-use std::collections::HashMap;
+use std::collections::{HashMap,HashSet};
 use serde_json;
 
 extern crate rand;
 use rand::Rng;
+
+use rayon::prelude::*;
 
 use crate::rank_table::RankTable;
 use crate::rank_table::RankTableWrapper;
 use crate::Feature;
 use crate::Sample;
 use crate::Prerequisite;
+use crate::Split;
 use crate::split_thread_pool::SplitMessage;
 use crate::io::DropMode;
 use crate::io::PredictionMode;
 use crate::io::Parameters;
 use crate::io::DispersionMode;
+use crate::argmin;
 
 use std::fs::File;
 use std::io::Write;
@@ -48,8 +52,7 @@ pub struct Node {
     pub depth: usize,
     pub children: Vec<Node>,
 
-    feature: Option<Feature>,
-    split: Option<f64>,
+    split: Option<Split>,
 
     prerequisites: Vec<Prerequisite>,
 
@@ -58,6 +61,7 @@ pub struct Node {
     pub dispersions: Vec<f64>,
     pub local_gains: Option<Vec<f64>>,
     pub absolute_gains: Option<Vec<f64>>
+
 }
 
 
@@ -66,15 +70,10 @@ impl Node {
     pub fn feature_root<'a>(input_counts:&Vec<Vec<f64>>,output_counts:&Vec<Vec<f64>>,input_features:&'a[Feature],output_features:&'a[Feature],samples:&'a[Sample], parameters: Arc<Parameters> , feature_weight_option: Option<Vec<f64>>, split_thread_pool: mpsc::Sender<SplitMessage>) -> Node {
 
         let input_table = RankTable::new(input_counts,input_features,samples,parameters.clone());
-
         let output_table = RankTable::new(output_counts,output_features,samples,parameters.clone());
-
         let feature_weights = feature_weight_option.unwrap_or(vec![1.;output_features.len()]);
-
         let medians = output_table.medians();
-
         let dispersions = output_table.dispersions();
-
         let local_gains = vec![0.;dispersions.len()];
 
         let new_node = Node {
@@ -89,7 +88,6 @@ impl Node {
             depth: 0,
             children: Vec::new(),
 
-            feature: None,
             split: None,
 
             prerequisites: vec![],
@@ -108,245 +106,72 @@ impl Node {
         new_node
     }
 
-    pub fn feature_parallel_best_split(&mut self) -> Option<(Feature,f64,f64,Vec<usize>,Vec<usize>)> {
-
-        if self.input_features().len() < 1 {
-            panic!("Tried to split with no input features");
-        };
-
-        let mut minimum_receivers = Vec::with_capacity(self.input_features().len());
-
-        let reference_table = Arc::new(replace(&mut self.output_table,RankTable::empty()));
-        //
-        // println!("Starting to split");
-
-        for input_feature in 0..self.input_features().len() {
-
-            let (tx,rx) = mpsc::channel();
-
-            let (draw_order,drop_set) = self.input_table.sort_by_feature(input_feature);
-            //
-            // println!("Passed to thread pool");
-
-            self.split_thread_pool.send(SplitMessage::Message((reference_table.clone(),draw_order,drop_set,self.feature_weights.clone()),tx));
-
-            minimum_receivers.push((input_feature,rx));
-
-        };
-
-        let mut minima = Vec::with_capacity(self.input_features().len());
-        //
-        // println!("Receiving");
-
-        for (input_feature,receiver) in minimum_receivers.into_iter() {
-            if let Some((split_index,split_sample_index,split_dispersion)) = receiver.recv().expect("Split thread pool error") {
-                minima.push((input_feature,split_index,split_sample_index,split_dispersion))
-            }
-        }
-
-        replace(&mut self.output_table, Arc::try_unwrap(reference_table).expect("Couldn't unwrap the reference table"));
-
-        // println!("Replaced");
-
-        let (best_feature_local_index,split_index,split_sample_index,split_dispersion) = minima.iter().min_by(|a,b| (a.3).partial_cmp(&b.3).unwrap_or(Ordering::Greater)).unwrap().clone();
-
-        let split_order = self.input_table.sort_by_feature(best_feature_local_index);
-
-        assert_eq!(split_sample_index,split_order.0[split_index]);
-
-        let split_value = self.input_table.feature_fetch(best_feature_local_index,split_sample_index);
-
-        let best_feature = self.input_table.features()[best_feature_local_index].clone();
-
-        self.feature = Some(best_feature.clone());
-        self.split = Some(split_value.clone());
-
-        // println!("Best split: {:?}", (best_feature.clone(),split_index, split_value,split_dispersion));
-
-        // println!("{:?}",self.output_table.full_ordered_values());
-        // println!("{:?}",self.medians());
-
-        let left_indices = split_order.0[..split_index].iter().cloned().collect();
-        let right_indices = split_order.0[split_index..].iter().cloned().collect();
-
-        Some((best_feature,split_dispersion,split_value,left_indices,right_indices))
-
-    }
-
-
-
-    pub fn feature_parallel_derive(&mut self,prototype_opt:Option<&Node>) -> Option<()> {
-
-        // println!("Feature parallel derive:");
-        // println!("{},{},{},{}", self.input_features().len(),self.output_features().len(),self.input_table.samples().len(),self.output_table.samples().len());
-
-        if let Some((feature,_dispersion,split_value, left_indecies,right_indecies)) = self.feature_parallel_best_split() {
-
-            let mut left_child_id = self.id.clone();
-            let mut right_child_id = self.id.clone();
-            left_child_id.push_str(&format!("!F{}:S{}L",feature.name(),split_value));
-            right_child_id.push_str(&format!("!F{}:S{}R",feature.name(),split_value));
-
-            // println!("{:?}",&left_indecies);
-            // println!("{:?}",&right_indecies);
-
-            let left_child;
-            let right_child;
-
-            if let Some(prototype) = prototype_opt {
-                // left_child = self.derive_resampled(prototype, self.input_features().len(), self.output_features().len(), &left_indecies, &left_child_id,Some(false));
-                // right_child = self.derive_resampled(prototype, self.input_features().len(), self.output_features().len(), &right_indecies, &right_child_id,Some(true));
-
-                let (left_prerequisite,right_prerequisite) = (Prerequisite::new(feature.clone(),split_value.clone(),false),Prerequisite::new(feature.clone(),split_value.clone(),true));
-
-                let mut left_prerequisites = self.prerequisites.clone();
-                let mut right_prerequisites = self.prerequisites.clone();
-
-                left_prerequisites.push(left_prerequisite);
-                right_prerequisites.push(right_prerequisite);
-
-                left_child = self.derive_by_prerequisites(prototype, &left_prerequisites, self.input_features().len(), self.output_features().len(), self.samples().len() , &left_child_id,Some(false));
-                right_child = self.derive_by_prerequisites(prototype, &right_prerequisites, self.input_features().len(), self.output_features().len(), self.samples().len() , &right_child_id,Some(true));
-
-            }
-            else {
-                left_child = self.derive(&left_indecies, &left_child_id,false);
-                right_child = self.derive(&right_indecies, &right_child_id,true);
-            }
-
-            self.children.push(left_child);
-            self.children.push(right_child);
-
-            // println!("Derived children!");
-
-            let ls = self.children[0].samples().len() as f64;
-            let rs = self.children[1].samples().len() as f64;
-            let os = self.samples().len() as f64;
-
-            let left_dispersions = self.children[0].dispersions.iter().map(|&x| x * ls);
-            let right_dispersions = self.children[1].dispersions.iter().map(|&x| x * rs);
-
-            let own_dispersions = self.dispersions.iter().map(|x| x * os);
-
-            let mut local_gains: Vec<f64> = own_dispersions.zip(left_dispersions.zip(right_dispersions)).map(|(o,(l,r))| o - (l+r)).collect();
-
-            local_gains = local_gains.iter().map(|g| g/(self.samples().len() as f64)).collect();
-
-            self.local_gains = Some(local_gains);
-
+    pub fn split_node(&mut self,samples:usize,input_features:usize,output_features:usize) -> Option<()> {
+        let mut compact = self.subsample(samples,input_features,output_features);
+        if let Some(split) = compact.rayon_best_split() {
+            self.split = Some(split);
+            self.children = self.derive_complete_by_split(self.split.as_ref().unwrap(), None);
             Some(())
         }
-        else {
-            None
-        }
+        else { None }
+
+    }
+
+    pub fn rayon_best_split(&self) -> Option<Split> {
+
+        let splits: Vec<Split> = (0..self.input_features().len()).flat_map(|i| self.feature_index_split(i)).collect();
+        let dispersions: Vec<f64> = splits.iter().map(|s| s.dispersion).collect();
+        Some(splits[argmin(&dispersions)?.0].clone())
+
+    }
+
+    pub fn feature_index_split(&self,feature_index:usize) -> Option<Split>{
+        let feature = self.input_features()[feature_index].clone();
+        let (draw_order,drop_set) = self.input_table.sort_by_feature(feature_index);
+        let dispersions = self.output_table.order_dispersions(&draw_order,&drop_set,&self.feature_weights)?;
+        let (split_index,minimum_dispersion) = argmin(&dispersions)?;
+        let split_sample_index = draw_order[split_index];
+        let split_value = self.input_table.feature_fetch(feature_index,split_sample_index);
+
+        Some(Split::new(feature,split_value,minimum_dispersion))
+
+    }
+
+    pub fn derive_complete_by_split(&self,split:&Split,prototype:Option<&Node>) -> Vec<Node> {
+        let mut left_prerequisites = self.prerequisites.clone();
+        let mut right_prerequisites = self.prerequisites.clone();
+        left_prerequisites.push(split.left());
+        right_prerequisites.push(split.right());
+        let mut left_child_id = self.id.clone();
+        let mut right_child_id = self.id.clone();
+        left_child_id.push_str(&format!("!F{:?}:S{:?}L",split.feature,split.value));
+        right_child_id.push_str(&format!("!F{:?}:S{:?}R",split.feature,split.value));
+        vec![prototype.unwrap_or(self).derive_complete_by_prerequisites(&left_prerequisites,&left_child_id),prototype.unwrap_or(self).derive_complete_by_prerequisites(&right_prerequisites,&right_child_id)]
+    }
+
+
+    pub fn derive_complete_by_prerequisites(&self, prerequisites: &[Prerequisite], new_id:&str) -> Node {
+
+        let input_features: Vec<usize> = (0..self.input_features().len()).collect();
+        let output_features: Vec<usize> = (0..self.output_features().len()).collect();
+
+        let samples: Vec<usize> = self.samples_given_prerequisites(&prerequisites).iter().map(|(i,s)| *i).collect();
+
+        self.derive_specified(&samples,&input_features,&output_features, Some(prerequisites.to_owned()),new_id)
 
 
     }
 
-    pub fn derive(&self, indecies: &[usize],new_id:&str,orientation:bool) -> Node {
-
-            let new_input_table = self.input_table.derive(indecies);
-            let new_output_table = self.output_table.derive(indecies);
-
-            let mut new_prerequisites = self.prerequisites.clone();
-            new_prerequisites.push(Prerequisite::new(self.feature().clone().unwrap(),self.split().clone().unwrap(),orientation));
-
-            let medians = new_output_table.medians();
-            let dispersions = new_output_table.dispersions();
-            let feature_weights = self.feature_weights.clone();
-
-            for ((nd,nm),(od,om)) in dispersions.iter().zip(medians.iter()).zip(self.dispersions.iter().zip(self.medians.iter())) {
-                let mut old_cov = od/om;
-                if !old_cov.is_normal() {
-                    old_cov = 0.;
-                }
-                let mut new_cov = nd/nm;
-                if !new_cov.is_normal() {
-                    new_cov = 0.;
-                }
-            }
-
-            let child = Node {
-                // pool: self.pool.clone(),
-                split_thread_pool: self.split_thread_pool.clone(),
-
-                input_table: new_input_table,
-                output_table: new_output_table,
-                dropout: self.dropout,
-
-                parent_id: self.id.clone(),
-                id: new_id.to_string(),
-                depth: self.depth + 1,
-                children: Vec::new(),
-
-                feature: None,
-                split: None,
-
-                prerequisites: new_prerequisites,
-
-                medians: medians,
-                feature_weights: feature_weights,
-                dispersions: dispersions,
-                local_gains: None,
-                absolute_gains: None
-            };
-
-            // assert_eq!(child.input_table.features(),child.output_table.features());
-            assert_eq!(child.input_table.samples(),child.output_table.samples());
-
-            child
-        }
-
-    pub fn derive_resampled(&self,prototype:&Node, input_features: usize, output_features: usize, indecies:&Vec<usize>, new_id:&str, orientation:Option<bool>) -> Node {
-
-        let mut rng = rand::thread_rng();
-
-        let new_input_features = (0..input_features).map(|_| rng.gen_range(0, prototype.input_table.dimensions.0)).collect();
-
-        let new_output_features = (0..output_features).map(|_| rng.gen_range(0, prototype.output_table.dimensions.0)).collect();
-
-        let prototype_indecies = indecies.iter().map(|&i| *self.input_table.samples()[i].index()).collect();
-
-        prototype.derive_specified(&prototype_indecies,&new_input_features,&new_output_features,new_id, orientation)
-    }
-
-    pub fn derive_by_prerequisites(&self,prototype:&Node, prerequisites: &Vec<Prerequisite>, input_features: usize, output_features: usize, samples: usize, new_id:&str, orientation:Option<bool>) -> Node {
-
-        let mut rng = rand::thread_rng();
-
-        let new_input_features = (0..input_features).map(|_| rng.gen_range(0, prototype.input_table.dimensions.0)).collect();
-
-        let new_output_features = (0..output_features).map(|_| rng.gen_range(0, prototype.output_table.dimensions.0)).collect();
-
-        let potential_sample_indices: Vec<usize> = prototype.samples_given_prerequisites(&prerequisites).iter().map(|(i,s)| *i).collect();
-
-        let prototype_indecies = (0..samples).map(|_| rng.gen_range(0, potential_sample_indices.len())).collect();
-
-        prototype.derive_specified(&prototype_indecies,&new_input_features,&new_output_features,new_id, orientation)
-    }
-
-    pub fn derive_random(&self, samples: usize, input_features: usize, output_features: usize, new_id:&str, orientation: Option<bool>) -> Node {
-
-        let mut rng = rand::thread_rng();
-
-        let new_input_features = (0..input_features).map(|_| rng.gen_range(0,self.input_table.dimensions.0)).collect();
-
-        let new_output_features = (0..output_features).map(|_| rng.gen_range(0,self.output_table.dimensions.0)).collect();
-
-        let new_samples = (0..samples).map(|_| rng.gen_range(0,self.output_table.dimensions.1)).collect();
-
-        self.derive_specified(&new_samples,&new_input_features,&new_output_features,new_id,orientation)
-    }
-
-    pub fn derive_specified(&self, samples: &Vec<usize>, input_features: &Vec<usize>, output_features: &Vec<usize>, new_id: &str,orientation_option:Option<bool>) -> Node {
+    pub fn derive_specified(&self, samples: &[usize], input_features: &[usize], output_features: &[usize], prerequisite_opt: Option<Vec<Prerequisite>>, new_id: &str) -> Node {
 
         let mut new_input_table = self.input_table.derive_specified(&input_features,samples);
         let mut new_output_table = self.output_table.derive_specified(&output_features,samples);
 
-        let mut new_prerequisites = self.prerequisites.clone();
-        if let Some(orientation) = orientation_option {
-            new_prerequisites.push(Prerequisite::new(self.feature().clone().unwrap_or(Feature::new("Prototype",&0)),self.split().clone().unwrap_or(0.),orientation));
-        }
+        let mut new_prerequisites =
+            if let Some(prerequisites) = prerequisite_opt {
+                prerequisites.to_owned()
+            }
+            else {self.prerequisites.clone()};
 
         let medians = new_output_table.medians();
         let dispersions = new_output_table.dispersions();
@@ -366,7 +191,6 @@ impl Node {
             depth: self.depth + 1,
             children: Vec::new(),
 
-            feature: None,
             split: None,
 
             prerequisites: new_prerequisites,
@@ -384,11 +208,36 @@ impl Node {
         child
     }
 
+    pub fn draw_random_features(&self,input_features: usize, output_features: usize) -> (Vec<(usize,Feature)>,Vec<(usize,Feature)>) {
 
+        let mut rng = rand::thread_rng();
+
+        let input_fvec = self.input_features();
+        let output_fvec = self.output_features();
+
+        let drawn_input: Vec<(usize,Feature)> = (0..input_features).map(|_| rng.gen_range(0,self.input_table.dimensions.0)).map(|i| (i,input_fvec[i].clone())).collect();
+        let drawn_output: Vec<(usize,Feature)> = (0..output_features).map(|_| rng.gen_range(0,self.output_table.dimensions.0)).map(|i| (i,output_fvec[i].clone())).collect();
+
+        (drawn_input,drawn_output)
+    }
+
+    pub fn draw_random_samples(&self,samples:usize) -> Vec<(usize,&Sample)> {
+        let mut rng = rand::thread_rng();
+        (0..samples).map(|_| rng.gen_range(0,self.input_table.dimensions.1)).map(|i| (i,&self.samples()[i])).collect()
+    }
+
+    pub fn subsample(&self,samples:usize,input_features:usize,output_features:usize) -> Node {
+        let (input_features,output_features) = self.draw_random_features(input_features, output_features);
+        let samples = self.draw_random_samples(samples);
+        let ifi: Vec<usize> = input_features.into_iter().map(|(i,f)| i).collect();
+        let ofi: Vec<usize> = output_features.into_iter().map(|(i,f)| i).collect();
+        let si: Vec<usize> = samples.into_iter().map(|(i,s)| i).collect();
+        let id = format!("{}!SSS",self.id,).to_string();
+        self.derive_specified(&si,&ifi,&ofi,None,&id)
+    }
 
     pub fn report(&self,verbose:bool) {
         println!("Node reporting:");
-        println!("Feature:{:?}",self.feature);
         println!("Split:{:?}", self.split);
         println!("Output features:{}",self.output_features().len());
         if verbose {
@@ -411,8 +260,7 @@ impl Node {
         let mut report_string = "".to_string();
         if self.children.len() > 1 {
             report_string.push_str(&format!("!ID:{}\n",self.id));
-            report_string.push_str(&format!("F:{}\n",self.feature.as_ref().map(|f| f.name()).unwrap_or(&"".to_string())));
-            report_string.push_str(&format!("S:{}\n",self.split.unwrap_or(0.)));
+            report_string.push_str(&format!("S:{:?}\n",self.split));
         }
 
         report_string
@@ -427,7 +275,6 @@ impl Node {
         }
         report_string.push_str("\n");
         report_string.push_str(&format!("ParentID:{}\n",self.parent_id));
-        report_string.push_str(&format!("Feature:{:?}\n", self.feature));
         report_string.push_str(&format!("Split:{:?}\n",self.split));
         report_string.push_str(&format!("Output features:{:?}\n",self.output_features().len()));
         report_string.push_str(&format!("{:?}\n",self.output_features()));
@@ -479,7 +326,6 @@ impl Node {
             depth: self.depth,
             children: children,
 
-            feature: self.feature,
             split: self.split,
 
             prerequisites: self.prerequisites,
@@ -511,7 +357,6 @@ impl Node {
 
             children: stripped_children,
 
-            feature: self.feature,
             split: self.split,
 
             features: features,
@@ -541,7 +386,6 @@ impl Node {
 
             children: stripped_children,
 
-            feature: self.feature.clone(),
             split: self.split.clone(),
 
             features: self.output_features().iter().cloned().collect(),
@@ -591,19 +435,11 @@ impl Node {
         self.output_table.features().iter().map(|f| f.name().clone()).collect()
     }
 
-    pub fn feature(&self) -> &Option<Feature> {
-        &self.feature
-    }
-
-    pub fn feature_name(&self) -> Option<&String> {
-        self.feature.as_ref().map(|f| f.name())
-    }
-
-    pub fn samples_given_prerequisites(&self,prerequisites:&Vec<Prerequisite>) -> Vec<(usize,&Sample)> {
+    pub fn samples_given_prerequisites(&self,prerequisites:&[Prerequisite]) -> Vec<(usize,&Sample)> {
         self.input_table.samples_given_prerequisites(prerequisites)
     }
 
-    pub fn split(&self) -> &Option<f64> {
+    pub fn split(&self) -> &Option<Split> {
         &self.split
     }
 
@@ -714,7 +550,6 @@ impl NodeWrapper {
             depth: self.depth,
             children: children,
 
-            feature: self.feature,
             split: self.split,
 
             prerequisites:self.prerequisites,
@@ -742,8 +577,7 @@ pub struct NodeWrapper {
     pub depth: usize,
     pub children: Vec<NodeWrapper>,
 
-    pub feature: Option<Feature>,
-    pub split: Option<f64>,
+    pub split: Option<Split>,
 
     pub prerequisites: Vec<Prerequisite>,
 
@@ -764,8 +598,7 @@ pub struct StrippedNode {
 
     pub children: Vec<StrippedNode>,
 
-    feature: Option<Feature>,
-    split: Option<f64>,
+    split: Option<Split>,
 
     prerequisites: Vec<Prerequisite>,
 
@@ -786,14 +619,6 @@ impl StrippedNode {
         serde_json::to_string(&self).unwrap()
     }
 
-    pub fn feature(&self) -> &Option<Feature> {
-        &self.feature
-    }
-
-    pub fn feature_name(&self) -> Option<&String> {
-        self.feature.as_ref().map(|f| f.name())
-    }
-
     pub fn features(&self) -> &[Feature] {
         &self.features[..]
     }
@@ -802,7 +627,7 @@ impl StrippedNode {
         &self.samples[..]
     }
 
-    pub fn split(&self) -> &Option<f64> {
+    pub fn split(&self) -> &Option<Split> {
         &self.split
     }
 
@@ -877,9 +702,9 @@ impl StrippedNode {
 
         let mut leaves = vec![];
 
-        if let (Some(feature),Some(split)) = (self.feature_name(),self.split()) {
-            if *vector.get(*header.get(feature).unwrap_or(&(vector.len()+1))).unwrap_or(&drop_mode.cmp()) != drop_mode.cmp() {
-                if vector[header[feature]] > *split {
+        if let Some(Split{feature,value:split, ..}) = self.split() {
+            if *vector.get(*header.get(feature.name()).unwrap_or(&(vector.len()+1))).unwrap_or(&drop_mode.cmp()) != drop_mode.cmp() {
+                if vector[header[feature.name()]] > *split {
                     leaves.extend(self.children[1].predict_leaves(vector, header, drop_mode, prediction_mode));
                 }
                 else {
@@ -1015,7 +840,6 @@ mod node_testing {
 
             children: vec![],
 
-            feature: None,
             split: None,
 
             features: vec![],
@@ -1087,7 +911,7 @@ mod node_testing {
 
         let mut root = simple_node();
 
-        root.feature_parallel_derive(None);
+        root.split_node(8,2,2);
         //
         // println!("{:?}", root.output_table.sort_by_feature("two"));
         // println!("{:?}", root.clone().output_table.parallel_dispersion(&root.output_table.sort_by_feature("two").0,&root.output_table.sort_by_feature("two").1,FeatureThreadPool::new(1)));

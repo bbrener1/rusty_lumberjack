@@ -26,6 +26,16 @@ pub struct MVN {
     prior_strength: (Array<f64,Ix1>),
 }
 
+pub struct CompactMVN {
+    means: Array<f64,Ix1>,
+    variances: Array<f64,Ix1>,
+    covariance: Array<f64,Ix2>,
+    pdet: f64,
+    rank: f64,
+    samples: u32,
+    prior_strength: (Array<f64,Ix1>),
+}
+
 impl MVN {
 
     pub fn identity_prior(samples:u32,features:u32) -> MVN {
@@ -225,7 +235,7 @@ impl MVN {
         let scaled_data: Array<f64,Ix1> = centered_data.iter().zip(&self.variances).map(|(cd,v)| if *v > 0. {cd/v} else {0.}).collect();
 
         let pd = self.pdet;
-        let f = scaled_data.dot(&self.pseudo_precision).dot(&scaled_data);
+        let f = scaled_data.dot(&self.pseudo_precision).dot(&scaled_data) * f64::log2(2.*PI);
         let dn = self.rank * f64::log2(2.*PI);
 
         // eprintln!("D:{:?}",data);
@@ -243,25 +253,66 @@ impl MVN {
 
 
         log_likelihood
-        //
-        // let log_odds = log_likelihood - ((1. - log_likelihood.exp2()).log2());
-        //
-        // eprintln!("LO:{:?}",log_odds);
-        //
-        // log_odds
     }
 
-    // pub fn unadjusted_log_likelihood(&self,data:&ArrayView<f64,Ix1>) -> f64 {
-    //
-    //     let centered_data = (data - &self.means);
-    //
-    //     let scaled_data: Array<f64,Ix1> = centered_data.iter().zip(&self.variances).map(|(cd,v)| if *v > 0. {cd/(v.sqrt())} else {0.}).collect();
-    //
-    //     let f = scaled_data.dot(&self.pseudo_precision).dot(&scaled_data);
-    //
-    //     -0.5 * (f)
-    //
-    // }
+    pub fn quick_masked_likelihood(&self,data:&ArrayView<f64,Ix1>,mask:&ArrayView<bool,Ix1>) -> f64 {
+
+        let included_indices: Vec<usize> = mask.iter().enumerate().flat_map(|(i,m)| if *m {Some(i)} else {None}).collect();
+        let omitted_indices: Vec<usize> = mask.iter().enumerate().flat_map(|(i,m)| if *m {None} else {Some(i)}).collect();
+
+        let masked_means = array_mask(&self.means.view(), mask);
+        let masked_variances = array_mask(&self.variances.view(), mask);
+
+        let a = self.pseudo_precision.select(Axis(0),&included_indices).select(Axis(1),&included_indices);
+        let b = self.pseudo_precision.select(Axis(0),&included_indices).select(Axis(1),&omitted_indices);
+        let c = self.pseudo_precision.select(Axis(0),&omitted_indices).select(Axis(1),&included_indices);
+        let d = self.pseudo_precision.select(Axis(0),&omitted_indices).select(Axis(1),&omitted_indices);
+
+        eprintln!("ABCD:{:?},{:?},{:?},{:?}",a.dim(),b.dim(),c.dim(),d.dim());
+
+        let centered_data = data - &masked_means;
+
+        let scaled_data: Array<f64,Ix1> = centered_data.iter().zip(masked_variances.iter()).map(|(cd,v)| if *v > 0. {cd/v} else {0.}).collect();
+
+        let uau = scaled_data.dot(&a).dot(&scaled_data);
+        let ub = scaled_data.dot(&b);
+        let cu = c.dot(&scaled_data);
+
+        eprintln!("uau:{:?}",uau);
+        eprintln!("ub:{:?}",ub);
+        eprintln!("cu:{:?}",cu);
+
+        let mut f = uau;
+
+        f += ub.dot(&cu);
+
+        let mut power_d = d.clone();
+
+        for i in 0..10 {
+            eprintln!("f:{:?}",f);
+            eprintln!("pd:{:?}",power_d);
+            f += ub.dot(&power_d).dot(&cu);
+            power_d = power_d.dot(&d);
+        }
+
+        let pd = self.pdet;
+        let dn = self.rank * f64::log2(2.*PI);
+
+        // eprintln!("D:{:?}",data);
+        // eprintln!("M:{:?}",self.means);
+        // eprintln!("V:{:?}",self.variances);
+        //
+        // eprintln!("S:{:?}",scaled_data);
+        // eprintln!("P:{:?}",self.pseudo_precision);
+
+        let log_likelihood = -0.5 * (pd + f + dn);
+
+        // eprintln!("PD,F,DN:{},{},{}",pd,f,dn);
+        // eprintln!("LL:{:?}",log_likelihood);
+
+
+        log_likelihood
+    }
 
 
     pub fn masked_likelihood(&self,data:&ArrayView<f64,Ix1>,mask:&ArrayView<bool,Ix1>) -> f64 {
@@ -271,12 +322,8 @@ impl MVN {
         likelihood
     }
 
-    // pub fn unadjusted_masked_likelihood(&self,data:&ArrayView<f64,Ix1>,mask:&ArrayView<bool,Ix1>) -> f64 {
-    //     let masked_normal = self.derive_masked_MVN(mask);
-    //     let masked_data = array_mask(data, mask);
-    //     let likelihood = masked_normal.unadjusted_log_likelihood(&masked_data.view());
-    //     likelihood
-    // }
+
+
 
 
     pub fn derive_masked_MVN(&self,mask:&ArrayView<bool,Ix1>) -> MVN {
@@ -286,7 +333,6 @@ impl MVN {
         let covariance = array_double_mask(&self.covariance.view(), mask);
         let prior_strength = array_mask(&self.prior_strength.view(), mask);
         let (pseudo_precision,pdet,rank) = pinv_pdet(&covariance.view()).unwrap();
-
 
         let samples = means.dim() as u32;
 
@@ -332,6 +378,11 @@ pub fn outer_product(a:&ArrayView<f64,Ix1>,b:&ArrayView<f64,Ix1>) -> Array<f64,I
     }
 
     out
+}
+
+pub fn vec_pinv(v:&ArrayView<f64,Ix1>) -> Array<f64,Ix1> {
+    let sq_magnitude = v.fold(0.,|acc,vv| acc + vv);
+    v/sq_magnitude
 }
 
 pub fn array_mask<T: Copy>(data:&ArrayView<T,Ix1>,mask:&ArrayView<bool,Ix1>) -> Array<T,Ix1> {
@@ -419,39 +470,37 @@ pub fn scale(data:&ArrayView<f64,Ix2>,mask:&ArrayView<bool,Ix2>) -> (Array<f64,I
     return (scaled,means,variances,prior_strength);
 }
 
+pub fn minor_inverse(inverse:&ArrayView<f64,Ix2>,mask:&ArrayView<bool,Ix1>) -> Array<f64,Ix2> {
 
+    // eprintln!("Selecting minor of an inverse");
+    //
+    // eprintln!("Mask:{:?}",mask);
 
-// pub fn array_mask_row<T: Copy + num_traits::Zero>(data:&ArrayView<T,Ix2>,mask:&ArrayView<bool,Ix1>) -> Array<T,Ix2> {
-//     let d: usize = mask.mapv(|b| if b {1_u32} else {0_u32}).into_iter().sum::<u32>() as usize;
-//     let (r,c) = data.dim();
-//     let mut masked: Array<T,Ix2> = Array::zeros((d,c));
-//     for (i,r) in mask.iter().zip(data.axis_iter(Axis(0))).filter(|(b,r)| **b).map(|(b,r)| r).enumerate() {
-//         masked.row_mut(i).assign(&data.row(i));
-//     }
-//     masked
-// }
-//
-// pub fn array_mask_col<T: Copy + num_traits::Zero>(data:&ArrayView<T,Ix2>,mask:&ArrayView<bool,Ix1>) -> Array<T,Ix2> {
-//     let d: usize = mask.mapv(|b| if b {1_u32} else {0_u32}).into_iter().sum::<u32>() as usize;
-//     let (r,c) = data.dim();
-//     let mut masked: Array<T,Ix2> = Array::zeros((r,d));
-//     for (i,c) in mask.iter().zip(data.axis_iter(Axis(1))).filter(|(b,c)| **b).map(|(b,c)| c).enumerate() {
-//         masked.column_mut(i).assign(&data.column(i));
-//     }
-//     masked
-// }
+    let mut minor = array_double_mask(inverse, mask);
 
-// pub fn array_double_mask<T: Copy + num_traits::Zero>(data:&ArrayView<T,Ix2>,mask:&ArrayView<bool,Ix1>) -> Array<T,Ix2> {
-//     let d: usize = mask.mapv(|b| if b {1_u32} else {0_u32}).into_iter().sum::<u32>() as usize;
-//     let mut masked: Array<T,Ix2> = Array::zeros((d,d));
-//     for (i,r) in mask.iter().zip(data.axis_iter(Axis(0))).filter(|(b,r)| **b).map(|(b,r)| r).enumerate() {
-//         for (j,v) in mask.iter().zip(r.iter()).filter(|(b,v)| **b).map(|(b,v)| v).enumerate() {
-//             masked[[i,j]] = *v;
-//         }
-//     }
-//     masked
-// }
+    // eprintln!("Minor:{:?}",minor.dim());
 
+    let selected_indices: Vec<usize> = (0..mask.dim()).zip(mask.iter()).flat_map(|(i,&m)| if m {Some(i)} else {None}).collect();
+    let omitted_indices: Vec<usize> = (0..mask.dim()).zip(mask.iter()).flat_map(|(i,&m)| if m {None} else {Some(i)}).collect();
+
+    // eprintln!("Selected Indices:{:?}",selected_indices);
+    // eprintln!("Omitted Indices:{:?}",omitted_indices);
+
+    let left = inverse.select(Axis(0),&selected_indices).select(Axis(1),&omitted_indices);
+    let right = inverse.select(Axis(0),&omitted_indices).select(Axis(1),&selected_indices);
+
+    // eprintln!("L:{:?}",left.dim());
+    // eprintln!("R:{:?}",right.dim());
+
+    let augmentation = left.dot(&right);
+
+    // eprintln!("A:{:?}",augmentation.dim());
+
+    minor = minor + augmentation;
+
+    minor
+
+}
 
 #[cfg(test)]
 mod tree_braider_tests {
@@ -557,6 +606,19 @@ mod tree_braider_tests {
         let iris = iris_matrix();
         let mask = Array::from_shape_fn((150,4),|_| true);
         eprintln!("{:?}",scale(&iris.view(), &mask.view()));
+    }
+
+    #[test]
+    fn test_mvn_order_op() {
+        let a: Array<f64,Ix1> = array![1.,2.,3.];
+        let b: Array<f64,Ix2> = array![[1.,2.,3.]];
+        let c: Array<f64,Ix2> = array![[1.],[2.],[3.]];
+        let d: Array<f64,Ix2> = array![[1.,2.,3.],[4.,5.,6.],[7.,8.,9.]];
+        eprintln!("{:?}",a.dot(&d));
+        eprintln!("{:?}",b.dot(&d));
+        eprintln!("{:?}",c.dot(&d));
+        eprintln!("{:?}",vec_pinv(&a.view()));
+        panic!();
     }
 
 

@@ -16,5 +16,6 @@ smallvec = "0.6"
 ndarray = "0.12"
 ndarray-linalg = { version = "0.10" }
 
+rayon = "1"
 
 num-traits = "0.2"

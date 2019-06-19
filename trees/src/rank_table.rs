@@ -11,6 +11,8 @@ use crate::feature_thread_pool::FeatureMessage;
 use crate::Feature;
 use crate::Sample;
 use crate::Prerequisite;
+use crate::Split;
+use crate::{l1_sum,l2_sum};
 use crate::io::NormMode;
 use crate::io::DispersionMode;
 use crate::rank_vector::RankVector;
@@ -108,7 +110,7 @@ impl RankTable {
         self.dispersions().into_iter().zip(self.dispersions().into_iter()).map(|x| x.0/x.1).map(|y| if y.is_nan() {0.} else {y}).collect()
     }
 
-    pub fn mask_prerequisites(&self,prerequisites:&Vec<Prerequisite>) -> Vec<bool> {
+    pub fn mask_prerequisites(&self,prerequisites:&[Prerequisite]) -> Vec<bool> {
         let mut mask = vec![true;self.dimensions.1];
         for p in prerequisites {
             if let Some(fi) = self.features.iter().position(|x| x == &p.feature) {
@@ -131,7 +133,7 @@ impl RankTable {
         mask
     }
 
-    pub fn samples_given_prerequisites(&self,prerequisites:&Vec<Prerequisite>) -> Vec<(usize,&Sample)> {
+    pub fn samples_given_prerequisites(&self,prerequisites:&[Prerequisite]) -> Vec<(usize,&Sample)> {
         let mask = self.mask_prerequisites(prerequisites);
         self.samples.iter()
             .zip(mask.iter())
@@ -251,156 +253,69 @@ impl RankTable {
 
     }
 
+    pub fn order_dispersions(&self,draw_order:&[usize],drop_set:&HashSet<usize>,feature_weights:&[f64]) -> Option<Vec<f64>> {
+        let full_dispersion = self.full_dispersion(draw_order,drop_set);
 
-    pub fn parallel_split_order_min(&self,draw_order:&Vec<usize>, drop_set: &HashSet<usize>,feature_weights:Option<&Vec<f64>>, pool:mpsc::Sender<FeatureMessage>) -> Option<(usize,usize,f64)> {
-
-        if draw_order.len() < 6 {
-            return None;
-        };
-
-        let disp_mtx_opt: Option<Vec<Vec<f64>>> = self.parallel_dispersion(draw_order,drop_set,pool);
-
-        if let Some(disp_mtx) = disp_mtx_opt {
-
-            if let Some((split_index, raw_split_dispersion)) = match self.norm_mode {
-                NormMode::L1 => l1_minimum(&disp_mtx, feature_weights.unwrap_or(&vec![1.;self.features.len()])),
-                NormMode::L2 => l2_minimum(&disp_mtx, feature_weights.unwrap_or(&vec![1.;self.features.len()])),
-            } {
-
-                // println!("Raw dispersion: {}", raw_split_dispersion);
-
-                let split_sample_index = draw_order[split_index];
-
-                let minimum = (split_index,split_sample_index,raw_split_dispersion * ((self.samples.len() - draw_order.len() + 1) as f64));
-
-                // println!("Minimum: {:?}", minimum);
-
-                Some(minimum)
-
-            }
-            else { None }
-
+        match self.norm_mode {
+            NormMode::L1 => { Some(l1_sum(full_dispersion.as_ref()?,feature_weights))},
+            NormMode::L2 => { Some(l2_sum(full_dispersion.as_ref()?,feature_weights))},
         }
-        else { None }
     }
 
-    pub fn parallel_split_order_max(&mut self,draw_order:&Vec<usize>, drop_set: &HashSet<usize>,feature_weights:Option<&Vec<f64>>, pool:mpsc::Sender<FeatureMessage>) -> Option<(usize,f64)> {
+    pub fn full_dispersion(&self,draw_order:&[usize], drop_set: &HashSet<usize>) -> Option<Vec<Vec<f64>>> {
 
         if draw_order.len() < 6 {
-            return None;
-        };
-
-        let disp_mtx_opt: Option<Vec<Vec<f64>>> = self.parallel_dispersion(draw_order,drop_set,pool);
-
-        if let Some(disp_mtx) = disp_mtx_opt {
-
-            let mut maximum = match self.norm_mode {
-                NormMode::L1 => l1_maximum(&disp_mtx, feature_weights.unwrap_or(&vec![1.;self.features.len()])),
-                NormMode::L2 => l2_maximum(&disp_mtx, feature_weights.unwrap_or(&vec![1.;self.features.len()])),
-            };
-
-            maximum = maximum.map(|z| (z.0, z.1 * draw_order.len() as f64));
-
-            maximum
-
-        }
-        else { None }
-    }
-
-    pub fn parallel_dispersion(&self,draw_order:&Vec<usize>, drop_set: &HashSet<usize>, pool:mpsc::Sender<FeatureMessage>) -> Option<Vec<Vec<f64>>> {
-
-        let forward_draw_arc = Arc::new(draw_order.clone());
-        let reverse_draw_arc: Arc<Vec<usize>> = Arc::new(draw_order.iter().cloned().rev().collect());
-
-        let drop_arc = Arc::new(drop_set.clone());
-
-        if forward_draw_arc.len() < 6 {
             return None
         }
 
-        let mut forward_dispersions: Vec<Vec<f64>> = vec![vec![0.;self.dimensions.0];forward_draw_arc.len()+1];
-        let mut reverse_dispersions: Vec<Vec<f64>> = vec![vec![0.;self.dimensions.0];reverse_draw_arc.len()+1];
+        let mut forward_dispersions: Vec<Vec<f64>> = vec![vec![0.;self.dimensions.0];draw_order.len()+1];
+        let mut reverse_dispersions: Vec<Vec<f64>> = vec![vec![0.;self.dimensions.0];draw_order.len()+1];
 
-        let mut forward_receivers = Vec::with_capacity(self.dimensions.0);
-        let mut reverse_receivers = Vec::with_capacity(self.dimensions.0);
+        let mut worker_vec = RankVector::empty_sv();
 
-        // let cd = self.dispersions();
-        // let cm = self.medians();
-
-        for feature in self.meta_vector.iter().cloned() {
-            let (tx,rx) = mpsc::channel();
-            pool.send(FeatureMessage::Message((feature,forward_draw_arc.clone(),drop_arc.clone(),self.dispersion_mode),tx));
-            forward_receivers.push(rx);
+        for (i,v) in self.meta_vector.iter().enumerate() {
+            worker_vec.clone_from_prototype(v);
+            let fd = match self.dispersion_mode {
+                DispersionMode::Variance => worker_vec.ordered_variance(&draw_order,&drop_set),
+                DispersionMode::MAD => worker_vec.ordered_mads(&draw_order,&drop_set),
+                DispersionMode::SSME => worker_vec.ordered_ssme(&draw_order, &drop_set),
+                DispersionMode::SME => worker_vec.ordered_sme(&draw_order,&drop_set),
+                DispersionMode::Mixed => panic!("Mixed mode not a valid split setting for individual trees!"),
+            };
+            for (j,fr) in fd.into_iter().enumerate() {
+                forward_dispersions[j][i] = fr;
+            }
         }
 
-        for (i,fr) in forward_receivers.iter().enumerate() {
-            if let Ok(disp) = fr.recv() {
-                for (j,g) in disp.into_iter().enumerate() {
-                    // println!("{:?}", g);
-                    forward_dispersions[j][i] = g;
-                }
-            }
-            else {
-                panic!("Parellelization error!")
-            }
+        let mut reverse_draw_order:Vec<usize> = draw_order.to_owned();
+        reverse_draw_order.reverse();
 
+        for (i,v) in self.meta_vector.iter().enumerate() {
+            worker_vec.clone_from_prototype(v);
+            let mut rd = match self.dispersion_mode {
+                DispersionMode::Variance => worker_vec.ordered_variance(&reverse_draw_order,&drop_set),
+                DispersionMode::MAD => worker_vec.ordered_mads(&reverse_draw_order,&drop_set),
+                DispersionMode::SSME => worker_vec.ordered_ssme(&reverse_draw_order, &drop_set),
+                DispersionMode::SME => worker_vec.ordered_sme(&reverse_draw_order,&drop_set),
+                DispersionMode::Mixed => panic!("Mixed mode not a valid split setting for individual trees!"),
+            };
+            for (j,rr) in rd.into_iter().enumerate() {
+                reverse_dispersions[reverse_draw_order.len() - j][i] = rr;
+            }
         }
 
-        for feature in self.meta_vector.iter().cloned() {
-            let (tx,rx) = mpsc::channel();
-            pool.send(FeatureMessage::Message((feature,reverse_draw_arc.clone(),drop_arc.clone(),self.dispersion_mode),tx));
-            reverse_receivers.push(rx);
-        }
-
-        for (i,rr) in reverse_receivers.iter().enumerate() {
-            if let Ok(disp) = rr.recv() {
-                for (j,g) in disp.into_iter().enumerate() {
-                    reverse_dispersions[reverse_draw_arc.len() - j][i] = g;
-                }
-            }
-            else {
-                panic!("Parellelization error!")
-            }
-
-        }
+        assert_eq!(draw_order.len(),7);
+        assert_eq!(forward_dispersions.len(),8);
+        assert_eq!(reverse_dispersions.len(),8);
 
         let len = forward_dispersions.len();
-
-        // println!("{:?}",forward_dispersions);
-        // println!("{:?}",reverse_dispersions);
-
         let mut dispersions: Vec<Vec<f64>> = vec![vec![0.;self.dimensions.0];len];
-
-        // match self.dispersion_mode {
-        //     DispersionMode::SSME | DispersionMode::SME => {
-        //         for (i,(f_s,r_s)) in forward_dispersions.into_iter().zip(reverse_dispersions.into_iter()).enumerate() {
-        //             for (j,(gf,gr)) in f_s.into_iter().zip(r_s.into_iter()).enumerate() {
-        //                 dispersions[i][j] = gf + gr;
-        //             }
-        //         }
-        //     }
-        //     _ => {
-        //         for (i,(f_s,r_s)) in forward_dispersions.into_iter().zip(reverse_dispersions.into_iter()).enumerate() {
-        //             for (j,(gf,gr)) in f_s.into_iter().zip(r_s.into_iter()).enumerate() {
-        //                 dispersions[i][j] = (gf * ((len - i) as f64 / len as f64).powi(self.split_fraction_regularization)) + (gr * ((i+1) as f64/ len as f64).powi(self.split_fraction_regularization));
-        //             }
-        //         }
-        //     }
-        // }
 
         for (i,(f_s,r_s)) in forward_dispersions.into_iter().zip(reverse_dispersions.into_iter()).enumerate() {
             for (j,(gf,gr)) in f_s.into_iter().zip(r_s.into_iter()).enumerate() {
                 dispersions[i][j] = (gf * ((len - i) as f64 / len as f64).powi(self.split_fraction_regularization)) + (gr * ((i+1) as f64/ len as f64).powi(self.split_fraction_regularization));
             }
         }
-
-
-        // println!("{:?}", covs);
-        //
-        // println!("___________________________________________________________________________");
-        // println!("___________________________________________________________________________");
-        // println!("___________________________________________________________________________");
-
 
         Some(dispersions)
 
@@ -456,68 +371,7 @@ impl RankTableWrapper {
 
 
 
-pub fn l2_minimum(mtx_in:&Vec<Vec<f64>>, weights: &Vec<f64>) -> Option<(usize,f64)> {
 
-    let weight_sum = weights.iter().sum::<f64>();
-
-    let sample_sums = mtx_in.iter().map(|sample| {
-        sample.iter().enumerate().map(|(i,feature)| feature.powi(2) * weights[i]).sum::<f64>() / weight_sum
-    }).map(|sum| if sum.is_normal() || sum == 0. {sum} else {f64::INFINITY});
-
-    // println!("Scoring:");
-    // println!("{:?}", mtx_in.iter().map(|sample| {
-    //     sample.iter().enumerate().map(|(i,feature)| feature.powi(2) * weights[i]).sum::<f64>() / weight_sum
-    // }).map(|sum| if sum.is_normal() || sum == 0. {sum} else {f64::INFINITY}).enumerate().collect::<Vec<(usize,f64)>>());
-
-    sample_sums.enumerate().skip(3).rev().skip(3).min_by(|a,b| a.1.partial_cmp(&b.1).unwrap_or(Ordering::Greater))
-
-}
-
-pub fn l1_minimum(mtx_in:&Vec<Vec<f64>>, weights: &Vec<f64>) -> Option<(usize,f64)> {
-
-    let weight_sum = weights.iter().sum::<f64>();
-
-    let sample_sums = mtx_in.iter().map(|sample| {
-        sample.iter().enumerate().map(|(i,feature)| feature * weights[i] ).sum::<f64>() / weight_sum
-    }).map(|sum| if sum.is_normal() || sum == 0. {sum} else {f64::INFINITY});
-
-    // println!("Scoring:");
-    // println!("{:?}", mtx_in.iter().map(|sample| {
-    //     sample.iter().enumerate().map(|(i,feature)| feature * weights[i]).sum::<f64>() / weight_sum
-    // }).map(|sum| if sum.is_normal() || sum == 0. {sum} else {f64::INFINITY}).enumerate().collect::<Vec<(usize,f64)>>());
-
-    sample_sums.enumerate().skip(3).rev().skip(3).min_by(|a,b| a.1.partial_cmp(&b.1).unwrap_or(Ordering::Greater))
-
-}
-
-pub fn l2_maximum(mtx_in:&Vec<Vec<f64>>, weights: &Vec<f64>) -> Option<(usize,f64)> {
-
-    let weight_sum = weights.iter().sum::<f64>();
-
-    let sample_sums = mtx_in.iter().map(|sample| {
-        sample.iter().enumerate().map(|(i,feature)| feature.powi(2) * weights[i]).sum::<f64>() / weight_sum
-    }).map(|sum| if sum.is_normal() || sum == 0. {sum} else {0.});
-
-    sample_sums.enumerate().skip(3).rev().skip(3).max_by(|a,b| a.1.partial_cmp(&b.1).unwrap_or(Ordering::Greater))
-
-}
-
-pub fn l1_maximum(mtx_in:&Vec<Vec<f64>>, weights: &Vec<f64>) -> Option<(usize,f64)> {
-
-    let weight_sum = weights.iter().sum::<f64>();
-
-    let sample_sums = mtx_in.iter().map(|sample| {
-        sample.iter().enumerate().map(|(i,feature)| feature * weights[i] ).sum::<f64>() / weight_sum
-    }).map(|sum| if sum.is_normal() || sum == 0. {sum} else {0.});
-
-    // println!("Scoring:");
-    // println!("{:?}", mtx_in.iter().map(|sample| {
-    //     sample.iter().enumerate().map(|(i,feature)| feature * weights[i]).sum::<f64>() / weight_sum
-    // }).map(|sum| if sum.is_normal() || sum == 0. {sum} else {0.}).enumerate().collect::<Vec<(usize,f64)>>());
-
-    sample_sums.enumerate().skip(3).rev().skip(3).max_by(|a,b| a.1.partial_cmp(&b.1).unwrap_or(Ordering::Greater))
-
-}
 
 #[cfg(test)]
 mod rank_table_tests {

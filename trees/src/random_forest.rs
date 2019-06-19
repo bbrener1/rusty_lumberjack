@@ -21,7 +21,7 @@ use crate::io::TreeBackups;
 use crate::Feature;
 use crate::Sample;
 use crate::split_thread_pool::SplitThreadPool;
-use crate::tree_thread_pool::TreeThreadPool;
+// use crate::tree_thread_pool::TreeThreadPool;
 // use predictor::predict;
 // use compact_predictor::compact_predict;
 // use weigh_leaves::weigh_leaves;
@@ -60,27 +60,16 @@ impl Forest {
 
         if let Some(ref prototype) = self.prototype_tree {
 
-            let mut tree_receivers = Vec::with_capacity(self.size);
-
-            let mut tree_pool = TreeThreadPool::new(self.prototype_tree.as_ref().unwrap(), parameters );
-
             for tree in 1..self.size+1 {
 
-                let (tx,rx) = mpsc::channel();
-
-                tree_pool.send((tree,tx));
-
-                tree_receivers.push(rx);
-
-            }
-
-            for receiver in tree_receivers {
-                println!("Unwrapping tree");
-                let new_tree = receiver.recv().unwrap();
+                let new_tree = self.prototype_tree.;
                 new_tree.serialize_compact();
                 if remember {
                     self.predictive_trees.push(new_tree);
                 }
+
+            }
+
 
             }
 

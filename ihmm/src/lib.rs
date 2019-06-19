@@ -95,8 +95,12 @@ impl HiddenState {
         }
     }
 
-    fn feature_log_odds(&self,data:&ArrayView<f64,Ix1>,mask:&ArrayView<bool,Ix1>) -> f64 {
+    fn feature_log_likelihood(&self,data:&ArrayView<f64,Ix1>,mask:&ArrayView<bool,Ix1>) -> f64 {
         self.emission_model.masked_likelihood(data, mask)
+    }
+
+    fn feature_quick_likelihood(&self,data:&ArrayView<f64,Ix1>,mask:&ArrayView<bool,Ix1>) -> f64 {
+        self.emission_model.quick_masked_likelihood(data, mask)
     }
 
     fn mixture_log_odds(&self,state:Option<usize>) -> f64 {
@@ -213,11 +217,13 @@ impl IHMM {
 
         eprint!("{:?}:[",node_index);
         for (si,state) in self.hidden_states.iter().enumerate() {
-            let feature_log_odds = state.feature_log_odds(&features,&mask);
+            let feature_log_odds = state.feature_log_likelihood(&features,&mask);
+            let quick_feature_log_odds = state.feature_quick_likelihood(&features,&mask) / 3.;
             // let mixture_log_odds = state.mixture_log_odds(cls) + state.mixture_log_odds(crs);
             let mixture_log_odds = self.dp_transition_model.log_odds(&Some(si)).unwrap();
             // let mixture_log_odds = 0.;
             eprint!("({:?},",feature_log_odds);
+            eprint!("{:?},", quick_feature_log_odds);
             eprint!("{:?}),",mixture_log_odds);
             state_log_odds.push(feature_log_odds + mixture_log_odds);
         }
@@ -725,9 +731,9 @@ pub mod tree_braider_tests {
     //
     #[test]
     fn test_markov_multipart() {
-        // let mut model = iris_model();
-        let mut model = gene_model();
-        model.initialize(20);
+        let mut model = iris_model();
+        // let mut model = gene_model();
+        model.initialize(10);
         for state in &model.hidden_states {
             eprintln!("Population: {:?}",state.nodes.len());
             eprintln!("MEANS");
@@ -735,7 +741,7 @@ pub mod tree_braider_tests {
             eprintln!("PDET");
             eprintln!("{:?}",state.emission_model.pdet());
         }
-        for i in 0..100000 {
+        for i in 0..100 {
             model.sweep();
             for state in &model.hidden_states {
                 eprintln!("{:?}",state);

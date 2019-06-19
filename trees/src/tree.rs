@@ -16,7 +16,6 @@ extern crate rand;
 
 use crate::node::{Node,NodeWrapper,StrippedNode};
 use crate::{Feature,Sample};
-use crate::split_thread_pool::SplitThreadPool;
 use crate::split_thread_pool::SplitMessage;
 use crate::io::DispersionMode;
 use crate::io::DropMode;
@@ -25,7 +24,6 @@ use crate::io::Parameters;
 
 #[derive(Clone)]
 pub struct Tree {
-    split_thread_pool: mpsc::Sender<SplitMessage>,
     pub root: Node,
     dropout: DropMode,
     weights: Option<Vec<f64>>,
@@ -39,14 +37,12 @@ impl<'a> Tree {
     pub fn prototype_tree(inputs:&Vec<Vec<f64>>,outputs:&Vec<Vec<f64>>,input_features:&[Feature],output_features:&[Feature],samples:&[Sample], feature_weight_option: Option<Vec<f64>>, parameters: Arc<Parameters> ,report_address: String) -> Tree {
         // let pool = ThreadPool::new(processor_limit);
         let processor_limit = parameters.processor_limit;
-        let split_thread_pool = SplitThreadPool::new(1);
         // let mut root = Node::root(counts,feature_names,sample_names,input_features,output_features,pool.clone());
         let root = Node::feature_root(inputs,outputs,input_features,output_features,samples, parameters.clone() , feature_weight_option.clone() ,split_thread_pool.clone());
         let weights = feature_weight_option;
 
         Tree{
             // pool: pool,
-            split_thread_pool: split_thread_pool,
             root: root,
             dropout: parameters.dropout,
             weights: weights,
@@ -149,14 +145,14 @@ impl<'a> Tree {
     }
 
 
-    pub fn grow_branches(&mut self,prototype:&Tree) {
-        grow_branches(&mut self.root,prototype, self.size_limit, self.depth_limit ,&self.report_address,0);
+    pub fn grow_branches(&mut self,prototype:&Tree,parameters:Arc<Parameters>) {
+        grow_branches(&mut self.root,prototype, parameters,0);
         self.root.root_absolute_gains();
     }
 
     pub fn derive_specified(&self,samples:&Vec<usize>,input_features:&Vec<usize>,output_features:&Vec<usize>,iteration: usize) -> Tree {
 
-        let new_root = self.root.derive_specified(samples,input_features,output_features,"RT",None);
+        let new_root = self.root.derive_specified(samples,input_features,output_features,None,"RT");
 
         let mut address: Vec<String> = self.report_address.split('.').map(|x| x.to_string()).collect();
         *address.last_mut().unwrap() = iteration.to_string();
@@ -173,39 +169,6 @@ impl<'a> Tree {
             report_address: address_string,
         }
 
-    }
-
-    pub fn derive_from_prototype(&self, samples:usize,input_features:usize,output_features:usize,iteration: usize) -> Tree {
-
-        println!("Deriving from prototype: {},{},{}",samples,input_features,output_features);
-
-        let new_root = self.root.derive_random(samples,input_features,output_features,"RT",None);
-
-        let mut address: Vec<String> = self.report_address.split('.').map(|x| x.to_string()).collect();
-        *address.last_mut().unwrap() = iteration.to_string();
-        let mut address_string: String = address.iter().zip(repeat(".")).fold(String::new(),|mut acc,x| {acc.push_str(x.0); acc.push_str(x.1); acc});
-        address_string.pop();
-
-        println!("Derived from prototype, rank table size: {:?}", new_root.dimensions());
-
-        Tree{
-            // pool: self.pool.clone(),
-            split_thread_pool: self.split_thread_pool.clone(),
-            root: new_root,
-            dropout: self.dropout,
-            weights: self.weights.clone(),
-            size_limit: self.size_limit,
-            depth_limit: self.depth_limit,
-            report_address: address_string,
-        }
-
-    }
-
-    pub fn derive_to_specified_pool(&self, samples:usize,input_features:usize,output_features:usize,iteration: usize, pool: mpsc::Sender<SplitMessage>) -> Tree {
-        let mut new_tree = self.derive_from_prototype(samples, input_features, output_features, iteration);
-        new_tree.root.set_pool(&pool);
-        new_tree.split_thread_pool = pool;
-        new_tree
     }
 
     pub fn set_scoring_weights(&mut self, weights: Vec<f64>) {
@@ -308,12 +271,11 @@ impl<'a> Tree {
 }
 
 
-pub fn grow_branches(target:&mut Node, prototype:&Tree, size_limit:usize,depth_limit:usize,report_address:&str,level:usize) {
-    if target.samples().len() > size_limit && level < depth_limit {
-        // if target.feature_parallel_derive(Some(&prototype.root)).is_some() {
-        if target.feature_parallel_derive(None).is_some() {
+pub fn grow_branches(target:&mut Node, prototype:&Tree, parameters: Arc<Parameters>,level:usize) {
+    if target.samples().len() > parameters.leaf_size_cutoff && level < parameters.depth_cutoff {
+        if target.split_node(parameters.sample_subsample,parameters.input_features,parameters.output_features).is_some() {
             for child in target.children.iter_mut() {
-                grow_branches(child, prototype, size_limit, depth_limit, report_address, level+1);
+                grow_branches(child, prototype,parameters.clone(), level+1);
             }
         }
     }

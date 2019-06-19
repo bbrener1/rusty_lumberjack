@@ -735,7 +735,7 @@ impl<T: Borrow<[Node]> + BorrowMut<[Node]> + Index<usize,Output=Node> + IndexMut
         // self.nodes[0..self.raw_len()].map(|x| x.data).collect()
     }
 
-    pub fn ordered_meds_mads(&mut self,draw_order: &Vec<usize>,drop_set: HashSet<usize>) -> Vec<(f64,f64)> {
+    pub fn ordered_meds_mads(&mut self,draw_order: &[usize],drop_set: HashSet<usize>) -> Vec<(f64,f64)> {
 
         for dropped_sample in drop_set {
             self.pop(dropped_sample);
@@ -751,7 +751,7 @@ impl<T: Borrow<[Node]> + BorrowMut<[Node]> + Index<usize,Output=Node> + IndexMut
         meds_mads
     }
 
-    pub fn ordered_mad_gains(&mut self,draw_order: &Vec<usize>, drop_set: &HashSet<usize>) -> Vec<f64> {
+    pub fn ordered_mad_gains(&mut self,draw_order: &[usize], drop_set: &HashSet<usize>) -> Vec<f64> {
 
         for dropped_sample in drop_set {
             self.pop(*dropped_sample);
@@ -771,7 +771,7 @@ impl<T: Borrow<[Node]> + BorrowMut<[Node]> + Index<usize,Output=Node> + IndexMut
 
     }
 
-    pub fn ordered_variance(&mut self,draw_order: &Vec<usize>, drop_set: &HashSet<usize>) -> Vec<f64> {
+    pub fn ordered_variance(&mut self,draw_order: &[usize], drop_set: &HashSet<usize>) -> Vec<f64> {
 
         for dropped_sample in drop_set {
             self.pop(*dropped_sample);
@@ -799,7 +799,7 @@ impl<T: Borrow<[Node]> + BorrowMut<[Node]> + Index<usize,Output=Node> + IndexMut
 
     }
 
-    pub fn ordered_ssme(&mut self,draw_order: &Vec<usize>, drop_set: &HashSet<usize>) -> Vec<f64> {
+    pub fn ordered_ssme(&mut self,draw_order: &[usize], drop_set: &HashSet<usize>) -> Vec<f64> {
 
         for dropped_sample in drop_set {
             self.pop(*dropped_sample);
@@ -833,7 +833,7 @@ impl<T: Borrow<[Node]> + BorrowMut<[Node]> + Index<usize,Output=Node> + IndexMut
 
     }
 
-    pub fn ordered_sme(&mut self,draw_order: &Vec<usize>, drop_set: &HashSet<usize>) -> Vec<f64> {
+    pub fn ordered_sme(&mut self,draw_order: &[usize], drop_set: &HashSet<usize>) -> Vec<f64> {
 
         for dropped_sample in drop_set {
             self.pop(*dropped_sample);
@@ -864,7 +864,7 @@ impl<T: Borrow<[Node]> + BorrowMut<[Node]> + Index<usize,Output=Node> + IndexMut
 
     }
 
-    pub fn ordered_mads(&mut self,draw_order: &Vec<usize>,drop_set: &HashSet<usize>) -> Vec<f64> {
+    pub fn ordered_mads(&mut self,draw_order: &[usize],drop_set: &HashSet<usize>) -> Vec<f64> {
 
         for dropped_sample in drop_set {
             self.pop(*dropped_sample);
@@ -888,7 +888,8 @@ impl<T: Borrow<[Node]> + BorrowMut<[Node]> + Index<usize,Output=Node> + IndexMut
     }
 
 
-    pub fn ordered_covs(&mut self,draw_order: &Vec<usize>,drop_set: &HashSet<usize>) -> Vec<f64> {
+
+    pub fn ordered_covs(&mut self,draw_order: &[usize],drop_set: &HashSet<usize>) -> Vec<f64> {
 
         for dropped_sample in drop_set {
             self.pop(*dropped_sample);
@@ -1145,6 +1146,8 @@ impl RankVector<Vec<Node>> {
 
         local_node_vector.clear();
 
+        local_node_vector.reserve(self.nodes.len());
+
         for node in &self.nodes {
             local_node_vector.push(*node);
         }
@@ -1175,7 +1178,6 @@ impl RankVector<Vec<Node>> {
         new_vector
 
     }
-
 
 }
 
@@ -1516,7 +1518,7 @@ mod rank_vector_tests {
         assert_eq!(kid1.var(),31.25);
         assert_eq!(kid1.rank_order,Some(vec![1,0,2,3]));
     }
-
+    //
     // #[bench]
     // fn bench_rv3_ordered_values_vector(b: &mut Bencher) {
     //     let mut vector = RankVector::<Vec<Node>>::link(&vec![10.,-3.,0.,5.,-2.,-1.,15.,20.],);
@@ -1583,6 +1585,7 @@ mod rank_vector_tests {
     //
     //     b.iter(move || {
     //         let mut vm = vector.clone_to_container(SmallVec::<[Node;1024]>::with_capacity(8));
+    //
     //     });
     // }
     //
@@ -1609,6 +1612,7 @@ mod rank_vector_tests {
     //
     //     b.iter(move || {
     //         vm.clone_from_prototype(&vector);
+    //         vm.len()
     //     });
     //
     // }
@@ -1625,6 +1629,19 @@ mod rank_vector_tests {
     //         vector.clone().ordered_mads(&draw_order,&drop_set));
     // }
     //
+    // #[bench]
+    // fn bench_rv3_ordered_mads_new_small(b: &mut Bencher) {
+    //     let mut vector = RankVector::<Vec<Node>>::link(&vec![10.,-3.,0.,5.,-2.,-1.,15.,20.],);
+    //     vector.drop_f(0.);
+    //
+    //     let draw_order = vector.draw_order();
+    //     let drop_set = vector.drop_set.as_ref().unwrap().clone();
+    //
+    //     b.iter(||
+    //         {let sv = SmallVec::new();
+    //         vector.clone_to_container(sv).ordered_mads(&draw_order,&drop_set);}
+    //     );
+    // }
     //
     // #[bench]
     // fn bench_rv3_ordered_mads_local_clone_smallvec(b: &mut Bencher) {
