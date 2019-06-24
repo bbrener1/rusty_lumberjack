@@ -7,7 +7,6 @@ use std::sync::mpsc;
 extern crate rand;
 use std::f64;
 
-use crate::feature_thread_pool::FeatureMessage;
 use crate::Feature;
 use crate::Sample;
 use crate::Prerequisite;
@@ -287,7 +286,6 @@ mod rank_table_tests {
 
     use super::*;
     use smallvec::SmallVec;
-    use crate::feature_thread_pool::FeatureThreadPool;
 
     fn blank_parameter() -> Arc<Parameters> {
         let mut parameters = Parameters::empty();

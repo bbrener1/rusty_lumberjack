@@ -18,7 +18,6 @@ use crate::Feature;
 use crate::Sample;
 use crate::Prerequisite;
 use crate::Split;
-use crate::split_thread_pool::SplitMessage;
 use crate::io::DropMode;
 use crate::io::PredictionMode;
 use crate::io::Parameters;
@@ -787,8 +786,6 @@ mod node_testing {
 
     use super::*;
     // use ndarray_linalg;
-    use crate::feature_thread_pool::FeatureThreadPool;
-    use crate::split_thread_pool::SplitThreadPool;
 
     fn blank_parameter() -> Arc<Parameters> {
         let mut parameters = Parameters::empty();

@@ -16,7 +16,6 @@ extern crate rand;
 
 use crate::node::{Node,StrippedNode};
 use crate::{Feature,Sample};
-use crate::split_thread_pool::SplitMessage;
 use crate::io::DispersionMode;
 use crate::io::DropMode;
 use crate::io::PredictionMode;
@@ -106,7 +105,7 @@ impl<'a> Tree {
         }
     }
 
-    pub fn reload(location: &str,feature_pool: mpsc::Sender<SplitMessage>, size_limit: usize, depth_limit: usize , report_address: String) -> Result<Tree,Error> {
+    pub fn reload(location: &str, size_limit: usize, depth_limit: usize , report_address: String) -> Result<Tree,Error> {
 
         println!("Reloading!");
 

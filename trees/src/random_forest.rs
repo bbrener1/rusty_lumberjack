@@ -20,7 +20,6 @@ use crate::io::Parameters;
 use crate::io::TreeBackups;
 use crate::Feature;
 use crate::Sample;
-use crate::split_thread_pool::SplitThreadPool;
 // use crate::tree_thread_pool::TreeThreadPool;
 // use predictor::predict;
 // use compact_predictor::compact_predict;
@@ -109,8 +108,6 @@ impl Forest {
 
         let processor_limit = processor_option.unwrap_or(1);
 
-        let split_thread_pool = SplitThreadPool::new(processor_limit);
-
 
         match tree_locations {
             TreeBackups::File(location) => {
@@ -161,21 +158,19 @@ impl Forest {
 
         let processor_limit = processor_option.unwrap_or(1);
 
-        let split_thread_pool = SplitThreadPool::new(processor_limit);
-
         match tree_locations {
             TreeBackups::File(location) => {
                 let tree_file = File::open(location)?;
                 let mut tree_locations: Vec<String> = io::BufReader::new(&tree_file).lines().map(|x| x.expect("Tree location error!")).collect();
                 trees = Vec::with_capacity(tree_locations.len());
                 for loc in tree_locations {
-                    trees.push(Tree::reload(&loc,split_thread_pool.clone(),1,1,"".to_string())?);
+                    trees.push(Tree::reload(&loc,1,1,"".to_string())?);
                 }
             }
             TreeBackups::Vector(tree_locations) => {
                 trees = Vec::with_capacity(tree_locations.len());
                 for loc in tree_locations {
-                    trees.push(Tree::reload(&loc,split_thread_pool.clone(),1,1,"".to_string())?);
+                    trees.push(Tree::reload(&loc,1,1,"".to_string())?);
                 }
             }
             TreeBackups::Trees(backup_trees) => {

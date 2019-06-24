@@ -29,9 +29,6 @@ pub mod io;
 pub mod node;
 mod tree;
 mod random_forest;
-mod tree_thread_pool;
-mod feature_thread_pool;
-mod split_thread_pool;
 mod randutils;
 
 
