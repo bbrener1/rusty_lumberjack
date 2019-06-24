@@ -33,11 +33,11 @@ impl Forest {
 
         let report_string = format!("{}.0",report_address).to_string();
 
-        let samples = Sample::nvec_global(&parameters.sample_names);
+        let samples = Sample::nvec(&parameters.sample_names);
 
-        let input_features = Feature::nvec_global(&parameters.input_feature_names);
+        let input_features = Feature::nvec(&parameters.input_feature_names);
 
-        let output_features = Feature::nvec_global(&parameters.output_feature_names);
+        let output_features = Feature::nvec(&parameters.output_feature_names);
 
         let prototype_tree = Tree::prototype_tree(&input_array,&output_array,&input_features,&output_features,&samples,None, parameters.clone() ,report_string);
 

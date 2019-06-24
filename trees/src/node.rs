@@ -45,6 +45,10 @@ pub struct Node {
     output_table: RankTable,
     dropout: DropMode,
 
+    input_features: Vec<Feature>,
+    output_features: Vec<Feature>,
+    samples: Vec<Sample>,
+
     pub parent_id: String,
     pub id: String,
     pub depth: usize,
@@ -67,8 +71,8 @@ impl Node {
 
     pub fn prototype<'a>(input_counts:&Vec<Vec<f64>>,output_counts:&Vec<Vec<f64>>,input_features:&'a[Feature],output_features:&'a[Feature],samples:&'a[Sample], parameters: Arc<Parameters> , feature_weight_option: Option<Vec<f64>>) -> Node {
 
-        let input_table = RankTable::new(input_counts,input_features,samples,parameters.clone());
-        let output_table = RankTable::new(output_counts,output_features,samples,parameters.clone());
+        let input_table = RankTable::new(input_counts,parameters.clone());
+        let output_table = RankTable::new(output_counts,parameters.clone());
         let feature_weights = feature_weight_option.unwrap_or(vec![1.;output_features.len()]);
         let medians = output_table.medians();
         let dispersions = output_table.dispersions();
@@ -81,6 +85,10 @@ impl Node {
             input_table: input_table,
             output_table: output_table,
             dropout: parameters.dropout,
+
+            input_features: input_features.to_owned(),
+            output_features: output_features.to_owned(),
+            samples: samples.to_owned(),
 
             id: "RT".to_string(),
             parent_id: "RT".to_string(),
@@ -161,7 +169,7 @@ impl Node {
         let input_features: Vec<usize> = (0..self.input_features().len()).collect();
         let output_features: Vec<usize> = (0..self.output_features().len()).collect();
 
-        let samples: Vec<usize> = self.samples_given_prerequisites(&prerequisites).iter().flat_map(|s| *s.local_index()).collect();
+        let samples: Vec<usize> = self.indices_given_prerequisites(&prerequisites);
 
         self.derive_specified(&samples,&input_features,&output_features, Some(prerequisites.to_owned()),new_id)
 
@@ -172,6 +180,10 @@ impl Node {
 
         let mut new_input_table = self.input_table.derive_specified(&input_features,samples);
         let mut new_output_table = self.output_table.derive_specified(&output_features,samples);
+
+        let new_input_features = input_features.iter().map(|i| self.input_features[*i].clone()).collect();
+        let new_output_features = output_features.iter().map(|i| self.output_features[*i].clone()).collect();
+        let new_samples = samples.iter().map(|i| self.samples[*i].clone()).collect();
 
         let mut new_prerequisites =
             if let Some(prerequisites) = prerequisite_opt {
@@ -192,6 +204,10 @@ impl Node {
             output_table: new_output_table,
             dropout: self.dropout,
 
+            input_features: new_input_features,
+            output_features: new_output_features,
+            samples: new_samples,
+
             parent_id: self.id.clone(),
             id: new_id.to_string(),
             depth: self.depth + 1,
@@ -207,9 +223,6 @@ impl Node {
             local_gains: None,
             absolute_gains: None
         };
-
-        // assert_eq!(child.input_table.features(),child.output_table.features());
-        assert_eq!(child.input_table.sample_names(),child.output_table.sample_names());
 
         child
     }
@@ -375,36 +388,72 @@ impl Node {
         &self.output_table
     }
 
+    pub fn input_rank_table(&self) -> &RankTable {
+        &self.input_table
+    }
+
     pub fn id(&self) -> &str {
         &self.id
     }
 
     pub fn samples(&self) -> &[Sample] {
-        self.output_table.samples()
+        &self.samples
     }
 
     pub fn sample_names(&self) -> Vec<String> {
-        self.output_table.samples().iter().map(|s| s.name().clone()).collect()
+        self.samples().iter().map(|s| s.name().clone()).collect()
     }
 
     pub fn input_features(&self) -> &[Feature] {
-        self.input_table.features()
+        &self.input_features
     }
 
     pub fn input_feature_names(&self) -> Vec<String> {
-        self.input_table.features().iter().map(|f| f.name().clone()).collect()
+        self.input_features().iter().map(|f| f.name().clone()).collect()
     }
 
     pub fn output_features(&self) -> &[Feature] {
-        self.output_table.features()
+        &self.output_features
     }
 
     pub fn output_feature_names(&self) -> Vec<String> {
-        self.output_table.features().iter().map(|f| f.name().clone()).collect()
+        self.output_features().iter().map(|f| f.name().clone()).collect()
+    }
+
+    // In this function we iterate through prerequisites and select only ones that either were dropped in a given feature
+    // or fulfil a prerequisite
+
+    pub fn indices_given_prerequisites(&self,prerequisites:&[Prerequisite]) -> Vec<usize> {
+
+        // First we create a default-true mask.
+
+        let mut mask = vec![true;self.samples.len()];
+
+        // We then cycle through each prerequisite and figure out the local index of the feature it encodes.
+
+        for prerequisite in prerequisites {
+            if let Some(feature_index) = self.input_features().iter().position(|x| x == &prerequisite.feature) {
+
+                // If the feature is present, we create a mask of samples that fulfil that prerequiste
+                // We then update the total mask by the feature mask
+
+                let Prerequisite{feature,split,orientation} = prerequisite;
+                let feature_mask = self.input_table.feature_value_mask(feature_index,*split,*orientation);
+                for (i,m) in feature_mask.into_iter().enumerate() {
+                    if !m {
+                        mask[i] = false;
+                    }
+                }
+            }
+        };
+
+
+        mask.into_iter().zip(0..self.samples.len()).filter(|(m,s)| *m).map(|(m,s)| s).collect()
+
     }
 
     pub fn samples_given_prerequisites(&self,prerequisites:&[Prerequisite]) -> Vec<&Sample> {
-        self.input_table.samples_given_prerequisites(prerequisites)
+        self.indices_given_prerequisites(prerequisites).into_iter().map(|i| &self.samples[i]).collect()
     }
 
     pub fn split(&self) -> &Option<Split> {
@@ -485,14 +534,11 @@ impl Node {
         output
     }
 
-    pub fn assert_integrity(&self) {
-
-        // Here we check assumptions that must remain true of each node: that each sample in the node fulfills the requiresments
-        // of that node.
-
-        self.input_table.assert_integrity();
-        self.output_table.assert_integrity();
-    }
+    // pub fn assert_integrity(&self) {
+    //
+    //     // Here we check assumptions that must remain true of each node: that each sample in the node fulfills the requiresments
+    //     // of that node.
+    // }
 
 }
 
@@ -833,8 +879,30 @@ mod node_testing {
         println!("{:?}",root.output_table.full_values());
         println!("{:?}",split0);
 
-        panic!();
+        // panic!();
     }
+
+    #[test]
+    fn node_test_subsample() {
+
+        let mut root = simple_node();
+
+
+        for i in 0..1000 {
+            let sub = root.subsample(8, 2, 2);
+            let split_option = sub.rayon_best_split();
+            eprintln!("{:?}",sub.strip_clone());
+            let (draw_order,drop_set) = sub.input_rank_table().sort_by_feature(0);
+            eprintln!("{:?}",(&draw_order,&drop_set));
+            eprintln!("{:?}",sub.output_rank_table().order_dispersions(&draw_order,&drop_set,&sub.feature_weights));
+            eprintln!("{:?}",split_option.unwrap());
+            // if let Some(split) = split_option {
+            //     root.clone().derive_complete_by_split(&split,None);
+            // }
+        }
+
+    }
+
 
     #[test]
     fn node_test_split() {
@@ -846,9 +914,8 @@ mod node_testing {
         println!("{:?}",split);
 
         assert_eq!(split.dispersion,2822.265625);
-        assert_eq!(split.value, -1.);
+        assert_eq!(split.value, 5.);
     }
-
 
     #[test]
     fn node_test_simple() {
@@ -866,10 +933,10 @@ mod node_testing {
         // assert_eq!(root.children[1].samples(),&vec!["0".to_string(),"3".to_string(),"6".to_string(),"7".to_string()]);
 
         assert_eq!(&root.children[0].sample_names(),&vec!["1".to_string(),"2".to_string(),"3".to_string(),"4".to_string(),"5".to_string()]);
-        assert_eq!(&root.children[1].sample_names(),&vec!["0".to_string(),"6".to_string(),"7".to_string()]);
+        assert_eq!(&root.children[1].sample_names(),&vec!["0".to_string(),"2".to_string(),"6".to_string(),"7".to_string()]);
 
-        assert_eq!(&root.children[0].output_table.full_values(),&vec![vec![-3.,5.,-2.,-1.]]);
-        assert_eq!(&root.children[1].output_table.full_values(),&vec![vec![10.,15.,20.]]);
+        assert_eq!(&root.children[0].output_table.full_values(),&vec![vec![-3.,0.,5.,-2.,-1.]]);
+        assert_eq!(&root.children[1].output_table.full_values(),&vec![vec![10.,0.,15.,20.]]);
 
     }
 
