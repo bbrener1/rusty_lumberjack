@@ -22,15 +22,12 @@ use crate::io::DropMode;
 use crate::io::Parameters;
 
 
-// #[derive(Debug,Clone,Serialize,Deserialize)]
-#[derive(Debug,Clone)]
+#[derive(Debug,Clone,Serialize,Deserialize)]
+// #[derive(Debug,Clone)]
 pub struct RankTable {
-    meta_vector: Vec<Arc<RankVector<Vec<Node>>>>,
-    features: Vec<Feature>,
-    samples: Vec<Sample>,
-    index: usize,
+    meta_vector: Vec<RankVector<Vec<Node>>>,
     pub dimensions: (usize,usize),
-    dropout: DropMode,
+    pub dropout: DropMode,
 
     dispersion_mode: DispersionMode,
     norm_mode: NormMode,
@@ -40,7 +37,7 @@ pub struct RankTable {
 
 impl RankTable {
 
-    pub fn new<'a> (counts: &Vec<Vec<f64>>,features: &'a[Feature],samples: &'a[Sample], parameters:Arc<Parameters>) -> RankTable {
+    pub fn new<'a> (counts: &Vec<Vec<f64>>, parameters:Arc<Parameters>) -> RankTable {
 
         let mut meta_vector = Vec::new();
 
@@ -50,7 +47,7 @@ impl RankTable {
             }
             let mut construct = RankVector::<Vec<Node>>::link(loc_counts);
             construct.drop_using_mode(parameters.dropout);
-            meta_vector.push(Arc::new(construct));
+            meta_vector.push(construct);
         }
 
         let dim = (meta_vector.len(),meta_vector.get(0).map(|x| x.raw_len()).unwrap_or(0));
@@ -63,9 +60,6 @@ impl RankTable {
             index:0,
             dimensions:dim,
             dropout:parameters.dropout,
-
-            features: features.iter().cloned().collect(),
-            samples: samples.iter().cloned().collect(),
 
             norm_mode: parameters.norm_mode,
             dispersion_mode: parameters.dispersion_mode,
@@ -110,38 +104,57 @@ impl RankTable {
         self.dispersions().into_iter().zip(self.dispersions().into_iter()).map(|x| x.0/x.1).map(|y| if y.is_nan() {0.} else {y}).collect()
     }
 
+    // This method masks only samples that FAIL the prerequisite condition
+    // Samples that are NaN or dropped will not be masked
+
     pub fn mask_prerequisites(&self,prerequisites:&[Prerequisite]) -> Vec<bool> {
+
+        // We create a default-true mask
+
         let mut mask = vec![true;self.dimensions.1];
         for p in prerequisites {
-            if let Some(fi) = self.features.iter().position(|x| x == &p.feature) {
+
+            // If we have the prerequisite feature available, for each sample, we mask that sample if it is not dropped
+            // and if it does not fulfil the prerequisite.
+
+            if let Some(fi) = self.features.iter().position(|x| x.name() == p.feature.name()) {
                 if p.orientation {
-                    for (i,v) in self.meta_vector[fi].full_values().iter().enumerate() {
-                        if v <= &p.split {
+                    for (i,(d,v)) in self.meta_vector[fi].full_values_with_state().iter().enumerate() {
+                        if v <= &p.split || !d {
                             mask[i] = false;
                         }
                     }
                 }
                 else {
-                    for (i,v) in self.meta_vector[fi].full_values().iter().enumerate() {
-                        if v > &p.split {
+                    for (i,(d,v)) in self.meta_vector[fi].full_values_with_state().iter().enumerate() {
+                        if v > &p.split || !d {
                             mask[i] = false;
                         }
                     }
                 }
             }
         }
+
         mask
     }
 
-    pub fn samples_given_prerequisites(&self,prerequisites:&[Prerequisite]) -> Vec<(usize,&Sample)> {
+
+    // This method returns the samples fulfilling a set of prerequisites
+
+    pub fn samples_given_prerequisites(&self,prerequisites:&[Prerequisite]) -> Vec<&Sample> {
+        // eprintln!("Prerequisites:{:?}",prerequisites);
         let mask = self.mask_prerequisites(prerequisites);
+        // eprintln!("Mask:{:?}", mask);
         self.samples.iter()
             .zip(mask.iter())
-            .enumerate()
-            .filter(|(i,(s,m))| **m )
-            .map(|(i,(s,m))| (i,s))
+            .filter(|(s,m)| **m )
+            .map(|(s,m)| s)
             .collect()
     }
+
+    // This method returns the draw order of this input table using local indices, for
+    // A certain feature. This is the ranking of each sample in this table by that feature
+    // least to greatest
 
     pub fn sort_by_feature(&self, feature:usize) -> (Vec<usize>,HashSet<usize>) {
         self.meta_vector[feature].draw_and_drop()
@@ -175,6 +188,10 @@ impl RankTable {
         &self.samples[..]
     }
 
+    pub fn sample_names(&self) -> Vec<&String> {
+        self.samples.iter().map(|s| s.name()).collect()
+    }
+
     pub fn dispersion_mode(&self) -> DispersionMode {
         self.dispersion_mode
     }
@@ -191,47 +208,17 @@ impl RankTable {
 
     }
 
-    pub fn filter_prototype_by_prerequisites(&self,prerequisites:&Vec<Prerequisite>) -> Vec<&Sample> {
-
-
-
-        let mut masks: Vec<Vec<bool>> = Vec::with_capacity(prerequisites.len());
-
-        for Prerequisite{feature:feature,split:split,orientation:orientation} in prerequisites {
-
-            // NOTE, VERY IMPORTANT, THIS PART WORKS ONLY IN THE PROTOTYPE
-            if *orientation {
-                masks.push(self.meta_vector[*feature.index()].full_values().iter().map(|v| v > split).collect())
-            }
-            else {
-                masks.push(self.meta_vector[*feature.index()].full_values().iter().map(|v| v < split).collect())
-            }
-
-        }
-
-        let mut filtered_samples = Vec::with_capacity(self.samples.len());
-
-        for sample in self.samples.iter() {
-            if masks.iter_mut().flat_map(|m| m.pop()).any(|x| x) {
-                filtered_samples.push(sample)
-            }
-        }
-
-        filtered_samples
-
-    }
-
     pub fn derive_specified(&self, features:&[usize],samples:&[usize]) -> RankTable {
 
         let mut new_meta_vector: Vec<Arc<RankVector<Vec<Node>>>> = Vec::with_capacity(features.len());
 
-        let mut new_samples = samples.iter().map(|i| self.samples[*i].clone()).collect();
+        let mut new_samples = samples.iter().enumerate().map(|(new_index,old_index)| self.samples[*old_index].clone_local(new_index)).collect();
 
-        let mut new_features = features.iter().map(|i| self.features[*i].clone()).collect();
+        let mut new_features = features.iter().enumerate().map(|(new_index,old_index)| self.features[*old_index].clone_local(new_index)).collect();
 
         let sample_stencil = Stencil::from_slice(samples);
 
-        let mut new_meta_vector: Vec<Arc<RankVector<Vec<Node>>>> = features.iter().map(|i| Arc::new(self.meta_vector[*i].derive_stencil(&sample_stencil))).collect();
+        let mut new_meta_vector: Vec<RankVector<Vec<Node>>> = features.iter().map(|i| self.meta_vector[*i].derive_stencil(&sample_stencil)).collect();
 
         let new_draw_order: Vec<usize> = (0..samples.len()).collect();
 
@@ -304,9 +291,9 @@ impl RankTable {
             }
         }
 
-        assert_eq!(draw_order.len(),7);
-        assert_eq!(forward_dispersions.len(),8);
-        assert_eq!(reverse_dispersions.len(),8);
+        // assert_eq!(draw_order.len(),7);
+        // assert_eq!(forward_dispersions.len(),8);
+        // assert_eq!(reverse_dispersions.len(),8);
 
         let len = forward_dispersions.len();
         let mut dispersions: Vec<Vec<f64>> = vec![vec![0.;self.dimensions.0];len];
@@ -321,53 +308,33 @@ impl RankTable {
 
     }
 
-    pub fn wrap_consume(self) -> RankTableWrapper{
-        RankTableWrapper {
-            meta_vector:self.meta_vector.into_iter().map(|x| Arc::try_unwrap(x).expect("Failed to unwrap value during serialization")).collect(),
-            features:self.features,
-            samples:self.samples,
-            index:0,
-            dimensions:self.dimensions,
-            dropout:self.dropout,
+    pub fn assert_integrity(&self) {
 
-            norm_mode:self.norm_mode,
-            dispersion_mode:self.dispersion_mode,
-            split_fraction_regularization: self.split_fraction_regularization
+        // Here we assert assumptions that must remain true of the rank table: a mapping of feature names and sample names to
+        // rank vectors.
+
+        // Additional assertions will be added if other guarantees arise.
+
+        let mut integrity = true;
+        if self.meta_vector.len() != self.features.len() {
+            integrity = false;
+        }
+        if self.meta_vector.get(0).map(|v| v.raw_len()).unwrap_or(0) != self.samples.len() {
+            integrity = false;
+        }
+        if self.samples.iter().enumerate().any(|(i,s)| &Some(i) != s.local_index()) {
+            integrity = false;
+        }
+        if self.features.iter().enumerate().any(|(i,s)| &Some(i) != s.local_index()) {
+            integrity = false;
         }
 
+        if !integrity { panic!() }
+
     }
+
 }
 
-#[derive(Debug,Clone,Serialize,Deserialize)]
-pub struct RankTableWrapper {
-    meta_vector: Vec<RankVector<Vec<Node>>>,
-    features: Vec<Feature>,
-    samples: Vec<Sample>,
-    index: usize,
-    pub dimensions: (usize,usize),
-    dropout: DropMode,
-
-    dispersion_mode: DispersionMode,
-    norm_mode: NormMode,
-    split_fraction_regularization: i32,
-}
-
-impl RankTableWrapper {
-    pub fn unwrap(self) -> RankTable {
-        RankTable {
-            meta_vector:self.meta_vector.into_iter().map(|x| Arc::new(x)).collect(),
-            features:self.features,
-            samples:self.samples,
-            index:0,
-            dimensions:self.dimensions,
-            dropout:self.dropout,
-
-            norm_mode:self.norm_mode,
-            dispersion_mode:self.dispersion_mode,
-            split_fraction_regularization: self.split_fraction_regularization,
-        }
-    }
-}
 
 
 
@@ -413,23 +380,45 @@ mod rank_table_tests {
     #[test]
     pub fn rank_table_simple_test() {
         let table = RankTable::new(&vec![vec![10.,-3.,0.,5.,-2.,-1.,15.,20.]], &Feature::vec(vec![1])[..],&Sample::vec(vec![0,1,2,3,4,5,6,7])[..],blank_parameter());
-        // let draw_order = table.sort_by_feature("one");
-        // println!("{:?}",draw_order);
-        // let mad_order = table.meta_vector[*table.feature_index("one").unwrap()].clone_to_container(SmallVec::new()).ordered_meds_mads(&draw_order.0,draw_order.1);
-        // assert_eq!(mad_order, vec![(5.0,7.0),(7.5,8.),(10.,5.),(12.5,5.),(15.,5.),(17.5,2.5),(20.,0.),(0.,0.)]);
+        let draw_order = table.sort_by_feature(0);
+        println!("{:?}",draw_order);
+        let mad_order = table.meta_vector[0].clone().ordered_meds_mads(&draw_order.0,draw_order.1);
+        assert_eq!(mad_order, vec![(5.0,7.0),(7.5,8.),(10.,5.),(12.5,5.),(15.,5.),(17.5,2.5),(20.,0.),(0.,0.)]);
     }
 
     #[test]
-    pub fn split() {
+    pub fn rank_table_test_split() {
         let mut table = RankTable::new(&vec![vec![10.,-3.,0.,5.,-2.,-1.,15.,20.]], &Feature::vec(vec![1])[..],&Sample::vec(vec![0,1,2,3,4,5,6,7])[..],blank_parameter());
-        let pool = FeatureThreadPool::new(1);
-        // let mut draw_order = {(table.sort_by_feature("one").0.clone(),table.sort_by_feature("one").1.clone())};
+        let (draw_order,drop_set) = table.sort_by_feature(0);
 
-        // println!("{:?}", table.sort_by_feature("one"));
-        // println!("{:?}", table.clone().parallel_dispersion(&table.sort_by_feature("one").0,&table.sort_by_feature("one").1,FeatureThreadPool::new(1)));
-        // println!("{:?}", table.clone().parallel_dispersion(&table.sort_by_feature("one").0,&table.sort_by_feature("one").1,FeatureThreadPool::new(1)));
-        // assert_eq!(table.parallel_split_order_min(&draw_order.0, &draw_order.1, Some(&vec![1.]), pool).unwrap().0,3)
+        let order_dispersions = table.order_dispersions(&draw_order,&drop_set,&vec![1.,1.,1.,1.,1.,1.,1.,1.]);
 
+        println!("{:?}", order_dispersions);
+        assert_eq!(order_dispersions,Some(vec![31125.125, 14370.42236328125, 5173.35205078125, 782.595703125, 352.783203125, 1990.41064453125, 8160.03125, 31125.125]));
+    }
+
+
+    #[test]
+    pub fn rank_table_test_prerequisites() {
+        let mut table = RankTable::new(&vec![vec![10.,-3.,0.,5.,-2.,-1.,15.,20.]], &Feature::vec(vec![1])[..],&Sample::vec(vec![0,1,2,3,4,5,6,7])[..],blank_parameter());
+
+        let f1 = table.features()[0].clone();
+        let p1 = Prerequisite{feature:f1.clone(),split:0.,orientation:false};
+        let p2 = Prerequisite{feature:f1.clone(),split:0.,orientation:true};
+
+        let s1 = table.samples_given_prerequisites(&vec![p1]);
+        let s2 = table.samples_given_prerequisites(&vec![p2]);
+
+        println!("Left samples:{:?}",s1);
+        println!("Right samples:{:?}",s2);
+
+        let ss1: Vec<&Sample> = vec![1,2,4,5].into_iter().map(|i| &table.samples()[i]).collect();
+        let ss2: Vec<&Sample> = vec![0,3,6,7].into_iter().map(|i| &table.samples()[i]).collect();
+
+        for i in 0..4 {
+            assert_eq!(s1[i].name(),ss1[i].name());
+            assert_eq!(s2[i].name(),ss2[i].name());
+        }
     }
 
     #[test]

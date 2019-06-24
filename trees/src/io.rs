@@ -727,7 +727,7 @@ impl DropMode {
     }
 }
 
-#[derive(Debug,Clone,Copy,Serialize,Deserialize)]
+#[derive(Debug,Clone,Copy,Serialize,Deserialize,PartialEq,Eq)]
 pub enum DropMode {
     Zeros,
     NaNs,

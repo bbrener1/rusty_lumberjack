@@ -14,7 +14,7 @@ use serde_json;
 extern crate rand;
 
 
-use crate::node::{Node,NodeWrapper,StrippedNode};
+use crate::node::{Node,StrippedNode};
 use crate::{Feature,Sample};
 use crate::split_thread_pool::SplitMessage;
 use crate::io::DispersionMode;
@@ -38,7 +38,7 @@ impl<'a> Tree {
         // let pool = ThreadPool::new(processor_limit);
         let processor_limit = parameters.processor_limit;
         // let mut root = Node::root(counts,feature_names,sample_names,input_features,output_features,pool.clone());
-        let root = Node::feature_root(inputs,outputs,input_features,output_features,samples, parameters.clone() , feature_weight_option.clone() ,split_thread_pool.clone());
+        let root = Node::prototype(inputs,outputs,input_features,output_features,samples, parameters.clone() , feature_weight_option.clone());
         let weights = feature_weight_option;
 
         Tree{
@@ -52,14 +52,6 @@ impl<'a> Tree {
         }
     }
 
-    pub fn pool_switch_clone(&self,processor_limit:usize) -> Tree {
-        let new_split_thread_pool = SplitThreadPool::new(processor_limit);
-        let mut new_tree = self.clone();
-        new_tree.root.set_pool(&new_split_thread_pool);
-        new_tree.split_thread_pool = new_split_thread_pool;
-        new_tree
-    }
-
     pub fn serialize(self) -> Result<(),Error> {
 
         self.report_summary()?;
@@ -70,7 +62,7 @@ impl<'a> Tree {
         println!("{}",self.report_address);
 
         let mut tree_dump = OpenOptions::new().create(true).append(true).open(self.report_address)?;
-        tree_dump.write(self.root.wrap_consume().to_string()?.as_bytes())?;
+        tree_dump.write(self.root.to_string()?.as_bytes())?;
         tree_dump.write(b"\n")?;
 
         Ok(())
@@ -124,16 +116,13 @@ impl<'a> Tree {
 
         // println!("{}",json_string);
 
-        let root_wrapper: NodeWrapper = serde_json::from_str(&json_string).unwrap();
+        let root = Node::from_str(&json_string)?;
 
         println!("Deserialized root wrapper");
-
-        let root = root_wrapper.unwrap(feature_pool.clone());
 
         println!("Finished recursive unwrapping and obtained a Node tree");
 
         Ok(Tree {
-            split_thread_pool: feature_pool,
             dropout: root.dropout(),
             root: root,
             weights: None,
@@ -145,8 +134,8 @@ impl<'a> Tree {
     }
 
 
-    pub fn grow_branches(&mut self,prototype:&Tree,parameters:Arc<Parameters>) {
-        grow_branches(&mut self.root,prototype, parameters,0);
+    pub fn grow_branches(&mut self,parameters:Arc<Parameters>) {
+        grow_branches(&mut self.root, parameters,0);
         self.root.root_absolute_gains();
     }
 
@@ -160,7 +149,6 @@ impl<'a> Tree {
         address_string.pop();
 
         Tree{
-            split_thread_pool: self.split_thread_pool.clone(),
             root: new_root,
             dropout: self.dropout,
             weights: self.weights.clone(),
@@ -264,18 +252,14 @@ impl<'a> Tree {
         &self.root.output_features()
     }
 
-    pub fn terminate_pool(&mut self) {
-        SplitThreadPool::terminate(&mut self.split_thread_pool);
-    }
-
 }
 
 
-pub fn grow_branches(target:&mut Node, prototype:&Tree, parameters: Arc<Parameters>,level:usize) {
+pub fn grow_branches(target:&mut Node, parameters: Arc<Parameters>,level:usize) {
     if target.samples().len() > parameters.leaf_size_cutoff && level < parameters.depth_cutoff {
-        if target.split_node(parameters.sample_subsample,parameters.input_features,parameters.output_features).is_some() {
+        if target.sub_split_node(parameters.sample_subsample,parameters.input_features,parameters.output_features).is_some() {
             for child in target.children.iter_mut() {
-                grow_branches(child, prototype,parameters.clone(), level+1);
+                grow_branches(child,parameters.clone(), level+1);
             }
         }
     }

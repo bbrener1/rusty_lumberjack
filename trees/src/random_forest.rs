@@ -33,11 +33,11 @@ impl Forest {
 
         let report_string = format!("{}.0",report_address).to_string();
 
-        let samples = Sample::nvec(&parameters.sample_names);
+        let samples = Sample::nvec_global(&parameters.sample_names);
 
-        let input_features = Feature::nvec(&parameters.input_feature_names);
+        let input_features = Feature::nvec_global(&parameters.input_feature_names);
 
-        let output_features = Feature::nvec(&parameters.output_feature_names);
+        let output_features = Feature::nvec_global(&parameters.output_feature_names);
 
         let prototype_tree = Tree::prototype_tree(&input_array,&output_array,&input_features,&output_features,&samples,None, parameters.clone() ,report_string);
 
@@ -62,16 +62,15 @@ impl Forest {
 
             for tree in 1..self.size+1 {
 
-                let new_tree = self.prototype_tree.;
-                new_tree.serialize_compact();
+                let mut new_tree = self.prototype_tree.as_ref().expect("No prototype tree").clone();
+                new_tree.grow_branches(parameters.clone());
                 if remember {
-                    self.predictive_trees.push(new_tree);
+                    if let Ok(compact) = new_tree.serialize_compact_consume() {
+                        self.predictive_trees.push(compact);
+                    }
                 }
-
             }
 
-
-            }
 
             let mut output_header_dump = OpenOptions::new().create(true).append(false).open([&self.parameters.report_address.clone(),".ifh"].join(""))?;
             output_header_dump.write(self.prototype_tree.as_ref().unwrap().input_feature_names().join("\n").as_bytes())?;
@@ -80,24 +79,6 @@ impl Forest {
             let mut output_header_dump = OpenOptions::new().create(true).append(false).open([&self.parameters.report_address.clone(),".ofh"].join(""))?;
             output_header_dump.write(self.prototype_tree.as_ref().unwrap().output_feature_names().join("\n").as_bytes())?;
             output_header_dump.write(b"\n")?;
-
-
-            TreeThreadPool::terminate(&mut tree_pool);
-
-            // let samples_per_tree = parameters.sample_subsample.unwrap_or(1);
-            // let input_features = parameters.input_features.unwrap_or(1);
-            // let output_features = parameters.output_features.unwrap_or(1);
-            //
-            // for i in 1..self.size+1 {
-            //
-            //     let mut tree = self.prototype_tree.as_ref().expect("No prototype tree!").derive_from_prototype(samples_per_tree,input_features,output_features,i);
-            //     tree.grow_branches();
-            //     let compact_tree = tree.strip_consume();
-            //     compact_tree.serialize_compact();
-            //     if remember {
-            //         self.predictive_trees.push(compact_tree);
-            //     }
-            // }
 
             Ok(())
         }
@@ -109,36 +90,7 @@ impl Forest {
 
     }
 
-    pub fn generate_weighted(&mut self,parameters:Arc<Parameters>) {
-        if let Some(ref prototype) = self.prototype_tree {
 
-            let mut tree_receivers = Vec::with_capacity(self.size);
-
-            let mut tree_pool = TreeThreadPool::new(self.prototype_tree.as_ref().unwrap(), parameters );
-
-            for tree in 1..self.size+1 {
-
-                let (tx,rx) = mpsc::channel();
-
-                tree_pool.send((tree,tx));
-
-                tree_receivers.push(rx);
-
-            }
-
-            for receiver in tree_receivers {
-                println!("Unwrapping tree");
-                let new_tree = receiver.recv().unwrap();
-                new_tree.serialize_compact();
-            }
-
-            TreeThreadPool::terminate(&mut tree_pool);
-        }
-        else {
-            panic!("Attempted to generate a forest without a prototype tree. Are you trying to do predictions after reloading from compact backups?")
-        }
-
-    }
 
     // pub fn set_leaf_weights(&mut self) {
     //     let truth = self.counts.clone();
@@ -319,13 +271,13 @@ impl Forest {
         self.prototype_tree.as_ref().map(|x| x.output_feature_names())
     }
 
-    pub fn feature_map(&self) -> Option<HashMap<String,usize>> {
-        self.output_features().map(|x| x.clone().into_iter().enumerate().map(|x| (x.1,x.0)).collect())
-    }
-
-    pub fn sample_map(&self) -> HashMap<String,usize> {
-        self.prototype_tree.as_ref().unwrap().samples().iter().map(|s| (s.name().clone(),s.index().clone())).collect()
-    }
+    // pub fn feature_map(&self) -> Option<HashMap<String,usize>> {
+    //     self.output_features().map(|x| x.clone().into_iter().enumerate().map(|x| (x.1,x.0)).collect())
+    // }
+    //
+    // pub fn sample_map(&self) -> HashMap<String,usize> {
+    //     self.prototype_tree.as_ref().unwrap().samples().iter().map(|s| (s.name().clone(),s.index().clone())).collect()
+    // }
 
     // pub fn random_features(&self, n_features) -> &Vec<&String> {
     //

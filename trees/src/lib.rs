@@ -47,69 +47,119 @@ use std::cmp::Ordering;
 use std::fmt::Debug;
 use std::sync::Arc;
 
-#[derive(Debug,Clone,Serialize,Deserialize,PartialEq,Eq,Hash)]
+#[derive(Debug,Clone,Serialize,Deserialize)]
 pub struct Feature {
     name: String,
-    index: usize,
+    global_index: usize,
+    local_index: Option<usize>,
 }
 
 impl Feature {
+
+    pub fn new_global(name:&str,global_index:&usize) -> Feature {
+        Feature {name: name.to_owned(),global_index:*global_index,local_index: None}
+    }
+
+    pub fn q(index:&usize) -> Feature {
+        Feature {name: index.to_string(),global_index:*index,local_index: Some(*index)}
+    }
+
+    pub fn qg(index:&usize) -> Feature {
+        Feature {name: index.to_string(),global_index:*index,local_index: None}
+    }
 
     pub fn vec(input: Vec<usize>) -> Vec<Feature> {
         input.iter().map(|x| Feature::q(x)).collect()
     }
 
-    pub fn nvec(input: &Vec<String>) -> Vec<Feature> {
-        input.iter().enumerate().map(|(i,f)| Feature::new(f,&i)).collect()
+    pub fn nvec_global(input: &Vec<String>) -> Vec<Feature> {
+        input.iter().enumerate().map(|(i,f)| Feature::new_global(f,&i)).collect()
     }
 
-    pub fn q(index:&usize) -> Feature {
-        Feature {name: index.to_string(),index:*index}
-    }
-
-    pub fn new(name:&str,index:&usize) -> Feature {
-        Feature {name: name.to_owned(),index:*index}
-    }
 
     pub fn name(&self) -> &String {
         &self.name
     }
 
-    pub fn index(&self) -> &usize {
-        &self.index
+    pub fn local_index(&self) -> &Option<usize> {
+        &self.local_index
+    }
+
+    pub fn global_index(&self) -> &usize {
+        &self.global_index
+    }
+
+    pub fn strip(&mut self) {
+        self.local_index = None;
+    }
+
+    pub fn clone_local(&self,local_index:usize) -> Feature {
+        let mut local = self.clone();
+        local.local_index = Some(local_index);
+        local
+    }
+
+    pub fn clone_anonymous(&self) -> Feature {
+        let mut anonymous = self.clone();
+        anonymous.local_index = None;
+        anonymous
     }
 }
 
-#[derive(Debug,Clone,Serialize,Deserialize,PartialEq)]
+#[derive(Debug,Clone,Serialize,Deserialize)]
 pub struct Sample {
     name: String,
-    index: usize,
+    global_index: usize,
+    local_index: Option<usize>,
 }
 
 impl Sample {
 
+    pub fn new_global(name:&str,global_index:&usize) -> Sample {
+        Sample {name: name.to_owned(),global_index:*global_index,local_index: None}
+    }
+
+    pub fn q(index:&usize) -> Sample {
+        Sample {name: index.to_string(),global_index:*index,local_index: Some(*index)}
+    }
+
+    pub fn qg(index:&usize) -> Sample {
+        Sample {name: index.to_string(),global_index:*index,local_index: None}
+    }
     pub fn vec(input: Vec<usize>) -> Vec<Sample> {
         input.iter().map(|x| Sample::q(x)).collect()
     }
 
-    pub fn nvec(input: &Vec<String>) -> Vec<Sample> {
-        input.iter().enumerate().map(|(i,s)| Sample::new(s,&i)).collect()
-    }
-
-    pub fn q(index:&usize) -> Sample {
-        Sample {name: index.to_string(),index:*index}
-    }
-
-    pub fn new(name:&str,index:&usize) -> Sample {
-        Sample {name: name.to_owned(),index:*index}
+    pub fn nvec_global(input: &Vec<String>) -> Vec<Sample> {
+        input.iter().enumerate().map(|(i,s)| Sample::new_global(s,&i)).collect()
     }
 
     pub fn name(&self) -> &String {
         &self.name
     }
 
-    pub fn index(&self) -> &usize {
-        &self.index
+    pub fn local_index(&self) -> &Option<usize> {
+        &self.local_index
+    }
+
+    pub fn global_index(&self) -> &usize {
+        &self.global_index
+    }
+
+    pub fn strip(&mut self) {
+        self.local_index = None;
+    }
+
+    pub fn clone_local(&self,local_index:usize) -> Sample {
+        let mut local = self.clone();
+        local.local_index = Some(local_index);
+        local
+    }
+
+    pub fn clone_anonymous(&self) -> Sample {
+        let mut anonymous = self.clone();
+        anonymous.local_index = None;
+        anonymous
     }
 }
 
@@ -149,6 +199,17 @@ impl Split {
     pub fn right(&self) -> Prerequisite {
         Prerequisite::new(self.feature.clone(), self.value, true)
     }
+
+}
+
+pub struct SubsamplingLayer {
+    feature_key: Vec<Feature>,
+    feature_indices: Vec<Option<usize>>,
+    sample_key: Vec<Sample>,
+    sample_indices: Vec<Option<usize>>,
+}
+
+impl SubsamplingLayer {
 
 }
 

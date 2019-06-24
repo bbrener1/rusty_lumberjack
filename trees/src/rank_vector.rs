@@ -735,6 +735,11 @@ impl<T: Borrow<[Node]> + BorrowMut<[Node]> + Index<usize,Output=Node> + IndexMut
         // self.nodes[0..self.raw_len()].map(|x| x.data).collect()
     }
 
+    #[inline]
+    pub fn full_values_with_state(&self) -> Vec<(bool,f64)> {
+        (0..self.raw_len()).map(|x| (self.nodes[x].zone != 0, self.nodes[x].data)).collect()
+    }
+
     pub fn ordered_meds_mads(&mut self,draw_order: &[usize],drop_set: HashSet<usize>) -> Vec<(f64,f64)> {
 
         for dropped_sample in drop_set {
