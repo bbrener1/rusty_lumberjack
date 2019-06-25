@@ -34,6 +34,8 @@ use std::path::Path;
 use std::ffi::OsStr;
 use std::env;
 
+use rayon::prelude::*;
+
 
 #[derive(Clone,Serialize,Deserialize)]
 pub struct Node {
@@ -112,7 +114,7 @@ impl Node {
     pub fn split_node(&mut self) -> Option<()> {
         if let Some(split) = self.rayon_best_split() {
             self.split = Some(split);
-            eprintln!("Deriving split:{:?}",self.split);
+            // eprintln!("Deriving split:{:?}",self.split);
             self.children = self.derive_complete_by_split(self.split.as_ref().unwrap(), None);
             Some(())
         }
@@ -123,7 +125,7 @@ impl Node {
         let mut compact = self.subsample(samples,input_features,output_features);
         if let Some(split) = compact.rayon_best_split() {
             self.split = Some(split);
-            eprintln!("Deriving split:{:?}",self.split);
+            // eprintln!("Deriving split:{:?}",self.split);
             self.children = self.derive_complete_by_split(self.split.as_ref().unwrap(), None);
             Some(())
         }
@@ -132,7 +134,7 @@ impl Node {
 
     pub fn rayon_best_split(&self) -> Option<Split> {
 
-        let splits: Vec<Split> = (0..self.input_features().len()).flat_map(|i| self.feature_index_split(i)).collect();
+        let splits: Vec<Split> = (0..self.input_features().len()).into_par_iter().flat_map(|i| self.feature_index_split(i)).collect();
         let dispersions: Vec<f64> = splits.iter().map(|s| s.dispersion).collect();
         Some(splits[argmin(&dispersions)?.0].clone())
 

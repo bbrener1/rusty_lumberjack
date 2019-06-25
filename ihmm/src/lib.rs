@@ -55,7 +55,7 @@ use rand::{thread_rng,Rng};
 use rand::distributions::{Distribution,Binomial};
 
 use multivariate_normal::MVN;
-use multivariate_normal::{array_mask,array_mask_axis,array_double_select,array_double_mask,masked_array_properties};
+use multivariate_normal::{array_mask,array_mask_axis,array_double_select,array_double_mask};
 use dirichlet::{SymmetricDirichlet,Categorical};
 
 
@@ -95,12 +95,8 @@ impl HiddenState {
         }
     }
 
-    fn feature_log_likelihood(&self,data:&ArrayView<f64,Ix1>,mask:&ArrayView<bool,Ix1>) -> f64 {
-        self.emission_model.masked_likelihood(data, mask)
-    }
-
-    fn feature_quick_likelihood(&self,data:&ArrayView<f64,Ix1>,mask:&ArrayView<bool,Ix1>) -> f64 {
-        self.emission_model.quick_masked_likelihood(data, mask)
+    fn feature_log_likelihood(&self,data:&ArrayView<f64,Ix1>) -> f64 {
+        self.emission_model.log_likelihood(data)
     }
 
     fn mixture_log_odds(&self,state:Option<usize>) -> f64 {
@@ -158,7 +154,7 @@ impl HiddenState {
 
 pub struct IHMM {
     nodes: Vec<MarkovNode>,
-    encoding: (Array<f64,Ix2>,Array<bool,Ix2>),
+    emissions: Array<f64,Ix2>,
     beta: NonZeroUsize,
     gamma: NonZeroUsize,
     beta_e: f64,
@@ -171,9 +167,9 @@ pub struct IHMM {
 impl IHMM {
     fn new(nodes:Vec<MarkovNode>) -> IHMM {
 
-        let encoding = MarkovNode::encode(&nodes);
+        let emissions = MarkovNode::encode(&nodes);
 
-        let features = encoding.0.dim().1;
+        let features = emissions.dim().1;
 
         IHMM {
             beta: NonZeroUsize::new(5).unwrap(),
@@ -184,13 +180,13 @@ impl IHMM {
             oracle_transition_model: SymmetricDirichlet::blank(NonZeroUsize::new(1).unwrap()),
             dp_transition_model: SymmetricDirichlet::blank(NonZeroUsize::new(1).unwrap()),
             nodes: nodes,
-            encoding: encoding,
+            emissions: emissions,
         }
     }
 
     fn initialize(&mut self,states:usize) {
         eprintln!("Initializing");
-        let features = self.encoding.0.dim().1;
+        let features = self.emissions.dim().1;
         for _ in 0..states {
             self.hidden_states.push(HiddenState::blank(features,states));
         }
@@ -206,7 +202,7 @@ impl IHMM {
 
     fn sample_node_state(&self, node_index: usize) -> Option<usize> {
 
-        let (features,mask) = self.node_encoding(node_index);
+        let emissions = self.emissions.row(node_index);
         let node = &self.nodes[node_index];
         // let parent_state = self.nodes[node.parent?].hidden_state;
         let cls = self.nodes[node.children?.0].hidden_state;
@@ -217,13 +213,11 @@ impl IHMM {
 
         eprint!("{:?}:[",node_index);
         for (si,state) in self.hidden_states.iter().enumerate() {
-            let feature_log_odds = state.feature_log_likelihood(&features,&mask);
-            let quick_feature_log_odds = state.feature_quick_likelihood(&features,&mask) / 3.;
+            let feature_log_odds = state.feature_log_likelihood(&emissions);
             // let mixture_log_odds = state.mixture_log_odds(cls) + state.mixture_log_odds(crs);
             let mixture_log_odds = self.dp_transition_model.log_odds(&Some(si)).unwrap();
             // let mixture_log_odds = 0.;
             eprint!("({:?},",feature_log_odds);
-            eprint!("{:?},", quick_feature_log_odds);
             eprint!("{:?}),",mixture_log_odds);
             state_log_odds.push(feature_log_odds + mixture_log_odds);
         }
@@ -351,11 +345,11 @@ impl IHMM {
 
     fn estimate_emissions(&self, indices:&[usize]) -> MVN {
 
-        let (data,mask) = self.select_encoding(&indices);
+        let data = self.emissions.select(Axis(0),indices);
 
         let mut emission_model = self.prior_emission_model.clone();
         emission_model.set_samples(1);
-        emission_model.estimate_masked(&data.view(), &mask.view());
+        emission_model.estimate(&data.view());
 
         emission_model
     }
@@ -400,8 +394,8 @@ impl IHMM {
         self.estimate_emissions(&indices)
     }
 
-    fn new_state_feature_log_odds(&self,data:&ArrayView<f64,Ix1>,mask:&ArrayView<bool,Ix1>) -> f64 {
-        self.prior_emission_model.masked_likelihood(data,mask)
+    fn new_state_feature_log_odds(&self,data:&ArrayView<f64,Ix1>) -> f64 {
+        self.prior_emission_model.log_likelihood(data)
     }
 
     fn new_state_mixture_log_odds(&self,adjacent_state: Option<usize>) -> f64 {
@@ -483,16 +477,6 @@ impl IHMM {
         self.nodes.iter().filter(|n| n.hidden_state == state).map(|n| n.index).collect()
     }
 
-    fn select_encoding(&self,indices:&[usize]) -> (Array<f64,Ix2>,Array<bool,Ix2>) {
-        let (data,mask) = &self.encoding;
-        let selected_data = data.select(Axis(0),indices);
-        let selected_mask = mask.select(Axis(0),indices);
-        (selected_data,selected_mask)
-    }
-
-    fn node_encoding(&self,index:usize) -> (ArrayView<f64,Ix1>,ArrayView<bool,Ix1>) {
-        (self.encoding.0.row(index),self.encoding.1.row(index))
-    }
 
     pub fn live_indices(&self) -> Vec<usize> {
         self.nodes.iter().filter(|n| n.children.is_some()).map(|n| n.index).collect()
@@ -504,7 +488,7 @@ impl IHMM {
 
 impl MarkovNode {
 
-    pub fn encode(nodes:&Vec<MarkovNode>) -> (Array<f64,Ix2>,Array<bool,Ix2>) {
+    pub fn encode(nodes:&Vec<MarkovNode>) -> Array<f64,Ix2> {
         let mut features = HashSet::new();
         for node in nodes {
             for feature in &node.features {
@@ -516,16 +500,14 @@ impl MarkovNode {
         }
 
         let mut data: Array<f64,Ix2> = Array::zeros((nodes.len(),features.len()));
-        let mut mask: Array<bool,Ix2> = Array::from_shape_fn((nodes.len(),features.len()),|_| false);
 
         for (i,node) in nodes.iter().enumerate() {
             for (feature,value) in node.features.iter().zip(node.emissions.iter()) {
                 data[[i,*feature.index()]] = *value;
-                mask[[i,*feature.index()]] = true;
             }
         }
 
-        (data,mask)
+        data
     }
 
     pub fn from_stripped_vec(stripped:&Vec<StrippedNode>) -> Vec<MarkovNode> {
@@ -698,12 +680,9 @@ pub mod tree_braider_tests {
     #[test]
     fn test_markov_encoding_iris() {
         let nodes = iris_forest();
-        let (data,mask) = MarkovNode::encode(&nodes);
+        let data = MarkovNode::encode(&nodes);
         eprintln!("{:?}",data.dim());
-        eprintln!("{:?}",mask.dim());
         assert_eq!(data.dim().1,4);
-        assert_eq!(mask.dim().1,4);
-        assert_eq!(data.dim(),mask.dim());
     }
 
     #[test]

@@ -59,12 +59,17 @@ impl Forest {
 
         if let Some(ref prototype) = self.prototype_tree {
 
+            eprintln!("Constructing {} trees",self.size);
+
             for tree in 1..self.size+1 {
 
+                eprintln!("Tree {}",tree);
+
                 let mut new_tree = self.prototype_tree.as_ref().expect("No prototype tree").clone();
+                new_tree.report_address = format!("{}.{}",parameters.report_address, tree).to_string();
                 new_tree.grow_branches(parameters.clone());
-                if remember {
-                    if let Ok(compact) = new_tree.serialize_compact_consume() {
+                if let Ok(compact) = new_tree.serialize_compact_consume() {
+                    if remember {
                         self.predictive_trees.push(compact);
                     }
                 }

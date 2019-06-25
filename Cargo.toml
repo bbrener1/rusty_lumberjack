@@ -18,12 +18,12 @@ ihmm = {path = "./ihmm"}
 trees = {path = "./trees"}
 
 ndarray = "0.12"
-ndarray-linalg = { version = "0.10" }
-blas-src = { version = "0.2", features = ["intel-mkl"]}
+# ndarray-linalg = { version = "0.10" }
+# blas-src = { version = "0.2", features = ["intel-mkl"]}
 # ndarray-linalg = { version = "0.10" }
 # openblas-src = { version = "0.7.0", feature=['static']}
 
-# ndarray-linalg = { version = "0.10", feature=["intel_mkl"] }
+ndarray-linalg = { version = "0.10", feature=["intel_mkl"] }
 # intel-mkl-src = {version = "0.4"}
 
 num-traits = "0.2"

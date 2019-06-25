@@ -171,7 +171,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 name = "lumberjack_1"
 version = "0.1.0"
 dependencies = [
- "blas-src 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "ihmm 0.1.0",
  "ndarray 0.12.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "ndarray-linalg 0.10.0 (git+https://github.com/jturner314/ndarray-linalg.git?branch=revert-version-number)",
