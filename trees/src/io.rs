@@ -575,6 +575,7 @@ pub enum Command {
     Combined,
     Construct,
     Predict,
+    Analyze
     // Gradient,
 }
 
@@ -592,11 +593,14 @@ impl Command {
             "construct_predict" | "conpred" | "combined" => {
                 Command::Combined
             }
+            "analyze" => {
+                Command::Analyze
+            }
             // "gradient" => {
             //     Command::Gradient
             // }
             _ =>{
-                println!("Not a valid top-level command, please choose from \"construct\",\"predict\", or \"construct_predict\". Exiting");
+                println!("Not a valid top-level command, please choose from \"construct\",\"predict\",\"analyze\", or \"construct_predict\". Exiting");
                 panic!()
             }
         }

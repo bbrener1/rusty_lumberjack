@@ -32,6 +32,7 @@ fn main() {
         Command::Construct => construct(parameters),
         Command::Predict => predict(parameters),
         Command::Combined => combined(parameters),
+        Command::Analyze => unimplemented!(),
     }
 
 }

@@ -304,8 +304,6 @@ impl IHMM {
 
     fn estimate_states(&mut self) {
 
-        let mut new_states = vec![];
-
         let represented_states: Vec<Option<usize>> = self.represented_states().into_iter().filter(|s| s.is_some()).collect();
 
         eprintln!("Estimating states:{:?}",represented_states);
@@ -322,8 +320,8 @@ impl IHMM {
 
         eprintln!("DPM:{:?}",self.dp_transition_model);
 
-        for state in represented_states {
-            let indices = self.state_indices(state);
+        let new_states = represented_states.par_iter().map(|state| {
+            let indices = self.state_indices(*state);
             let state_emission_model = self.estimate_emissions(&indices);
             let state_transition_model = self.estimate_direct_transitions(&indices);
             let state = HiddenState {
@@ -332,8 +330,8 @@ impl IHMM {
                 oracle_transition_model: oracle_transition_model.clone(),
                 emission_model: state_emission_model,
             };
-            new_states.push(state)
-        }
+            state
+        }).collect();
 
         self.hidden_states = new_states;
 
@@ -654,7 +652,8 @@ pub mod tree_braider_tests {
     }
 
     pub fn gene_forest() -> Vec<MarkovNode> {
-        MarkovNode::from_stripped_vec(&StrippedNode::from_location("../testing/johnston_forest/").unwrap())
+        // MarkovNode::from_stripped_vec(&StrippedNode::from_location("../testing/johnston_forest/").unwrap())
+        MarkovNode::from_stripped_vec(&StrippedNode::from_location("../testing/nesterowa_forest/").unwrap())
     }
 
     pub fn iris_model() -> IHMM {
@@ -710,8 +709,8 @@ pub mod tree_braider_tests {
     //
     #[test]
     fn test_markov_multipart() {
-        let mut model = iris_model();
-        // let mut model = gene_model();
+        // let mut model = iris_model();
+        let mut model = gene_model();
         model.initialize(10);
         for state in &model.hidden_states {
             eprintln!("Population: {:?}",state.nodes.len());
