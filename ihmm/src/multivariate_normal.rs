@@ -125,16 +125,16 @@ impl MVN {
         let mut posterior_pseudo_determinant = 1.;
         let mut posterior_rank = 0.;
 
-        eprintln!("====================");
-        eprintln!("Estimated means: {:?}", sample_means);
+        // eprintln!("====================");
+        // eprintln!("Estimated means: {:?}", sample_means);
         // eprintln!("Samples in estimate:{:?}",samples);
 
         let posterior_means = ((&self.means * (self.samples as f64)) + (&sample_means * (samples as f64))) / (self.samples as usize + samples) as f64;
         let posterior_variances = ((&self.variances * (self.samples as f64)) + (&sample_variances * (samples as f64))) / (self.samples as usize + samples) as f64;
         // eprintln!("Posterior means: {:?}", posterior_means);
 
-        eprintln!("====================");
-        eprintln!("Posterior means: {:?}", posterior_means);
+        // eprintln!("====================");
+        // eprintln!("Posterior means: {:?}", posterior_means);
 
 
         let mut s: Array<f64,Ix2> = Array::zeros((features,features));
