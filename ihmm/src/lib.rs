@@ -308,9 +308,9 @@ impl IHMM {
 
         eprintln!("Estimating states:{:?}",represented_states);
 
-        for (i,s) in self.hidden_states.iter().enumerate(){
-            eprintln!("FM{:?}:{:?}",i,s.emission_model.means());
-        }
+        // for (i,s) in self.hidden_states.iter().enumerate(){
+        //     eprintln!("FM{:?}:{:?}",i,s.emission_model.means());
+        // }
 
         let oracle_transition_model = self.estimate_oracle_transitions();
         self.oracle_transition_model = oracle_transition_model.clone();
@@ -318,7 +318,7 @@ impl IHMM {
         let population_model = self.estimate_population_model();
         self.dp_transition_model = population_model;
 
-        eprintln!("DPM:{:?}",self.dp_transition_model);
+        // eprintln!("DPM:{:?}",self.dp_transition_model);
 
         let new_states = represented_states.par_iter().map(|state| {
             let indices = self.state_indices(*state);
@@ -335,9 +335,9 @@ impl IHMM {
 
         self.hidden_states = new_states;
 
-        for (i,s) in self.hidden_states.iter().enumerate(){
-            eprintln!("NM{:?}:{:?}",i,s.emission_model.means());
-        }
+        // for (i,s) in self.hidden_states.iter().enumerate(){
+        //     eprintln!("NM{:?}:{:?}",i,s.emission_model.means());
+        // }
 
     }
 
