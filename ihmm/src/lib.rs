@@ -722,7 +722,7 @@ pub mod tree_braider_tests {
         for i in 0..100 {
             model.sweep();
             for state in &model.hidden_states {
-                eprintln!("{:?}",state);
+                // eprintln!("{:?}",state);
             //     eprintln!("Population: {:?}",state.nodes.len());
             //     eprintln!("PDET:{:?}",state.emission_model.pdet());
             //     eprintln!("MEANS");
