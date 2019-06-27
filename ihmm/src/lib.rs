@@ -322,7 +322,7 @@ impl IHMM {
 
         let new_states: Vec<HiddenState> = represented_states.par_iter().map(|state| {
             let indices = self.state_indices(*state);
-            let state_emission_model = self.estimate_emissions(&indices);
+            let state_emission_model = self.estimate_emissions(&indices).unwrap();
             let state_transition_model = self.estimate_direct_transitions(&indices);
             let state = HiddenState {
                 nodes:indices,
@@ -341,17 +341,17 @@ impl IHMM {
 
     }
 
-    fn estimate_emissions(&self, indices:&[usize]) -> MVN {
+    fn estimate_emissions(&self, indices:&[usize]) -> Result<MVN,LinalgError> {
 
         let data = self.emissions.select(Axis(0),indices);
 
         let mut emission_model = self.prior_emission_model.clone();
         emission_model.set_samples(1);
-        emission_model.estimate(&data.view());
+        emission_model = emission_model.estimate(&data.view())?;
 
         eprintln!("EME:{:?}",emission_model.means());
 
-        emission_model
+        Ok(emission_model)
     }
 
     fn estimate_population_model(&self) -> SymmetricDirichlet<Option<usize>> {
@@ -391,7 +391,7 @@ impl IHMM {
     fn estimate_prior_features(&mut self) -> MVN {
 
         let indices = self.live_indices();
-        self.estimate_emissions(&indices)
+        self.estimate_emissions(&indices).unwrap()
     }
 
     fn new_state_feature_log_odds(&self,data:&ArrayView<f64,Ix1>) -> f64 {
