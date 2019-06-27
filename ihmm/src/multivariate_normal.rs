@@ -95,7 +95,7 @@ impl MVN {
             outer_feature_sum += &outer_product(&sample, &sample);
         }
 
-        let mut covariance_estimate = outer_feature_sum / samples as f64;
+        let mut covariance_estimate = outer_feature_sum / (samples as f64 + 1.);
 
         let (mut precision_estimate,mut covariance_log_determinant, mut determinant_rank) = pinv_pdet(&covariance_estimate.view())?;
 
@@ -125,17 +125,18 @@ impl MVN {
         let mut posterior_pseudo_determinant = 1.;
         let mut posterior_rank = 0.;
 
-        eprintln!("====================");
-        eprintln!("Estimated means: {:?}", sample_means);
-        eprintln!("Samples in estimate:{:?}",samples);
+        // eprintln!("====================");
+        // eprintln!("Estimated means: {:?}", sample_means);
+        // eprintln!("Samples in estimate:{:?}",samples);
 
         let posterior_means = ((&self.means * (self.samples as f64)) + (&sample_means * (samples as f64))) / (self.samples as usize + samples) as f64;
         let posterior_variances = ((&self.variances * (self.samples as f64)) + (&sample_variances * (samples as f64))) / (self.samples as usize + samples) as f64;
         // eprintln!("Posterior means: {:?}", posterior_means);
 
-        eprintln!("====================");
-        eprintln!("Posterior means: {:?}", posterior_means);
+        // eprintln!("====================");
+        // eprintln!("Posterior means: {:?}", posterior_means);
 
+        // eprintln!("Scaled:{:?}",scaled);
 
         let mut s: Array<f64,Ix2> = Array::zeros((features,features));
 
@@ -149,7 +150,7 @@ impl MVN {
 
         {
 
-            let lo = &self.covariance * self.samples as f64;
+            let lo = &self.covariance * (self.samples as f64 + 1.);
 
             let prior_mean_delta = &sample_means - &self.means;
             let mean_delta_outer = outer_product(&prior_mean_delta.view(),&prior_mean_delta.view());
@@ -161,7 +162,6 @@ impl MVN {
 
             // let inverse_wishart_scale = std::cmp::max((self.samples as usize + samples - features - 1),1) as f64;
             let inverse_wishart_scale = (self.samples as usize + samples) as f64;
-
 
             // eprintln!("Inverse wishart scale: {:?}",inverse_wishart_scale);
 
@@ -182,7 +182,34 @@ impl MVN {
         self.rank = posterior_rank;
         self.samples = self.samples + samples as u32;
 
-        eprintln!("EFM:{:?}",self.means);
+        // eprintln!("EFM:{:?}",self.means);
+
+        Ok(self)
+
+    }
+
+    pub fn mini_estimate(&mut self,data:&ArrayView<f64,Ix2>) -> Result<&mut MVN,LinalgError> {
+
+        let (samples,features) = data.dim();
+        let (scaled,sample_means,sample_variances) = scale(data);
+
+        // eprintln!("====================");
+        // eprintln!("Estimated means: {:?}", sample_means);
+        // eprintln!("Samples in estimate:{:?}",samples);
+
+        let posterior_means = ((&self.means * (self.samples as f64)) + (&sample_means * (samples as f64))) / (self.samples as usize + samples) as f64;
+        let posterior_variances = ((&self.variances * (self.samples as f64)) + (&sample_variances * (samples as f64))) / (self.samples as usize + samples) as f64;
+        // eprintln!("Posterior means: {:?}", posterior_means);
+
+        // eprintln!("====================");
+        // eprintln!("Posterior means: {:?}", posterior_means);
+
+        self.means = posterior_means;
+        self.variances = posterior_variances;
+
+        self.samples = self.samples + samples as u32;
+
+        // eprintln!("EFM:{:?}",self.means);
 
         Ok(self)
 
@@ -280,7 +307,7 @@ pub fn pinv_pdet(mtx:&ArrayView<f64,Ix2>) -> Result<(Array<f64,Ix2>,f64,f64),Lin
     let (r,c) = mtx.dim();
     // eprintln!("Inverting:");
     // eprintln!("{:?}",mtx);
-    if let (Some(u),sig,Some(vt)) = mtx.svd(true,true)? {
+    if let Ok((Some(u),sig,Some(vt))) = mtx.svd(true,true) {
         // eprintln!("{:?},{:?},{:?}",u,sig,vt);
         let lower_bound = (EPSILON * 1000.);
         let i_sig = sig.mapv(|v| if v > lower_bound {1./v} else {0.} );
@@ -298,17 +325,28 @@ pub fn pinv_pdet(mtx:&ArrayView<f64,Ix2>) -> Result<(Array<f64,Ix2>,f64,f64),Lin
         let p_i = vt.t().dot(&t_sig).dot(&u.t());
         Ok((p_i,pdet,rank))
     }
+    else {
+        eprintln!("SVD FAILED:");
+        eprintln!("{:?}",mtx);
+        Err(LinalgError::Lapack{return_code:0})
+    }
     // else {Err(LinalgError::from(LapackError::new(0)))}
-    else {Err(LinalgError::Lapack{return_code:0})}
 }
 
 pub fn scale(data:&ArrayView<f64,Ix2>) -> (Array<f64,Ix2>,Array<f64,Ix1>,Array<f64,Ix1>) {
     let means = data.mean_axis(Axis(0));
     let variances = data.var_axis(Axis(0),0.);
+    let variance_zero_mask = variances.mapv(|v| v == 0.);
+    let mut inverse_variances = 1./&variances;
+    for (mut element,mask) in inverse_variances.iter_mut().zip(variance_zero_mask.iter()) {
+        if *mask {
+            *element = 0.;
+        }
+    }
     let mut scaled = data.to_owned();
     for mut row in scaled.axis_iter_mut(Axis(0)) {
         row -= &means;
-        row /= &variances;
+        row *= &inverse_variances;
     }
     return (scaled,means,variances);
 }
