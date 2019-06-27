@@ -282,7 +282,7 @@ pub fn pinv_pdet(mtx:&ArrayView<f64,Ix2>) -> Result<(Array<f64,Ix2>,f64,f64),Lin
     // eprintln!("{:?}",mtx);
     if let (Some(u),sig,Some(vt)) = mtx.svd(true,true)? {
         // eprintln!("{:?},{:?},{:?}",u,sig,vt);
-        let lower_bound = (EPSILON * 1000000.);
+        let lower_bound = (EPSILON * 1000.);
         let i_sig = sig.mapv(|v| if v > lower_bound {1./v} else {0.} );
         // let i_sig = sig.mapv(|v| (-(v+1.).log2()).exp2());
         // let i_sig = sig.mapv(|v| (1./(1.+v)));
@@ -436,6 +436,8 @@ mod tree_braider_tests {
         eprintln!("{:?}",pinv_pdet(&b.view()));
         let c = array![[1.,0.],[0.,1.]];
         eprintln!("{:?}",pinv_pdet(&c.view()));
+        let d = array![[1.]];
+        eprintln!("{:?}",pinv_pdet(&d.view()));
         // panic!();
     }
 

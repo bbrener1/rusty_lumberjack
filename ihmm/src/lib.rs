@@ -254,8 +254,8 @@ impl IHMM {
 
 
     fn resample_states(&mut self) {
-        // let hidden_states: Vec<Option<usize>> = self.live_indices().into_iter().map(|ni| {
-        let hidden_states: Vec<Option<usize>> = self.live_indices().into_par_iter().map(|ni| {
+        let hidden_states: Vec<Option<usize>> = self.live_indices().into_iter().map(|ni| {
+        // let hidden_states: Vec<Option<usize>> = self.live_indices().into_par_iter().map(|ni| {
             self.sample_node_state(ni)
         }).collect();
         for (ni,state) in self.live_indices().into_iter().zip(hidden_states) {
@@ -320,7 +320,8 @@ impl IHMM {
 
         // eprintln!("DPM:{:?}",self.dp_transition_model);
 
-        let new_states: Vec<HiddenState> = represented_states.par_iter().map(|state| {
+        // let new_states: Vec<HiddenState> = represented_states.par_iter().map(|state| {
+        let new_states: Vec<HiddenState> = represented_states.iter().map(|state| {
             let indices = self.state_indices(*state);
             let state_emission_model = self.estimate_emissions(&indices).unwrap();
             let state_transition_model = self.estimate_direct_transitions(&indices);
@@ -347,8 +348,11 @@ impl IHMM {
 
         let mut emission_model = self.prior_emission_model.clone();
         emission_model.set_samples(1);
-        emission_model.estimate(&data.view())?;
-        // emission_model.uninformed_estimate(&data.view())?;
+        for t in 0..10 {
+            if emission_model.estimate(&data.view()).is_ok() { break }
+            if t > 9 {panic!("Failed to estimate")}
+            // emission_model.uninformed_estimate(&data.view())?;
+        }
         eprintln!("EME:{:?}",emission_model.means());
 
         Ok(emission_model)
