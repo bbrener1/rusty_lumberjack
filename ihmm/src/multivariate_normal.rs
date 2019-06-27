@@ -76,7 +76,7 @@ impl MVN {
 
         // eprintln!("{:?}",prior);
 
-        prior = prior.estimate(data)?;
+        prior.estimate(data)?;
 
         // eprintln!("Estimated:{:?}",prior);
 
@@ -115,7 +115,7 @@ impl MVN {
     }
 
 
-    pub fn estimate(mut self,data:&ArrayView<f64,Ix2>) -> Result<MVN,LinalgError> {
+    pub fn estimate(&mut self,data:&ArrayView<f64,Ix2>) -> Result<&mut MVN,LinalgError> {
 
         let (samples,features) = data.dim();
         let (scaled,sample_means,sample_variances) = scale(data);
@@ -396,7 +396,7 @@ mod tree_braider_tests {
         let nodes = iris_forest();
         let data = MarkovNode::encode(&nodes);
         let mut normal = MVN::identity_prior(100,4);
-        normal = normal.estimate(&data.view()).unwrap();
+        normal.estimate(&data.view()).unwrap();
         eprintln!("{:?}",normal.means);
         eprintln!("{:?}",normal.covariance);
         eprintln!("{:?}",normal.pseudo_precision);

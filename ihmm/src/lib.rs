@@ -347,8 +347,8 @@ impl IHMM {
 
         let mut emission_model = self.prior_emission_model.clone();
         emission_model.set_samples(1);
-        emission_model = emission_model.estimate(&data.view())?;
-
+        // emission_model.estimate(&data.view())?;
+        emission_model.uninformed_estimate(&data.view())?;
         eprintln!("EME:{:?}",emission_model.means());
 
         Ok(emission_model)
