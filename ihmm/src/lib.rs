@@ -333,6 +333,10 @@ impl IHMM {
             state
         }).collect();
 
+        for (i,s) in self.hidden_states.iter().enumerate(){
+            eprintln!("NNM{:?}:{:?}",i,s.emission_model.means());
+        }
+
         self.hidden_states = new_states;
 
         for (i,s) in self.hidden_states.iter().enumerate(){
