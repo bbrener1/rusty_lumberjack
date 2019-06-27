@@ -722,8 +722,8 @@ pub mod tree_braider_tests {
     //
     #[test]
     fn test_markov_multipart() {
-        let mut model = iris_model();
-        // let mut model = gene_model();
+        // let mut model = iris_model();
+        let mut model = gene_model();
         model.initialize(10);
         for state in &model.hidden_states {
             eprintln!("Population: {:?}",state.nodes.len());
