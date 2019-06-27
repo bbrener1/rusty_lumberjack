@@ -725,8 +725,8 @@ pub mod tree_braider_tests {
                 // eprintln!("{:?}",state);
             //     eprintln!("Population: {:?}",state.nodes.len());
             //     eprintln!("PDET:{:?}",state.emission_model.pdet());
-            //     eprintln!("MEANS");
-            //     eprintln!("{:?}",state.emission_model.means());
+                eprintln!("MEANS");
+                eprintln!("{:?}",state.emission_model.means());
             //     eprintln!("VARIANCES");
             //     eprintln!("{:?}",state.emission_model.variances());
             }
