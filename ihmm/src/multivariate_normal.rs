@@ -307,9 +307,11 @@ pub fn pinv_pdet(mtx:&ArrayView<f64,Ix2>) -> Result<(Array<f64,Ix2>,f64,f64),Lin
     let (r,c) = mtx.dim();
     // eprintln!("Inverting:");
     // eprintln!("{:?}",mtx);
-    if let Ok((Some(u),sig,Some(vt))) = mtx.svd(true,true) {
+    if let Ok((Some(u),mut sig,Some(vt))) = mtx.svd(true,true) {
         // eprintln!("{:?},{:?},{:?}",u,sig,vt);
-        let lower_bound = (EPSILON * 1000000000.);
+        // let lower_bound = (EPSILON * 1000000000.);
+        let lower_bound = (EPSILON * 10.);
+
         let i_sig = sig.mapv(|v| if v > lower_bound {1./v} else {0.} );
         // let i_sig = sig.mapv(|v| (-(v+1.).log2()).exp2());
         // let i_sig = sig.mapv(|v| (1./(1.+v)));

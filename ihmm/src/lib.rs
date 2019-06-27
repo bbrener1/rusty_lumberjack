@@ -349,8 +349,8 @@ impl IHMM {
         let mut emission_model = self.prior_emission_model.clone();
         emission_model.set_samples(1);
         for t in 0..10 {
-            // if let Err(lapak_err) = emission_model.estimate(&data.view()) {
-            if let Err(lapak_err) = emission_model.uninformed_estimate(&data.view()) {
+            if let Err(lapak_err) = emission_model.estimate(&data.view()) {
+            // if let Err(lapak_err) = emission_model.uninformed_estimate(&data.view()) {
                 eprintln!("EST_ERR:{:?}",lapak_err);
             }
             else { break }
@@ -722,8 +722,8 @@ pub mod tree_braider_tests {
     //
     #[test]
     fn test_markov_multipart() {
-        // let mut model = iris_model();
-        let mut model = gene_model();
+        let mut model = iris_model();
+        // let mut model = gene_model();
         model.initialize(10);
         for state in &model.hidden_states {
             eprintln!("Population: {:?}",state.nodes.len());
