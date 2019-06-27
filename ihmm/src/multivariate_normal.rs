@@ -442,7 +442,6 @@ mod tree_braider_tests {
     #[test]
     fn test_mvn_scale() {
         let iris = iris_matrix();
-        let mask = Array::from_shape_fn((150,4),|_| true);
         eprintln!("{:?}",scale(&iris.view()));
     }
 
