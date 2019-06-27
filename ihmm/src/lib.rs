@@ -320,7 +320,7 @@ impl IHMM {
 
         // eprintln!("DPM:{:?}",self.dp_transition_model);
 
-        let new_states = represented_states.par_iter().map(|state| {
+        let new_states: Vec<HiddenState> = represented_states.par_iter().map(|state| {
             let indices = self.state_indices(*state);
             let state_emission_model = self.estimate_emissions(&indices);
             let state_transition_model = self.estimate_direct_transitions(&indices);
@@ -332,10 +332,6 @@ impl IHMM {
             };
             state
         }).collect();
-
-        for (i,s) in self.hidden_states.iter().enumerate(){
-            eprintln!("NNM{:?}:{:?}",i,s.emission_model.means());
-        }
 
         self.hidden_states = new_states;
 
@@ -352,6 +348,8 @@ impl IHMM {
         let mut emission_model = self.prior_emission_model.clone();
         emission_model.set_samples(1);
         emission_model.estimate(&data.view());
+
+        eprintln!("EME:{:?}",emission_model.means());
 
         emission_model
     }
