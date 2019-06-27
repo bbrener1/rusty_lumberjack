@@ -335,9 +335,9 @@ impl IHMM {
 
         self.hidden_states = new_states;
 
-        // for (i,s) in self.hidden_states.iter().enumerate(){
-        //     eprintln!("NM{:?}:{:?}",i,s.emission_model.means());
-        // }
+        for (i,s) in self.hidden_states.iter().enumerate(){
+            eprintln!("NM{:?}:{:?}",i,s.emission_model.means());
+        }
 
     }
 
