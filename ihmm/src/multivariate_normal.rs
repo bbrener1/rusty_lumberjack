@@ -182,6 +182,8 @@ impl MVN {
         self.rank = posterior_rank;
         self.samples = self.samples + samples as u32;
 
+        eprintln!("EFM:{:?}",self.means);
+
         Ok(self)
 
     }
