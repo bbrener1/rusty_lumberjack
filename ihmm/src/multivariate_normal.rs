@@ -171,7 +171,7 @@ impl MVN {
 
                 eprintln!("Reduced SVD:{:?},{:?},{:?}",reduced_u.shape(),reduced_sig.dim(),reduced_vt.dim());
 
-                self.reduced_pdet = Some(reduced_sig.sum());
+                self.reduced_pdet = Some(reduced_t_sig.mapv(|v| if v > lower_bound {v.log2()} else {0.}).iter().sum());
                 self.reduced_inverse_sig = Some(reduced_t_sig);
                 self.reduced_svd = Some((reduced_u,reduced_sig,reduced_vt));
 
