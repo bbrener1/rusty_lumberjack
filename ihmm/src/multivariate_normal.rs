@@ -17,12 +17,15 @@ use ndarray_linalg::svd::SVD;
 #[derive(Debug,Clone)]
 pub struct MVN {
     means: Array<f64,Ix1>,
-    variances: Array<f64,Ix1>,
     covariance: Array<f64,Ix2>,
     pseudo_precision: Array<f64,Ix2>,
     pdet: f64,
     rank: f64,
     samples: u32,
+    svd: Option<(Array<f64,Ix2>,Array<f64,Ix2>,Array<f64,Ix2>)>,
+    reduced_svd: Option<(Array<f64,Ix2>,Array<f64,Ix2>,Array<f64,Ix2>)>,
+    reduced_precision: Option<Array<f64,Ix2>>,
+    reduced_pdet: Option<f64>,
 }
 
 impl MVN {
@@ -30,12 +33,15 @@ impl MVN {
     pub fn identity_prior(samples:u32,features:u32) -> MVN {
         MVN {
             means: Array::zeros(features as usize),
-            variances: Array::ones(features as usize),
             covariance: Array::eye(features as usize),
             pseudo_precision: Array::eye(features as usize),
             pdet: 0.,
             rank: features as f64,
             samples: samples,
+            svd: None,
+            reduced_svd: None,
+            reduced_precision: None,
+            reduced_pdet: None
         }
     }
 
@@ -47,17 +53,21 @@ impl MVN {
 
         let f = variances.dim();
         let mut covariance = Array::eye(f);
+        covariance.diag_mut().assign(variances);
         let (pseudo_precision,pdet,rank) = pinv_pdet(&covariance.view()).unwrap();
 
 
         MVN {
             means: means.to_owned(),
-            variances: variances.to_owned(),
             covariance,
             pseudo_precision,
             pdet,
             rank,
             samples,
+            svd: None,
+            reduced_svd:None,
+            reduced_precision:None,
+            reduced_pdet: None,
         }
     }
 
@@ -83,42 +93,10 @@ impl MVN {
         Ok(prior)
     }
 
-    pub fn uninformed_estimate(&mut self,data:&ArrayView<f64,Ix2>) -> Result<&mut MVN,LinalgError> {
-
-        let (samples,features) = data.dim();
-
-        let (scaled,feature_means,variances) = scale(data);
-
-        let mut outer_feature_sum: Array<f64,Ix2> = Array::zeros((features,features));
-
-        for (i,sample) in scaled.axis_iter(Axis(0)).enumerate() {
-            outer_feature_sum += &outer_product(&sample, &sample);
-        }
-
-        let mut covariance_estimate = outer_feature_sum / (samples as f64 + 1.);
-
-        let (mut precision_estimate,mut covariance_log_determinant, mut determinant_rank) = pinv_pdet(&covariance_estimate.view())?;
-
-        self.means = feature_means;
-        self.variances = variances;
-        self.covariance = covariance_estimate;
-        self.pseudo_precision = precision_estimate;
-        self.pdet = covariance_log_determinant;
-        self.rank = determinant_rank;
-        self.samples = samples as u32;
-
-        // eprintln!("Uninformed estimate");
-        // eprintln!("{:?}",self);
-
-        Ok(self)
-
-    }
-
-
     pub fn estimate(&mut self,data:&ArrayView<f64,Ix2>) -> Result<&mut MVN,LinalgError> {
 
         let (samples,features) = data.dim();
-        let (scaled,sample_means,sample_variances) = scale(data);
+        let (centered,sample_means) = center(data);
 
         let mut posterior_covariance = Array::eye(features);
         let mut posterior_pseudo_precision = Array::eye(features);
@@ -130,7 +108,6 @@ impl MVN {
         // eprintln!("Samples in estimate:{:?}",samples);
 
         let posterior_means = ((&self.means * (self.samples as f64)) + (&sample_means * (samples as f64))) / (self.samples as usize + samples) as f64;
-        let posterior_variances = ((&self.variances * (self.samples as f64)) + (&sample_variances * (samples as f64))) / (self.samples as usize + samples) as f64;
         // eprintln!("Posterior means: {:?}", posterior_means);
 
         // eprintln!("====================");
@@ -140,7 +117,7 @@ impl MVN {
 
         let mut s: Array<f64,Ix2> = Array::zeros((features,features));
 
-        for (i,sample) in scaled.axis_iter(Axis(0)).enumerate() {
+        for (i,sample) in centered.axis_iter(Axis(0)).enumerate() {
             s += &outer_product(&sample, &sample);
         }
 
@@ -167,19 +144,47 @@ impl MVN {
 
             posterior_covariance.assign(&mut (ln / inverse_wishart_scale));
 
-            let (mut p_i,mut p_d, mut p_r) = pinv_pdet(&posterior_covariance.view())?;
+            if let Ok((Some(u),mut sig_v,Some(vt))) = posterior_covariance.svd(true,true) {
 
-            posterior_pseudo_determinant = p_d;
-            posterior_pseudo_precision.assign(&mut p_i);
-            posterior_rank = p_r;
+                let reduction = 3;
+
+                let mut sig = Array::zeros((sig_v.dim(),sig_v.dim()));
+                sig.diag_mut().assign(&sig_v);
+
+                let lower_bound = (EPSILON * 1000.);
+
+                let mut t_sig = Array::zeros((features,features));
+                t_sig.diag_mut().assign(&sig_v.mapv(|v| if v > lower_bound {1./v} else {0.} ));
+
+                self.rank = sig.mapv(|v| if v > lower_bound {1.} else {0.}).sum();
+                self.pdet = sig.mapv(|v| if v > lower_bound {v.log2()} else {0.}).iter().sum();
+
+                self.svd = Some((u.clone(),sig.clone(),vt.clone()));
+                self.pseudo_precision = vt.t().dot(&t_sig).dot(&u.t());
+
+                let reduced_u = u.slice(s![..,..reduction]).to_owned();
+                let mut reduced_sig: Array<f64,Ix2> = Array::zeros((reduction,reduction));
+                reduced_sig.diag_mut().assign(&sig_v.iter().take(reduction).cloned().collect::<Array<f64,Ix1>>());
+                let mut reduced_t_sig = Array::zeros((reduction,reduction));
+                reduced_t_sig.diag_mut().assign(&reduced_sig.diag().mapv(|v| if v > lower_bound {1./v} else {0.} ));
+                let reduced_vt = vt.slice(s![..reduction,..]).to_owned();
+
+                eprintln!("Reduced SVD:{:?},{:?},{:?}",reduced_u.shape(),reduced_sig.dim(),reduced_vt.dim());
+
+                self.reduced_pdet = Some(reduced_sig.sum());
+                self.reduced_precision = Some(reduced_vt.t().dot(&reduced_t_sig).dot(&reduced_u.t()));
+                self.reduced_svd = Some((reduced_u,reduced_sig,reduced_vt));
+            }
+            else {
+                eprintln!("SVD FAILED:");
+                eprintln!("{:?}",posterior_covariance);
+                return Err(LinalgError::Lapack{return_code:0})
+            }
         }
 
         self.means = posterior_means;
-        self.variances = posterior_variances;
         self.covariance = posterior_covariance;
         self.pseudo_precision = posterior_pseudo_precision;
-        self.pdet = posterior_pseudo_determinant;
-        self.rank = posterior_rank;
         self.samples = self.samples + samples as u32;
 
         // eprintln!("EFM:{:?}",self.means);
@@ -188,24 +193,23 @@ impl MVN {
 
     }
 
+
     pub fn mini_estimate(&mut self,data:&ArrayView<f64,Ix2>) -> Result<&mut MVN,LinalgError> {
 
         let (samples,features) = data.dim();
-        let (scaled,sample_means,sample_variances) = scale(data);
+        let (centered,sample_means) = center(data);
 
         // eprintln!("====================");
         // eprintln!("Estimated means: {:?}", sample_means);
         // eprintln!("Samples in estimate:{:?}",samples);
 
         let posterior_means = ((&self.means * (self.samples as f64)) + (&sample_means * (samples as f64))) / (self.samples as usize + samples) as f64;
-        let posterior_variances = ((&self.variances * (self.samples as f64)) + (&sample_variances * (samples as f64))) / (self.samples as usize + samples) as f64;
         // eprintln!("Posterior means: {:?}", posterior_means);
 
         // eprintln!("====================");
         // eprintln!("Posterior means: {:?}", posterior_means);
 
         self.means = posterior_means;
-        self.variances = posterior_variances;
 
         self.samples = self.samples + samples as u32;
 
@@ -218,31 +222,49 @@ impl MVN {
     pub fn log_likelihood(&self,data:&ArrayView<f64,Ix1>) -> f64 {
 
 
+
         let centered_data = (data - &self.means);
 
-        // let scaled_data: Array<f64,Ix1> = centered_data.iter().zip(&self.variances).map(|(cd,v)| if *v > 0. {cd/(v.sqrt())} else {0.}).collect();
-        let scaled_data: Array<f64,Ix1> = centered_data.iter().zip(&self.variances).map(|(cd,v)| if *v > 0. {cd/v} else {0.}).collect();
+        if let MVN{reduced_svd:Some(ref r_svd),reduced_precision:Some(ref r_precision),reduced_pdet:Some(ref r_pdet),..} = self {
 
-        let pd = self.pdet;
-        let f = scaled_data.dot(&self.pseudo_precision).dot(&scaled_data) * f64::log2(2.*PI);
-        let dn = self.rank * f64::log2(2.*PI);
+            let (r_u,r_sig,r_vt) = r_svd;
 
-        // eprintln!("D:{:?}",data);
-        // eprintln!("M:{:?}",self.means);
-        // eprintln!("V:{:?}",self.variances);
-        //
-        // eprintln!("S:{:?}",scaled_data);
-        // eprintln!("P:{:?}",self.pseudo_precision);
-        //
+            let reduced_vector = centered_data.dot(r_u);
 
-        let log_likelihood = -0.5 * (pd + f + dn);
+            let f = reduced_vector.dot(self.reduced_precision.as_ref().unwrap()).dot(&reduced_vector);
 
-        eprintln!("PD,F,DN:{},{},{}",pd,f,dn);
-        eprintln!("LL:{:?}",log_likelihood);
+            let dn = r_sig.dim().0 as f64;
+
+            let log_likelihood = -0.5 * (r_pdet + f + dn);
+
+            log_likelihood
+        }
+
+        else {
+
+            let pd = self.pdet;
+            let f = centered_data.dot(&self.pseudo_precision).dot(&centered_data) * f64::log2(2.*PI);
+            let dn = self.rank * f64::log2(2.*PI);
+
+            // eprintln!("D:{:?}",data);
+            // eprintln!("M:{:?}",self.means);
+            // eprintln!("V:{:?}",self.variances);
+            //
+            // eprintln!("S:{:?}",scaled_data);
+            // eprintln!("P:{:?}",self.pseudo_precision);
+            //
+
+            let log_likelihood = -0.5 * (pd + f + dn);
+
+            eprintln!("PD,F,DN:{},{},{}",pd,f,dn);
+            eprintln!("LL:{:?}",log_likelihood);
 
 
-        log_likelihood
+            log_likelihood
+
+        }
     }
+
 
     pub fn dim(&self) -> (usize,usize) {
         (self.samples as usize,self.means.dim())
@@ -254,10 +276,6 @@ impl MVN {
 
     pub fn pdet(&self) -> &f64 {
         &self.pdet
-    }
-
-    pub fn variances(&self) -> ArrayView<f64,Ix1> {
-        self.variances.diag()
     }
 
 }
@@ -308,6 +326,7 @@ pub fn pinv_pdet(mtx:&ArrayView<f64,Ix2>) -> Result<(Array<f64,Ix2>,f64,f64),Lin
     // eprintln!("Inverting:");
     // eprintln!("{:?}",mtx);
     if let Ok((Some(u),mut sig,Some(vt))) = mtx.svd(true,true) {
+        eprintln!("Singular Values: {:?}",sig);
         // eprintln!("{:?},{:?},{:?}",u,sig,vt);
         // let lower_bound = (EPSILON * 1000000000.);
         let lower_bound = (EPSILON * 10.);
@@ -353,37 +372,15 @@ pub fn scale(data:&ArrayView<f64,Ix2>) -> (Array<f64,Ix2>,Array<f64,Ix1>,Array<f
     return (scaled,means,variances);
 }
 
-pub fn minor_inverse(inverse:&ArrayView<f64,Ix2>,mask:&ArrayView<bool,Ix1>) -> Array<f64,Ix2> {
-
-    // eprintln!("Selecting minor of an inverse");
-    //
-    // eprintln!("Mask:{:?}",mask);
-
-    let mut minor = array_double_mask(inverse, mask);
-
-    // eprintln!("Minor:{:?}",minor.dim());
-
-    let selected_indices: Vec<usize> = (0..mask.dim()).zip(mask.iter()).flat_map(|(i,&m)| if m {Some(i)} else {None}).collect();
-    let omitted_indices: Vec<usize> = (0..mask.dim()).zip(mask.iter()).flat_map(|(i,&m)| if m {None} else {Some(i)}).collect();
-
-    // eprintln!("Selected Indices:{:?}",selected_indices);
-    // eprintln!("Omitted Indices:{:?}",omitted_indices);
-
-    let left = inverse.select(Axis(0),&selected_indices).select(Axis(1),&omitted_indices);
-    let right = inverse.select(Axis(0),&omitted_indices).select(Axis(1),&selected_indices);
-
-    // eprintln!("L:{:?}",left.dim());
-    // eprintln!("R:{:?}",right.dim());
-
-    let augmentation = left.dot(&right);
-
-    // eprintln!("A:{:?}",augmentation.dim());
-
-    minor = minor + augmentation;
-
-    minor
-
+pub fn center(data:&ArrayView<f64,Ix2>) -> (Array<f64,Ix2>,Array<f64,Ix1>) {
+    let means = data.mean_axis(Axis(0));
+    let mut centered = data.to_owned();
+    for mut row in centered.axis_iter_mut(Axis(0)) {
+        row -= &means;
+    }
+    return (centered,means);
 }
+
 
 #[cfg(test)]
 mod tree_braider_tests {

@@ -1,5 +1,5 @@
 
-#[macro_use(array,azip)]
+#[macro_use(array,azip,s)]
 extern crate ndarray;
 extern crate ndarray_linalg;
 extern crate trees;
@@ -254,8 +254,8 @@ impl IHMM {
 
 
     fn resample_states(&mut self) {
-        // let hidden_states: Vec<Option<usize>> = self.live_indices().into_iter().map(|ni| {
-        let hidden_states: Vec<Option<usize>> = self.live_indices().into_par_iter().map(|ni| {
+        let hidden_states: Vec<Option<usize>> = self.live_indices().into_iter().map(|ni| {
+        // let hidden_states: Vec<Option<usize>> = self.live_indices().into_par_iter().map(|ni| {
             self.sample_node_state(ni)
         }).collect();
         for (ni,state) in self.live_indices().into_iter().zip(hidden_states) {
@@ -320,8 +320,8 @@ impl IHMM {
 
         // eprintln!("DPM:{:?}",self.dp_transition_model);
 
-        let new_states: Vec<HiddenState> = represented_states.par_iter().map(|state| {
-        // let new_states: Vec<HiddenState> = represented_states.iter().map(|state| {
+        // let new_states: Vec<HiddenState> = represented_states.par_iter().map(|state| {
+        let new_states: Vec<HiddenState> = represented_states.iter().map(|state| {
             let indices = self.state_indices(*state);
             let state_emission_model = self.estimate_emissions(&indices).unwrap();
             let state_transition_model = self.estimate_direct_transitions(&indices);
@@ -722,8 +722,8 @@ pub mod tree_braider_tests {
     //
     #[test]
     fn test_markov_multipart() {
-        // let mut model = iris_model();
-        let mut model = gene_model();
+        let mut model = iris_model();
+        // let mut model = gene_model();
         model.initialize(10);
         for state in &model.hidden_states {
             eprintln!("Population: {:?}",state.nodes.len());
