@@ -24,7 +24,7 @@ pub struct MVN {
     samples: u32,
     svd: Option<(Array<f64,Ix2>,Array<f64,Ix2>,Array<f64,Ix2>)>,
     reduced_svd: Option<(Array<f64,Ix2>,Array<f64,Ix2>,Array<f64,Ix2>)>,
-    reduced_precision: Option<Array<f64,Ix2>>,
+    reduced_inverse_sig: Option<Array<f64,Ix2>>,
     reduced_pdet: Option<f64>,
 }
 
@@ -40,7 +40,7 @@ impl MVN {
             samples: samples,
             svd: None,
             reduced_svd: None,
-            reduced_precision: None,
+            reduced_inverse_sig: None,
             reduced_pdet: None
         }
     }
@@ -66,7 +66,7 @@ impl MVN {
             samples,
             svd: None,
             reduced_svd:None,
-            reduced_precision:None,
+            reduced_inverse_sig:None,
             reduced_pdet: None,
         }
     }
@@ -172,9 +172,11 @@ impl MVN {
                 eprintln!("Reduced SVD:{:?},{:?},{:?}",reduced_u.shape(),reduced_sig.dim(),reduced_vt.dim());
 
                 self.reduced_pdet = Some(reduced_sig.sum());
-                self.reduced_precision = Some(reduced_vt.t().dot(&reduced_t_sig).dot(&reduced_u.t()));
+                self.reduced_inverse_sig = Some(reduced_t_sig);
                 self.reduced_svd = Some((reduced_u,reduced_sig,reduced_vt));
+
             }
+
             else {
                 eprintln!("SVD FAILED:");
                 eprintln!("{:?}",posterior_covariance);
@@ -221,21 +223,17 @@ impl MVN {
 
     pub fn log_likelihood(&self,data:&ArrayView<f64,Ix1>) -> f64 {
 
-
-
         let centered_data = (data - &self.means);
 
-        if let MVN{reduced_svd:Some(ref r_svd),reduced_precision:Some(ref r_precision),reduced_pdet:Some(ref r_pdet),..} = self {
+        if let MVN{reduced_svd:Some(ref r_svd),reduced_inverse_sig:Some(ref r_isig),reduced_pdet:Some(ref r_pdet),..} = self {
 
             let (r_u,r_sig,r_vt) = r_svd;
 
-            let reduced_vector = centered_data.dot(r_u);
-
-            let f = reduced_vector.dot(self.reduced_precision.as_ref().unwrap()).dot(&reduced_vector);
+            let f = centered_data.dot(&r_vt.t()).dot(r_isig).dot(&r_u.t()).dot(&centered_data);
 
             let dn = r_sig.dim().0 as f64;
 
-            let log_likelihood = -0.5 * (r_pdet + f + dn);
+            let log_likelihood = -0.5 * (*r_pdet + f + dn);
 
             log_likelihood
         }
