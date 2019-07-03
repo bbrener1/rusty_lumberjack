@@ -272,6 +272,59 @@ impl IHMM {
         }
     }
 
+
+    fn resample_hyperparameters(&mut self) {
+        self.beta = NonZeroUsize::new(self.resample_beta(None)).unwrap();
+        self.gamma = NonZeroUsize::new(self.resample_gamma(None)).unwrap();
+    }
+
+    fn resample_beta(&mut self,maximum_option:Option<usize>) -> usize {
+        let maximum = maximum_option.unwrap_or(10);
+        let ln_beta: Vec<f64> = (1..(self.nodes.len()*2)).map(|v| (v as f64).ln()).collect();
+        let ln_beta_cmsm: Vec<f64> = ln_beta.iter().scan(0., |acc,v| {*acc += v; Some(*acc)}).collect();
+        let transition_matrix = self.get_direct_transition_matrix();
+
+        let ki = transition_matrix.mapv(|v| if v > 0 {1} else {0}).sum_axis(Axis(0));
+        let ni = transition_matrix.sum_axis(Axis(0));
+        let potential_states = self.hidden_states.len() + 1;
+
+        // eprintln!("BETA DEBUG");
+        // eprintln!("KI:{:?}",ki.dim());
+        // eprintln!("NI:{:?}",ni.dim());
+        // eprintln!("POTENTIAL STATES:{:?}",potential_states);
+        // eprintln!("LN_BETA:{:?}",ln_beta.len());
+        // eprintln!("LN_BETA:{:?}",ln_beta);
+        // eprintln!("LN_BETA_CMSM:{:?}",ln_beta_cmsm.len());
+        // eprintln!("LN_BETA_CMSM:{:?}",ln_beta_cmsm);
+        // eprintln!("MAXIMUM:{:?}",maximum);
+
+        let likelihood = |beta| {
+            let mut cml = 0.;
+            for i in 0..potential_states {
+                cml += ln_beta[beta] * ki[i] as f64 + (ln_beta_cmsm[ni[i]] - ln_beta_cmsm[beta])
+            }
+            cml -= beta as f64;
+            cml
+        };
+
+        let likelihoods = (1..maximum).map(|beta| likelihood(beta));
+
+        // eprintln!("LIKELIHOODS:{:?}",likelihoods.clone().collect::<Vec<f64>>());
+
+        let mut maximum_beta = gn_argmax(likelihoods).unwrap() + 1;
+
+        if maximum_beta == maximum && maximum < self.nodes.len() {
+            maximum_beta = self.resample_beta(Some(maximum * 10));
+        }
+
+        maximum_beta
+    }
+
+    fn resample_gamma(&mut self,maximum_option:Option<usize>) -> usize {
+        1
+    }
+
+
     fn resample_oracles(&mut self) {
         let node_states = self.nodes.iter().map(|n| n.hidden_state);
         let parent_states: Vec<Option<usize>> = self.get_node_parent_states(&(0..self.nodes.len()).collect::<Vec<usize>>());

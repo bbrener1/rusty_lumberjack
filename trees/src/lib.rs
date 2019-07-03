@@ -231,9 +231,9 @@ fn argmin(in_vec: &[f64]) -> Option<(usize,f64)> {
 }
 
 fn argmax(in_vec: &[f64]) -> Option<(usize,f64)> {
-    let mut minimum = None;
+    let mut maximum = None;
     for (j,&val) in in_vec.iter().enumerate() {
-        let check = if let Some((i,m)) = minimum.take() {
+        let check = if let Some((i,m)) = maximum.take() {
             match val.partial_cmp(&m).unwrap_or(Ordering::Less) {
                 Ordering::Less => {Some((i,m))},
                 Ordering::Equal => {Some((i,m))},
@@ -248,13 +248,31 @@ fn argmax(in_vec: &[f64]) -> Option<(usize,f64)> {
                 None
             }
         };
-        minimum = check;
+        maximum = check;
 
     };
-    minimum
+    maximum
 }
 
+pub fn gn_argmax<T:Iterator<Item=U>,U:PartialOrd + PartialEq>(input: T) -> Option<usize> {
+    let mut maximum: Option<(usize,U)> = None;
+    for (j,val) in input.enumerate() {
+        let check = if let Some((i,m)) = maximum.take() {
+            match val.partial_cmp(&m).unwrap_or(Ordering::Less) {
+                Ordering::Less => {Some((i,m))},
+                Ordering::Equal => {Some((i,m))},
+                Ordering::Greater => {Some((j,val))},
+            }
+        }
+        else {
+            if val.partial_cmp(&val).is_some() { Some((j,val)) }
+            else { None }
+        };
+        maximum = check;
 
+    };
+    maximum.map(|(i,m)| i)
+}
 
 fn matrix_flip<T:Clone>(in_mat: &Vec<Vec<T>>) -> Vec<Vec<T>> {
 
@@ -555,5 +573,22 @@ pub mod tree_lib_tests {
 
 
     }
+
+    #[test]
+    fn test_gn_argmax() {
+
+        let na = std::f64::NAN;
+
+        assert_eq!(gn_argmax(vec![1.].iter()),Some((0)));
+        assert_eq!(gn_argmax(vec![1.,2.].iter()),Some((1)));
+        assert_eq!(gn_argmax(Vec::<f64>::new().iter()),None);
+        assert_eq!(gn_argmax(vec![1.,na].iter()),Some((0)));
+        assert_eq!(gn_argmax(vec![na,1.].iter()),Some((1)));
+        assert_eq!(gn_argmax(vec![na,na].iter()),None);
+        assert_eq!(gn_argmax(vec![1.,1.].iter()),Some((0)));
+
+
+    }
+
 
 }
