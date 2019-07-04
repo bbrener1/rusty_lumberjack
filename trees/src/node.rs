@@ -184,7 +184,7 @@ impl Node {
 
         let new_input_features = input_features.iter().map(|i| self.input_features[*i].clone()).collect();
         let new_output_features = output_features.iter().map(|i| self.output_features[*i].clone()).collect();
-        let new_samples = samples.iter().map(|i| self.samples[*i].clone()).collect();
+        let new_samples: Vec<Sample> = samples.iter().map(|i| self.samples[*i].clone()).collect();
 
         let mut new_prerequisites =
             if let Some(prerequisites) = prerequisite_opt {

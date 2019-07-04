@@ -14,7 +14,7 @@ mod dirichlet;
 mod multivariate_normal;
 
 use trees::node::StrippedNode;
-use trees::{Feature,Sample,Prerequisite};
+use trees::{Feature,Sample,Prerequisite,gn_argmax};
 
 use std::collections::{HashMap,HashSet};
 
@@ -213,6 +213,7 @@ impl IHMM {
 
         eprint!("{:?}:[",node_index);
         for (si,state) in self.hidden_states.iter().enumerate() {
+
             let feature_log_odds = state.feature_log_likelihood(&emissions);
 
             // Here we have to do something slightly tricky:
@@ -222,7 +223,6 @@ impl IHMM {
             let mut mixture_log_odds = 0.;
             mixture_log_odds += state.mixture_log_odds(cls) + self.dp_transition_model.log_odds(&Some(si)).unwrap() - self.dp_transition_model.log_odds(&cls).unwrap();
             mixture_log_odds += state.mixture_log_odds(crs) + self.dp_transition_model.log_odds(&Some(si)).unwrap() - self.dp_transition_model.log_odds(&crs).unwrap();
-
 
             // let mixture_log_odds = self.dp_transition_model.log_odds(&Some(si)).unwrap();
             // let mixture_log_odds = 0.;
@@ -340,6 +340,7 @@ impl IHMM {
         self.resample_oracles();
         self.remove_unrepresented_states();
         self.estimate_states();
+        self.resample_hyperparameters();
     }
 
     fn remove_unrepresented_states(&mut self) {
@@ -380,7 +381,7 @@ impl IHMM {
         let population_model = self.estimate_population_model();
         self.dp_transition_model = population_model;
 
-        // eprintln!("DPM:{:?}",self.dp_transition_model);
+        eprintln!("DPM:{:?}",self.dp_transition_model);
 
         let new_states: Vec<HiddenState> = represented_states.par_iter().map(|state| {
         // let new_states: Vec<HiddenState> = represented_states.iter().map(|state| {
@@ -428,7 +429,7 @@ impl IHMM {
     }
 
     fn estimate_population_model(&self) -> SymmetricDirichlet<Option<usize>> {
-        let mut state_populations:HashMap<Option<usize>,usize> = self.represented_states().into_iter().filter(|rs| rs.is_some()).map(|s| (s,0)).collect();
+        let mut state_populations:HashMap<Option<usize>,usize> = self.represented_states().into_iter().map(|s| (s,0)).collect();
         for (state,count) in state_populations.iter_mut() {
             *count = self.state_indices(*state).len();
         }
@@ -528,6 +529,37 @@ impl IHMM {
         }
         transitions
     }
+
+    fn get_direct_transition_matrix(&self) -> Array<usize,Ix2> {
+        let hidden_states = self.hidden_states.len();
+        let transitions = self.get_transitions(&self.live_indices());
+        let mut transition_matrix: Array<usize,Ix2> = Array::zeros((hidden_states+1,hidden_states+1));
+        for (s1,s2,o) in transitions {
+            if !o {
+                let s1i = s1.unwrap_or(hidden_states);
+                let s2i = s2.unwrap_or(hidden_states);
+                transition_matrix[[s1i,s2i]] += 1;
+            }
+
+        }
+        transition_matrix
+    }
+
+    fn get_oracle_transition_matrix(&self) -> Array<usize,Ix2> {
+        let hidden_states = self.hidden_states.len();
+        let transitions = self.get_transitions(&self.live_indices());
+        let mut transition_matrix: Array<usize,Ix2> = Array::zeros((hidden_states+1,hidden_states+1));
+        for (s1,s2,o) in transitions {
+            if o {
+                let s1i = s1.unwrap_or(hidden_states);
+                let s2i = s2.unwrap_or(hidden_states);
+                transition_matrix[[s1i,s2i]] += 1;
+            }
+
+        }
+        transition_matrix
+    }
+
 
     fn represented_states(&self) -> Vec<Option<usize>> {
         let state_set: HashSet<Option<usize>> = self.nodes.iter().map(|n| n.hidden_state).collect();
@@ -784,8 +816,8 @@ pub mod tree_braider_tests {
     //
     #[test]
     fn test_markov_multipart() {
-        let mut model = iris_model();
-        // let mut model = gene_model();
+        // let mut model = iris_model();
+        let mut model = gene_model();
         model.initialize(10);
         for state in &model.hidden_states {
             eprintln!("Population: {:?}",state.nodes.len());
