@@ -645,8 +645,8 @@ impl MarkovNode {
         let parent = None;
         let samples = original.samples().to_vec();
         let features = original.features().to_vec();
-        let emissions = original.medians().to_vec();
-        // let emissions = original.local_gains().unwrap_or(&vec![0.;features.len()]).to_vec();
+        // let emissions = original.medians().to_vec();
+        let emissions = original.local_gains().unwrap_or(&vec![0.;features.len()]).to_vec();
 
 
         let wrapped = MarkovNode{
