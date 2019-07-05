@@ -56,7 +56,7 @@ impl MVN {
             let mut reduced_inverse_sig = Array::zeros((reduction,reduction));
             reduced_inverse_sig.diag_mut().assign(&reduced_sig.diag().mapv(|v| if v > lower_bound {1./v} else {0.} ));
             let reduced_vt = vt.slice(s![..reduction,..]).to_owned();
-            let reduced_pdet = reduced_inverse_sig.mapv(|v| if v > lower_bound {v.log2()} else {0.}).iter().sum();
+            let reduced_pdet = reduced_sig.mapv(|v| if v > lower_bound {v.log2()} else {0.}).iter().sum();
 
             MVN {
                 means: means.to_owned(),
@@ -166,7 +166,7 @@ impl MVN {
 
                 eprintln!("Reduced SVD:{:?},{:?},{:?}",reduced_u.shape(),reduced_sig.dim(),reduced_vt.dim());
 
-                self.reduced_pdet = reduced_t_sig.mapv(|v| if v > lower_bound {v.log2()} else {0.}).iter().sum();
+                self.reduced_pdet = reduced_sig.mapv(|v| if v > lower_bound {v.log2()} else {0.}).iter().sum();
                 self.reduced_inverse_sig = reduced_t_sig;
                 self.reduced_svd = (reduced_u,reduced_sig,reduced_vt);
 
