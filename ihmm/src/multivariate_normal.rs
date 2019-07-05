@@ -219,6 +219,9 @@ impl MVN {
 
         let log_likelihood = -0.5 * (*r_pdet + f + dn);
 
+        eprintln!("PD,F,DN:{:?},{:?},{:?}",r_pdet,f,dn);
+        eprintln!("LL:{:?}",log_likelihood);
+
         log_likelihood
 
     }
