@@ -221,10 +221,10 @@ impl IHMM {
             // In log form, P(parent|child) = log(P(c|p)) + log(P(p)) - log(P(c))
 
             let mut mixture_log_odds = 0.;
-            mixture_log_odds += state.mixture_log_odds(cls) + self.dp_transition_model.log_odds(&Some(si)).unwrap() - self.dp_transition_model.log_odds(&cls).unwrap();
-            mixture_log_odds += state.mixture_log_odds(crs) + self.dp_transition_model.log_odds(&Some(si)).unwrap() - self.dp_transition_model.log_odds(&crs).unwrap();
-            mixture_log_odds /= 2.;
-            // let mixture_log_odds = self.dp_transition_model.log_odds(&Some(si)).unwrap();
+            // mixture_log_odds += state.mixture_log_odds(cls) + self.dp_transition_model.log_odds(&Some(si)).unwrap() - self.dp_transition_model.log_odds(&cls).unwrap();
+            // mixture_log_odds += state.mixture_log_odds(crs) + self.dp_transition_model.log_odds(&Some(si)).unwrap() - self.dp_transition_model.log_odds(&crs).unwrap();
+            // mixture_log_odds /= 2.;
+            let mixture_log_odds = self.dp_transition_model.log_odds(&Some(si)).unwrap();
             // let mixture_log_odds = 0.;
             eprint!("({:?},",feature_log_odds);
             eprint!("{:?}),",mixture_log_odds);
