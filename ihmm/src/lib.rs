@@ -845,6 +845,7 @@ pub mod tree_braider_tests {
             eprintln!("Populations:{:?}",model.hidden_states.iter().map(|hs| hs.nodes.len()).collect::<Vec<usize>>());
             eprintln!("PDET:{:?}",model.hidden_states.iter().map(|hs| *hs.emission_model.pdet()).collect::<Vec<f64>>());
             eprintln!("ORACLE MIXTURE:{:?}",model.oracle_transition_model);
+            eprintln!("BETA:{:?}",model.beta);
         }
         // for state in &model.hidden_states {
         //     eprintln!("{:?}", state);

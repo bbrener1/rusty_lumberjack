@@ -111,11 +111,13 @@ impl MVN {
 
         // eprintln!("Scaled:{:?}",scaled);
 
-        let mut s: Array<f64,Ix2> = Array::zeros((features,features));
+        let mut s: Array<f64,Ix2> = centered.t().dot(&centered);
 
-        for (i,sample) in centered.axis_iter(Axis(0)).enumerate() {
-            s += &outer_product(&sample, &sample);
-        }
+        // let mut s: Array<f64,Ix2> = Array::zeros((features,features));
+
+        // for (i,sample) in centered.axis_iter(Axis(0)).enumerate() {
+        //     s += &outer_product(&sample, &sample);
+        // }
 
         let mut covariance_estimate = &s / (samples + 1) as f64;
 
