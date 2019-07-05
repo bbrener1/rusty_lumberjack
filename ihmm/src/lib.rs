@@ -81,7 +81,7 @@ struct HiddenState {
 impl HiddenState {
 
     fn blank(features:usize,states:usize) -> HiddenState {
-        let emission_model = MVN::identity_prior(1, features as u32);
+        let emission_model = MVN::identity_prior(1, features);
         let mut potential_states = vec![None];
         potential_states.extend((0..states).map(|i| Some(i)));
         let direct_transition_model = SymmetricDirichlet::blank_categories(&potential_states, NonZeroUsize::new(1).unwrap());
@@ -176,7 +176,7 @@ impl IHMM {
             gamma: NonZeroUsize::new(1).unwrap(),
             beta_e: 0.,
             hidden_states: vec![],
-            prior_emission_model: MVN::identity_prior(1, features as u32),
+            prior_emission_model: MVN::identity_prior(1, features),
             oracle_transition_model: SymmetricDirichlet::blank(NonZeroUsize::new(1).unwrap()),
             dp_transition_model: SymmetricDirichlet::blank(NonZeroUsize::new(1).unwrap()),
             nodes: nodes,

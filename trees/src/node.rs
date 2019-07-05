@@ -196,7 +196,7 @@ impl Node {
         let dispersions = new_output_table.dispersions();
         let feature_weights = output_features.iter().map(|y| self.feature_weights[*y]).collect();
 
-        let local_gains = Some(self.dispersions().iter().zip(dispersions.iter()).map(|(p,c)| (p/(self.samples().len() as f64)) - (c/(new_samples.len() as f64))).collect());
+        let local_gains = Some(self.dispersions().iter().zip(dispersions.iter()).map(|(p,c)| (p/(self.samples().len() as f64)) - (c/((new_samples.len() + 1) as f64))).collect());
 
         let child = Node {
 

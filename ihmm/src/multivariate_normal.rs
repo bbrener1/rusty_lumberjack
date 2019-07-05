@@ -17,58 +17,57 @@ use ndarray_linalg::svd::SVD;
 #[derive(Debug,Clone)]
 pub struct MVN {
     means: Array<f64,Ix1>,
-    covariance: Array<f64,Ix2>,
-    pseudo_precision: Array<f64,Ix2>,
-    pdet: f64,
-    rank: f64,
-    samples: u32,
-    svd: Option<(Array<f64,Ix2>,Array<f64,Ix2>,Array<f64,Ix2>)>,
-    reduced_svd: Option<(Array<f64,Ix2>,Array<f64,Ix2>,Array<f64,Ix2>)>,
-    reduced_inverse_sig: Option<Array<f64,Ix2>>,
-    reduced_pdet: Option<f64>,
+    samples: usize,
+    reduced_svd: (Array<f64,Ix2>,Array<f64,Ix2>,Array<f64,Ix2>),
+    reduced_inverse_sig: Array<f64,Ix2>,
+    reduced_pdet: f64,
 }
 
 impl MVN {
 
-    pub fn identity_prior(samples:u32,features:u32) -> MVN {
+    pub fn identity_prior(samples:usize,features:usize) -> MVN {
         MVN {
             means: Array::zeros(features as usize),
-            covariance: Array::eye(features as usize),
-            pseudo_precision: Array::eye(features as usize),
-            pdet: 0.,
-            rank: features as f64,
             samples: samples,
-            svd: None,
-            reduced_svd: None,
-            reduced_inverse_sig: None,
-            reduced_pdet: None
+            reduced_svd: (Array::eye(features),Array::eye(features),Array::eye(features)),
+            reduced_inverse_sig: Array::eye(features),
+            reduced_pdet: 1.
         }
     }
 
     pub fn set_samples(&mut self,samples: usize) {
-        self.samples = samples as u32;
+        self.samples = samples;
     }
 
-    pub fn scaled_identity_prior(means:&ArrayView<f64,Ix1>,variances:&ArrayView<f64,Ix1>,samples:u32) -> MVN {
+    pub fn scaled_identity_prior(means:&ArrayView<f64,Ix1>,variances:&ArrayView<f64,Ix1>,samples:usize) -> MVN {
+
+        let reduction = 3;
+        let lower_bound = (EPSILON * 1000.);
 
         let f = variances.dim();
         let mut covariance = Array::eye(f);
         covariance.diag_mut().assign(variances);
-        let (pseudo_precision,pdet,rank) = pinv_pdet(&covariance.view()).unwrap();
 
+        if let Ok((Some(u),sig,Some(vt))) = covariance.svd(true,true) {
 
-        MVN {
-            means: means.to_owned(),
-            covariance,
-            pseudo_precision,
-            pdet,
-            rank,
-            samples,
-            svd: None,
-            reduced_svd:None,
-            reduced_inverse_sig:None,
-            reduced_pdet: None,
+            let reduced_u = u.slice(s![..,..reduction]).to_owned();
+            let mut reduced_sig: Array<f64,Ix2> = Array::zeros((reduction,reduction));
+            reduced_sig.diag_mut().assign(&sig.iter().take(reduction).cloned().collect::<Array<f64,Ix1>>());
+            let mut reduced_inverse_sig = Array::zeros((reduction,reduction));
+            reduced_inverse_sig.diag_mut().assign(&reduced_sig.diag().mapv(|v| if v > lower_bound {1./v} else {0.} ));
+            let reduced_vt = vt.slice(s![..reduction,..]).to_owned();
+            let reduced_pdet = reduced_inverse_sig.mapv(|v| if v > lower_bound {v.log2()} else {0.}).iter().sum();
+
+            MVN {
+                means: means.to_owned(),
+                samples,
+                reduced_svd:(reduced_u,reduced_sig,reduced_vt),
+                reduced_inverse_sig,
+                reduced_pdet,
+            }
+
         }
+        else { panic!();}
     }
 
     pub fn estimate_against_identity(data:&ArrayView<f64,Ix2>,strength_option:Option<u32>) -> Result<MVN,LinalgError> {
@@ -82,7 +81,7 @@ impl MVN {
             samples = strength as usize;
         }
 
-        let mut prior = MVN::scaled_identity_prior(&means.view(), &variances.view(), samples as u32);
+        let mut prior = MVN::scaled_identity_prior(&means.view(), &variances.view(), samples);
 
         // eprintln!("{:?}",prior);
 
@@ -99,9 +98,6 @@ impl MVN {
         let (centered,sample_means) = center(data);
 
         let mut posterior_covariance = Array::eye(features);
-        let mut posterior_pseudo_precision = Array::eye(features);
-        let mut posterior_pseudo_determinant = 1.;
-        let mut posterior_rank = 0.;
 
         // eprintln!("====================");
         // eprintln!("Estimated means: {:?}", sample_means);
@@ -127,7 +123,10 @@ impl MVN {
 
         {
 
-            let lo = &self.covariance * (self.samples as f64 + 1.);
+            let (p_u,p_sig,p_vt) = &self.reduced_svd;
+            let prior_covariance = p_u.dot(p_sig).dot(p_vt);
+
+            let lo = &prior_covariance * (self.samples as f64 + 1.);
 
             let prior_mean_delta = &sample_means - &self.means;
             let mean_delta_outer = outer_product(&prior_mean_delta.view(),&prior_mean_delta.view());
@@ -146,7 +145,7 @@ impl MVN {
 
             if let Ok((Some(u),mut sig_v,Some(vt))) = posterior_covariance.svd(true,true) {
 
-                let reduction = 10;
+                let reduction = 3;
 
                 let mut sig = Array::zeros((sig_v.dim(),sig_v.dim()));
                 sig.diag_mut().assign(&sig_v);
@@ -155,12 +154,6 @@ impl MVN {
 
                 let mut t_sig = Array::zeros((features,features));
                 t_sig.diag_mut().assign(&sig_v.mapv(|v| if v > lower_bound {1./v} else {0.} ));
-
-                self.rank = sig.mapv(|v| if v > lower_bound {1.} else {0.}).sum();
-                self.pdet = sig.mapv(|v| if v > lower_bound {v.log2()} else {0.}).iter().sum();
-
-                self.svd = Some((u.clone(),sig.clone(),vt.clone()));
-                self.pseudo_precision = vt.t().dot(&t_sig).dot(&u.t());
 
                 let reduced_u = u.slice(s![..,..reduction]).to_owned();
                 let mut reduced_sig: Array<f64,Ix2> = Array::zeros((reduction,reduction));
@@ -171,9 +164,9 @@ impl MVN {
 
                 eprintln!("Reduced SVD:{:?},{:?},{:?}",reduced_u.shape(),reduced_sig.dim(),reduced_vt.dim());
 
-                self.reduced_pdet = Some(reduced_t_sig.mapv(|v| if v > lower_bound {v.log2()} else {0.}).iter().sum());
-                self.reduced_inverse_sig = Some(reduced_t_sig);
-                self.reduced_svd = Some((reduced_u,reduced_sig,reduced_vt));
+                self.reduced_pdet = reduced_t_sig.mapv(|v| if v > lower_bound {v.log2()} else {0.}).iter().sum();
+                self.reduced_inverse_sig = reduced_t_sig;
+                self.reduced_svd = (reduced_u,reduced_sig,reduced_vt);
 
             }
 
@@ -185,9 +178,7 @@ impl MVN {
         }
 
         self.means = posterior_means;
-        self.covariance = posterior_covariance;
-        self.pseudo_precision = posterior_pseudo_precision;
-        self.samples = self.samples + samples as u32;
+        self.samples = self.samples + samples;
 
         // eprintln!("EFM:{:?}",self.means);
 
@@ -195,25 +186,16 @@ impl MVN {
 
     }
 
-
     pub fn mini_estimate(&mut self,data:&ArrayView<f64,Ix2>) -> Result<&mut MVN,LinalgError> {
 
         let (samples,features) = data.dim();
         let (centered,sample_means) = center(data);
 
-        // eprintln!("====================");
-        // eprintln!("Estimated means: {:?}", sample_means);
-        // eprintln!("Samples in estimate:{:?}",samples);
-
         let posterior_means = ((&self.means * (self.samples as f64)) + (&sample_means * (samples as f64))) / (self.samples as usize + samples) as f64;
-        // eprintln!("Posterior means: {:?}", posterior_means);
-
-        // eprintln!("====================");
-        // eprintln!("Posterior means: {:?}", posterior_means);
 
         self.means = posterior_means;
 
-        self.samples = self.samples + samples as u32;
+        self.samples = self.samples + samples;
 
         // eprintln!("EFM:{:?}",self.means);
 
@@ -225,42 +207,18 @@ impl MVN {
 
         let centered_data = (data - &self.means);
 
-        if let MVN{reduced_svd:Some(ref r_svd),reduced_inverse_sig:Some(ref r_isig),reduced_pdet:Some(ref r_pdet),..} = self {
+        let MVN{reduced_svd:ref r_svd,reduced_inverse_sig:ref r_isig,reduced_pdet:ref r_pdet,..} = self;
 
-            let (r_u,r_sig,r_vt) = r_svd;
+        let (r_u,r_sig,r_vt) = r_svd;
 
-            let f = centered_data.dot(&r_vt.t()).dot(r_isig).dot(&r_u.t()).dot(&centered_data);
+        let f = centered_data.dot(&r_vt.t()).dot(r_isig).dot(&r_u.t()).dot(&centered_data);
 
-            let dn = r_sig.dim().0 as f64;
+        let dn = r_sig.dim().0 as f64;
 
-            let log_likelihood = -0.5 * (*r_pdet + f + dn);
+        let log_likelihood = -0.5 * (*r_pdet + f + dn);
 
-            log_likelihood
-        }
+        log_likelihood
 
-        else {
-
-            let pd = self.pdet;
-            let f = centered_data.dot(&self.pseudo_precision).dot(&centered_data) * f64::log2(2.*PI);
-            let dn = self.rank * f64::log2(2.*PI);
-
-            // eprintln!("D:{:?}",data);
-            // eprintln!("M:{:?}",self.means);
-            // eprintln!("V:{:?}",self.variances);
-            //
-            // eprintln!("S:{:?}",scaled_data);
-            // eprintln!("P:{:?}",self.pseudo_precision);
-            //
-
-            let log_likelihood = -0.5 * (pd + f + dn);
-
-            eprintln!("PD,F,DN:{},{},{}",pd,f,dn);
-            eprintln!("LL:{:?}",log_likelihood);
-
-
-            log_likelihood
-
-        }
     }
 
 
@@ -273,7 +231,7 @@ impl MVN {
     }
 
     pub fn pdet(&self) -> &f64 {
-        &self.pdet
+        &self.reduced_pdet
     }
 
 }
@@ -433,9 +391,9 @@ mod tree_braider_tests {
         let mut normal = MVN::identity_prior(100,4);
         normal.estimate(&data.view()).unwrap();
         eprintln!("{:?}",normal.means);
-        eprintln!("{:?}",normal.covariance);
-        eprintln!("{:?}",normal.pseudo_precision);
-        eprintln!("{:?}",normal.pdet);
+        eprintln!("{:?}",normal.reduced_svd);
+        eprintln!("{:?}",normal.reduced_inverse_sig);
+        eprintln!("{:?}",normal.reduced_pdet);
         // panic!();
     }
 
@@ -445,9 +403,9 @@ mod tree_braider_tests {
         let data = MarkovNode::encode(&nodes);
         let normal = MVN::estimate_against_identity(&data.view(), None).unwrap();
         eprintln!("{:?}",normal.means);
-        eprintln!("{:?}",normal.covariance);
-        eprintln!("{:?}",normal.pseudo_precision);
-        eprintln!("{:?}",normal.pdet);
+        eprintln!("{:?}",normal.reduced_svd);
+        eprintln!("{:?}",normal.reduced_inverse_sig);
+        eprintln!("{:?}",normal.reduced_pdet);
         // panic!();
     }
 
@@ -459,8 +417,9 @@ mod tree_braider_tests {
         let normal = MVN::estimate_against_identity(&data.view(), None).unwrap();
         eprintln!("{:?}",data.axis_iter(Axis(0)).map(|d| normal.log_likelihood(&d)).collect::<Vec<f64>>());
         eprintln!("{:?}",normal.means);
-        eprintln!("{:?}",normal.pdet);
-        eprintln!("{:?}",normal.covariance);
+        eprintln!("{:?}",normal.reduced_svd);
+        eprintln!("{:?}",normal.reduced_inverse_sig);
+        eprintln!("{:?}",normal.reduced_pdet);
     }
 
     #[test]
