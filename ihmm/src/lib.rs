@@ -383,8 +383,8 @@ impl IHMM {
 
         eprintln!("DPM:{:?}",self.dp_transition_model);
 
-        let new_states: Vec<HiddenState> = represented_states.par_iter().map(|state| {
-        // let new_states: Vec<HiddenState> = represented_states.iter().map(|state| {
+        // let new_states: Vec<HiddenState> = represented_states.par_iter().map(|state| {
+        let new_states: Vec<HiddenState> = represented_states.iter().map(|state| {
             let indices = self.state_indices(*state);
             let state_emission_model = self.estimate_emissions(&indices).unwrap();
             let state_transition_model = self.estimate_direct_transitions(&indices);
