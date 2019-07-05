@@ -560,6 +560,25 @@ impl IHMM {
         transition_matrix
     }
 
+    fn recompute_transition_models(&self) -> Vec<SymmetricDirichlet<Option<usize>>> {
+
+        // There are three important things we have to compute for each state:
+
+        // The odds of transitioning from state i to state j directly,
+        // The odds of transitioning from state i to the first oracle,
+        // The odds of transitioning from the oracle to state j,
+
+        // Complicating this fact is the existence of the null state,
+        // And the fact that a new state is not represented.
+        // Live nodes cannot transition to the null state
+
+
+        let direct_transition_matrix = self.get_direct_transition_matrix();
+        let oracle_transition_matrix = self.get_oracle_transition_matrix();
+
+
+        vec![]
+    }
 
     fn represented_states(&self) -> Vec<Option<usize>> {
         let state_set: HashSet<Option<usize>> = self.nodes.iter().map(|n| n.hidden_state).collect();
@@ -645,8 +664,8 @@ impl MarkovNode {
         let parent = None;
         let samples = original.samples().to_vec();
         let features = original.features().to_vec();
-        // let emissions = original.medians().to_vec();
-        let emissions = original.local_gains().unwrap_or(&vec![0.;features.len()]).to_vec();
+        let emissions = original.medians().to_vec();
+        // let emissions = original.local_gains().unwrap_or(&vec![0.;features.len()]).to_vec();
 
 
         let wrapped = MarkovNode{
