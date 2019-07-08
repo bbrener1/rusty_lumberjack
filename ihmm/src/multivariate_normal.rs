@@ -41,7 +41,7 @@ impl MVN {
 
     pub fn scaled_identity_prior(means:&ArrayView<f64,Ix1>,variances:&ArrayView<f64,Ix1>,samples:usize) -> MVN {
 
-        let reduction = 10;
+        let reduction = 3;
         let lower_bound = (EPSILON * 1000.);
 
         let f = variances.dim();
@@ -147,7 +147,7 @@ impl MVN {
 
             if let Ok((Some(u),mut sig_v,Some(vt))) = posterior_covariance.svd(true,true) {
 
-                let reduction = 10;
+                let reduction = 3;
 
                 let mut sig = Array::zeros((sig_v.dim(),sig_v.dim()));
                 sig.diag_mut().assign(&sig_v);
@@ -219,8 +219,8 @@ impl MVN {
 
         let log_likelihood = -0.5 * (*r_pdet + f + dn);
 
-        eprintln!("PD,F,DN:{:?},{:?},{:?}",r_pdet,f,dn);
-        eprintln!("LL:{:?}",log_likelihood);
+        // eprintln!("PD,F,DN:{:?},{:?},{:?}",r_pdet,f,dn);
+        // eprintln!("LL:{:?}",log_likelihood);
 
         log_likelihood
 
