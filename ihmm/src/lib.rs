@@ -168,6 +168,9 @@ impl IHMM {
 
             let mut mixture_log_odds = 0.;
 
+            // mixture_log_odds += cls.map(|cli| self.transition_log_odds[[cli,si]]).unwrap_or(0.);
+            // mixture_log_odds += crs.map(|cri| self.transition_log_odds[[cri,si]]).unwrap_or(0.);
+
             mixture_log_odds += self.transition_log_odds[[cls.unwrap_or(self.hidden_states.len()),si]];
             mixture_log_odds += self.transition_log_odds[[crs.unwrap_or(self.hidden_states.len()),si]];
 
@@ -707,8 +710,8 @@ impl MarkovNode {
         let parent = None;
         let samples = original.samples().to_vec();
         let features = original.features().to_vec();
-        let emissions = original.medians().to_vec();
-        // let emissions = original.local_gains().unwrap_or(&vec![0.;features.len()]).to_vec();
+        // let emissions = original.medians().to_vec();
+        let emissions = original.local_gains().unwrap_or(&vec![0.;features.len()]).to_vec();
 
 
         let wrapped = MarkovNode{
@@ -878,8 +881,8 @@ pub mod tree_braider_tests {
     //
     #[test]
     fn test_markov_multipart() {
-        let mut model = iris_model();
-        // let mut model = gene_model();
+        // let mut model = iris_model();
+        let mut model = gene_model();
         model.initialize(10);
         for state in &model.hidden_states {
             eprintln!("Population: {:?}",state.nodes.len());
@@ -888,7 +891,7 @@ pub mod tree_braider_tests {
             eprintln!("PDET");
             eprintln!("{:?}",state.emission_model.pdet());
         }
-        for i in 0..1000 {
+        for i in 0..200 {
             model.sweep();
             for state in &model.hidden_states {
                 // eprintln!("{:?}",state);
