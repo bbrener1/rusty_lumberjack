@@ -531,6 +531,10 @@ impl IHMM {
     }
 
     fn get_direct_transition_matrix(&self) -> Array<usize,Ix2> {
+
+        // Returns a matrix of transition counts i,j where i is child state, j is parent state,
+        // Null state is last row and last column.
+
         let hidden_states = self.hidden_states.len();
         let transitions = self.get_transitions(&self.live_indices());
         let mut transition_matrix: Array<usize,Ix2> = Array::zeros((hidden_states+1,hidden_states+1));
@@ -546,6 +550,10 @@ impl IHMM {
     }
 
     fn get_oracle_transition_matrix(&self) -> Array<usize,Ix2> {
+
+        // Returns a matrix of transition counts i,j where i is child state, j is parent state,
+        // Null state is last row and last column.
+
         let hidden_states = self.hidden_states.len();
         let transitions = self.get_transitions(&self.live_indices());
         let mut transition_matrix: Array<usize,Ix2> = Array::zeros((hidden_states+1,hidden_states+1));
@@ -572,10 +580,54 @@ impl IHMM {
         // And the fact that a new state is not represented.
         // Live nodes cannot transition to the null state
 
+        // Direct transition matrices are organized as
+        // Row: Child state
+        // Column: Destination state
 
-        let direct_transition_matrix = self.get_direct_transition_matrix();
-        let oracle_transition_matrix = self.get_oracle_transition_matrix();
+        // As such:
+        // Rows: represented states, plus null state
+        // Columns: represented states: plus new state
 
+        // First we establish the currently represented states:
+        // NB self.represented states includes the null state
+
+        let represented_states = self.represented_states();
+
+        // Now we initialize the matrix containing state-state transition log odds.
+
+        let mut direct_transition_odds: Array<f64,Ix2> = Array::ones((represented_states.len(),represented_states.len()));
+        let mut oracle_odds: Array<f64,Ix1> = Array::ones(represented_states.len());
+        // The actual matrix returned by the getter methods has the null state as the last colum and the last row
+
+        let mut direct_transition_matrix = self.get_direct_transition_matrix();
+        let mut oracle_transition_matrix = self.get_oracle_transition_matrix();
+
+        // Therefore we will zero out the last column
+
+        direct_transition_matrix.slice_mut(s![..,-1]).assign(&Array::zeros(represented_states.len()));
+        oracle_transition_matrix.slice_mut(s![..,-1]).assign(&Array::zeros(represented_states.len()));
+
+        // Now we need to compute the total transitions that each child state undergoes
+
+        let direct_transition_totals = direct_transition_matrix.sum_axis(Axis(0));
+        let oracle_transitions = oracle_transition_matrix.sum_axis(Axis(0));
+        let oracle_transition_total = oracle_transitions.sum();
+
+        // Now we can compute the direct transition odds for each state, as well as the oracle odds
+
+        for i in 0..represented_states.len() {
+            for j in 0..represented_states.len() {
+                direct_transition_odds[[i,j]] = direct_transition_matrix[[i,j]] as f64 / (direct_transition_totals[i] + self.beta.get()) as f64;
+            }
+        }
+
+        for i in 0..represented_states.len() {
+            oracle_odds[i] = self.beta.get() as f64 / (direct_transition_totals[i] + self.beta.get()) as f64;
+        }
+
+        // Note that this is a slight hack. We are representing
+
+        let oracle_transition_odds: Array<f64,Ix2> = Array::ones(represented_states.len());
 
         vec![]
     }
