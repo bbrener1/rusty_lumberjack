@@ -14,6 +14,8 @@ use ndarray_linalg::solve::{Inverse,Determinant};
 use ndarray_linalg::svd::SVD;
 // use ndarray_linalg::solveh::{InverseH,DeterminantH};
 
+const g_reduction:usize = 3;
+
 #[derive(Debug,Clone)]
 pub struct MVN {
     means: Array<f64,Ix1>,
@@ -21,6 +23,7 @@ pub struct MVN {
     reduced_svd: (Array<f64,Ix2>,Array<f64,Ix2>,Array<f64,Ix2>),
     reduced_inverse_sig: Array<f64,Ix2>,
     reduced_pdet: f64,
+    reduction: usize,
 }
 
 impl MVN {
@@ -31,7 +34,8 @@ impl MVN {
             samples: samples,
             reduced_svd: (Array::eye(features),Array::eye(features),Array::eye(features)),
             reduced_inverse_sig: Array::eye(features),
-            reduced_pdet: 1.
+            reduced_pdet: 1.,
+            reduction: g_reduction,
         }
     }
 
@@ -41,8 +45,8 @@ impl MVN {
 
     pub fn scaled_identity_prior(means:&ArrayView<f64,Ix1>,variances:&ArrayView<f64,Ix1>,samples:usize) -> MVN {
 
-        let reduction = 10;
         let lower_bound = (EPSILON * 1000.);
+        let reduction = g_reduction;
 
         let f = variances.dim();
         let mut covariance = Array::eye(f);
@@ -64,6 +68,7 @@ impl MVN {
                 reduced_svd:(reduced_u,reduced_sig,reduced_vt),
                 reduced_inverse_sig,
                 reduced_pdet,
+                reduction,
             }
 
         }
@@ -147,7 +152,7 @@ impl MVN {
 
             if let Ok((Some(u),mut sig_v,Some(vt))) = posterior_covariance.svd(true,true) {
 
-                let reduction = 10;
+                let reduction = self.reduction;
 
                 let mut sig = Array::zeros((sig_v.dim(),sig_v.dim()));
                 sig.diag_mut().assign(&sig_v);
