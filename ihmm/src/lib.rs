@@ -154,7 +154,7 @@ impl IHMM {
 
         let emissions = self.emissions.row(node_index);
         let node = &self.nodes[node_index];
-        let ps = self.nodes[node.parent?].hidden_state;
+        let ps = node.parent.map(|pi| self.nodes[pi].hidden_state).unwrap_or(None);
         // let cls = self.nodes[node.children?.0].hidden_state;
         // let crs = self.nodes[node.children?.1].hidden_state;
         // eprintln!("Computing feature log likelihoods");
@@ -543,9 +543,9 @@ impl IHMM {
         let mut direct_transition_matrix = self.get_direct_transition_matrix();
         let mut oracle_transition_matrix = self.get_oracle_transition_matrix();
 
-        eprintln!("DTM:{:?}",direct_transition_matrix.dim());
-        eprintln!("OTM:{:?}",oracle_transition_matrix.dim());
-        eprintln!("RS:{:?}",represented_states);
+        // eprintln!("DTM:{:?}",direct_transition_matrix.dim());
+        // eprintln!("OTM:{:?}",oracle_transition_matrix.dim());
+        // eprintln!("RS:{:?}",represented_states);
 
         // We set the last column to beta in order to analyze the oracle probabilities,
         // Previously it represented transitions to the null state, but these are prohibited
@@ -555,10 +555,10 @@ impl IHMM {
         direct_transition_matrix.slice_mut(s![..,-1]).assign(&(Array::ones(represented_states.len()) * self.beta.get()));
         oracle_transition_matrix.slice_mut(s![..,-1]).assign(&Array::zeros(represented_states.len()));
 
-        eprintln!("Direct transition counts:");
-        eprintln!("{:?}",direct_transition_matrix);
-        eprintln!("Oracle transition counts:");
-        eprintln!("{:?}",oracle_transition_matrix);
+        // eprintln!("Direct transition counts:");
+        // eprintln!("{:?}",direct_transition_matrix);
+        // eprintln!("Oracle transition counts:");
+        // eprintln!("{:?}",oracle_transition_matrix);
 
         // Now we need to compute the total transitions that each child state undergoes
 
