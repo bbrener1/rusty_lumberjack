@@ -194,7 +194,7 @@ impl IHMM {
 
         let log_max: f64 = state_log_odds.iter().fold(std::f64::NEG_INFINITY,|acc,o| f64::max(acc,*o));
         state_log_odds = state_log_odds.iter().map(|o| o - log_max).collect();
-        // state_log_odds = state_log_odds.iter().map(|o| o * 0.3).collect();
+        state_log_odds = state_log_odds.iter().map(|o| o * 0.5).collect();
         assert!(log_max.is_finite());
         eprintln!("LOG_ODDS:{:?}",state_log_odds);
         let state = sample_log_odds(state_log_odds);
@@ -900,7 +900,7 @@ pub mod tree_braider_tests {
             eprintln!("PDET");
             eprintln!("{:?}",state.emission_model.pdet());
         }
-        for i in 0..200 {
+        for i in 0..1000 {
             model.sweep();
             for state in &model.hidden_states {
                 // eprintln!("{:?}",state);
