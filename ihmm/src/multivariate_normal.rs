@@ -14,7 +14,7 @@ use ndarray_linalg::solve::{Inverse,Determinant};
 use ndarray_linalg::svd::SVD;
 // use ndarray_linalg::solveh::{InverseH,DeterminantH};
 
-const g_reduction:usize = 10;
+const g_reduction:usize = 3;
 
 #[derive(Debug,Clone)]
 pub struct MVN {

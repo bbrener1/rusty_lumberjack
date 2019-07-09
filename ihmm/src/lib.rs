@@ -555,10 +555,10 @@ impl IHMM {
         direct_transition_matrix.slice_mut(s![..,-1]).assign(&(Array::ones(represented_states.len()) * self.beta.get()));
         oracle_transition_matrix.slice_mut(s![..,-1]).assign(&Array::zeros(represented_states.len()));
 
-        // eprintln!("Direct transition counts:");
-        // eprintln!("{:?}",direct_transition_matrix);
-        // eprintln!("Oracle transition counts:");
-        // eprintln!("{:?}",oracle_transition_matrix);
+        eprintln!("Direct transition counts:");
+        eprintln!("{:?}",direct_transition_matrix);
+        eprintln!("Oracle transition counts:");
+        eprintln!("{:?}",oracle_transition_matrix);
 
         // Now we need to compute the total transitions that each child state undergoes
 
@@ -613,8 +613,8 @@ impl IHMM {
 
         let log_odds = (&direct_transition_odds + &oracle_product_matrix).mapv(|v| v.log2());
 
-        // eprintln!("Log odds computed!");
-        // eprintln!("{:?}",log_odds);
+        eprintln!("Log odds computed!");
+        eprintln!("{:?}",log_odds);
 
         let oracle_probability = &oracle_product_matrix / &(&oracle_product_matrix + &direct_transition_odds);
 
@@ -719,8 +719,8 @@ impl MarkovNode {
         let parent = None;
         let samples = original.samples().to_vec();
         let features = original.features().to_vec();
-        // let emissions = original.medians().to_vec();
-        let emissions = original.local_gains().unwrap_or(&vec![0.;features.len()]).to_vec();
+        let emissions = original.medians().to_vec();
+        // let emissions = original.local_gains().unwrap_or(&vec![0.;features.len()]).to_vec();
 
 
         let wrapped = MarkovNode{
@@ -890,9 +890,9 @@ pub mod tree_braider_tests {
     //
     #[test]
     fn test_markov_multipart() {
-        // let mut model = iris_model();
-        let mut model = gene_model();
-        model.initialize(20);
+        let mut model = iris_model();
+        // let mut model = gene_model();
+        model.initialize(10);
         for state in &model.hidden_states {
             eprintln!("Population: {:?}",state.nodes.len());
             eprintln!("MEANS");
