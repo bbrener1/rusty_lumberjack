@@ -176,7 +176,7 @@ impl IHMM {
             // mixture_log_odds += self.transition_log_odds[[cls.unwrap_or(self.hidden_states.len()),si]];
             // mixture_log_odds += self.transition_log_odds[[crs.unwrap_or(self.hidden_states.len()),si]];
 
-            // mixture_log_odds /= 2.;
+            mixture_log_odds /= 2.;
 
             eprint!("({:?},",feature_log_odds);
             eprint!("{:?}),",mixture_log_odds);
@@ -194,7 +194,7 @@ impl IHMM {
 
         let log_max: f64 = state_log_odds.iter().fold(std::f64::NEG_INFINITY,|acc,o| f64::max(acc,*o));
         state_log_odds = state_log_odds.iter().map(|o| o - log_max).collect();
-        state_log_odds = state_log_odds.iter().map(|o| o * 0.5).collect();
+        // state_log_odds = state_log_odds.iter().map(|o| o * 0.5).collect();
         assert!(log_max.is_finite());
         eprintln!("LOG_ODDS:{:?}",state_log_odds);
         let state = sample_log_odds(state_log_odds);
@@ -892,7 +892,7 @@ pub mod tree_braider_tests {
     fn test_markov_multipart() {
         // let mut model = iris_model();
         let mut model = gene_model();
-        model.initialize(10);
+        model.initialize(20);
         for state in &model.hidden_states {
             eprintln!("Population: {:?}",state.nodes.len());
             eprintln!("MEANS");
