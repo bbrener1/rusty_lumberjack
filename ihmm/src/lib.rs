@@ -455,7 +455,10 @@ impl IHMM {
             let node_state = node.hidden_state;
             if let Some(pi) = node.parent {
                 let parent = &self.nodes[pi];
-                transitions.push((parent.hidden_state,node_state,parent.oracle));
+                transitions.push((parent.hidden_state,node_state,node.oracle));
+            }
+            else {
+                transitions.push((None,node_state,node.oracle));
             }
         }
         transitions
@@ -540,6 +543,10 @@ impl IHMM {
         let mut direct_transition_matrix = self.get_direct_transition_matrix();
         let mut oracle_transition_matrix = self.get_oracle_transition_matrix();
 
+        eprintln!("DTM:{:?}",direct_transition_matrix.dim());
+        eprintln!("OTM:{:?}",oracle_transition_matrix.dim());
+        eprintln!("RS:{:?}",represented_states);
+
         // We set the last column to beta in order to analyze the oracle probabilities,
         // Previously it represented transitions to the null state, but these are prohibited
         // However we have to set the last column of the oracle transition matrix to zero in order
@@ -548,10 +555,10 @@ impl IHMM {
         direct_transition_matrix.slice_mut(s![..,-1]).assign(&(Array::ones(represented_states.len()) * self.beta.get()));
         oracle_transition_matrix.slice_mut(s![..,-1]).assign(&Array::zeros(represented_states.len()));
 
-        // eprintln!("Direct transition counts:");
-        // eprintln!("{:?}",direct_transition_matrix);
-        // eprintln!("Oracle transition counts:");
-        // eprintln!("{:?}",oracle_transition_matrix);
+        eprintln!("Direct transition counts:");
+        eprintln!("{:?}",direct_transition_matrix);
+        eprintln!("Oracle transition counts:");
+        eprintln!("{:?}",oracle_transition_matrix);
 
         // Now we need to compute the total transitions that each child state undergoes
 
@@ -623,7 +630,8 @@ impl IHMM {
     }
 
     fn represented_states(&self) -> Vec<Option<usize>> {
-        let state_set: HashSet<Option<usize>> = self.nodes.iter().map(|n| n.hidden_state).collect();
+        let mut state_set: HashSet<Option<usize>> = self.nodes.iter().map(|n| n.hidden_state).collect();
+        state_set.insert(None);
         let mut state_vec: Vec<Option<usize>> = state_set.into_iter().collect();
         state_vec.sort();
         state_vec
@@ -645,7 +653,12 @@ impl IHMM {
 
 
     pub fn live_indices(&self) -> Vec<usize> {
-        self.nodes.iter().filter(|n| n.children.is_some()).map(|n| n.index).collect()
+        // This function should be altered based on whether or not you are using child or
+        // parent inheritance
+
+        // self.nodes.iter().filter(|n| n.children.is_some()).map(|n| n.index).collect()
+
+        self.nodes.iter().map(|n| n.index).collect()
     }
 
 
@@ -706,8 +719,8 @@ impl MarkovNode {
         let parent = None;
         let samples = original.samples().to_vec();
         let features = original.features().to_vec();
-        let emissions = original.medians().to_vec();
-        // let emissions = original.local_gains().unwrap_or(&vec![0.;features.len()]).to_vec();
+        // let emissions = original.medians().to_vec();
+        let emissions = original.local_gains().unwrap_or(&vec![0.;features.len()]).to_vec();
 
 
         let wrapped = MarkovNode{
@@ -877,8 +890,8 @@ pub mod tree_braider_tests {
     //
     #[test]
     fn test_markov_multipart() {
-        // let mut model = iris_model();
-        let mut model = gene_model();
+        let mut model = iris_model();
+        // let mut model = gene_model();
         model.initialize(10);
         for state in &model.hidden_states {
             eprintln!("Population: {:?}",state.nodes.len());
