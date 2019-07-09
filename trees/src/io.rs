@@ -12,6 +12,7 @@ use std::cmp::PartialOrd;
 use std::cmp::Ordering;
 use std::fmt::Debug;
 use std::sync::Arc;
+use rayon::prelude::*;
 
 use num_cpus;
 
@@ -351,6 +352,8 @@ impl Parameters {
                 },
                 "-p" | "-processors" | "-threads" => {
                     arg_struct.processor_limit = args.next().expect("Error processing processor limit").parse::<usize>().expect("Error parsing processor limit");
+                    rayon::ThreadPoolBuilder::new().num_threads(arg_struct.processor_limit).build_global().unwrap();
+                    std::env::set_var("OMP_NUM_THREADS",format!("{}",arg_struct.processor_limit));
                 },
                 "-o" | "-output" => {
                     arg_struct.report_address = args.next().expect("Error processing output destination")

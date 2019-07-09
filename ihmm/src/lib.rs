@@ -48,8 +48,9 @@ use ndarray_linalg as ndl;
 use ndarray::{Ix1,Ix2,Axis};
 use ndarray::{Array,ArrayView};
 use ndarray_linalg::error::LinalgError;
-// use ndarray_linalg::solve::{Inverse,Determinant};
-use ndarray_linalg::solveh::{InverseH,DeterminantH};
+use ndarray_linalg::svd::SVD;
+
+use std::f64::EPSILON;
 
 use rand::{thread_rng,Rng};
 use rand::distributions::{Distribution,Binomial};
@@ -58,6 +59,7 @@ use multivariate_normal::MVN;
 use multivariate_normal::{array_mask,array_mask_axis,array_double_select,array_double_mask};
 use dirichlet::{SymmetricDirichlet,Categorical};
 
+const g_reduction:usize = 3;
 
 pub struct MarkovNode {
     index: usize,
@@ -114,7 +116,7 @@ pub struct IHMM {
 impl IHMM {
     fn new(nodes:Vec<MarkovNode>) -> IHMM {
 
-        let emissions = MarkovNode::encode(&nodes);
+        let emissions = MarkovNode::reduced_encode(&nodes);
 
         let features = emissions.dim().1;
 
@@ -675,7 +677,7 @@ impl MarkovNode {
             }
         }
         if features.iter().any(|f| *f.index() > features.len() + 1) {
-            panic!("Not all features read correctly, mising indices");
+            panic!("Not all features read correctly, missing indices");
         }
 
         let mut data: Array<f64,Ix2> = Array::zeros((nodes.len(),features.len()));
@@ -687,6 +689,54 @@ impl MarkovNode {
         }
 
         data
+    }
+
+    pub fn reduced_encode(nodes:&Vec<MarkovNode>) -> Array<f64,Ix2> {
+        let mut features = HashSet::new();
+        for node in nodes {
+            for feature in &node.features {
+                features.insert(feature);
+            }
+        }
+        if features.iter().any(|f| *f.index() > features.len() + 1) {
+            panic!("Not all features read correctly, missing indices");
+        }
+
+        let mut data: Array<f64,Ix2> = Array::zeros((nodes.len(),features.len()));
+
+        for (i,node) in nodes.iter().enumerate() {
+            for (feature,value) in node.features.iter().zip(node.emissions.iter()) {
+                data[[i,*feature.index()]] = *value;
+            }
+        }
+
+        if let Ok((Some(u),sig_v,Some(vt))) = data.svd(true,true) {
+
+            let reduction = g_reduction;
+
+            let mut sig = Array::zeros((sig_v.dim(),sig_v.dim()));
+            sig.diag_mut().assign(&sig_v);
+
+            let lower_bound = EPSILON * 1000.;
+
+            let mut i_sig = Array::zeros((sig_v.dim(),sig_v.dim()));
+            i_sig.diag_mut().assign(&sig_v.mapv(|v| if v > lower_bound {1./v} else {0.} ));
+
+            let reduced_u = u.slice(s![..,..reduction]).to_owned();
+            let mut reduced_sig: Array<f64,Ix2> = Array::zeros((reduction,reduction));
+            reduced_sig.diag_mut().assign(&sig_v.iter().take(reduction).cloned().collect::<Array<f64,Ix1>>());
+            let mut reduced_i_sig = Array::zeros((reduction,reduction));
+            reduced_i_sig.diag_mut().assign(&reduced_sig.diag().mapv(|v| if v > lower_bound {1./v} else {0.} ));
+            let reduced_vt = vt.slice(s![..reduction,..]).to_owned();
+
+            eprintln!("Reduced SVD:{:?},{:?},{:?}",reduced_u.shape(),reduced_sig.dim(),reduced_vt.dim());
+
+            data = data.dot(&reduced_vt.t());
+
+            data
+        }
+
+        else {panic!();}
     }
 
     pub fn from_stripped_vec(stripped:&Vec<StrippedNode>) -> Vec<MarkovNode> {
@@ -890,8 +940,8 @@ pub mod tree_braider_tests {
     //
     #[test]
     fn test_markov_multipart() {
-        // let mut model = iris_model();
-        let mut model = gene_model();
+        let mut model = iris_model();
+        // let mut model = gene_model();
         model.initialize(10);
         for state in &model.hidden_states {
             eprintln!("Population: {:?}",state.nodes.len());
