@@ -59,7 +59,7 @@ use multivariate_normal::MVN;
 use multivariate_normal::{array_mask,array_mask_axis,array_double_select,array_double_mask};
 use dirichlet::{SymmetricDirichlet,Categorical};
 
-const g_reduction:usize = 3;
+const g_reduction:usize = 10;
 
 pub struct MarkovNode {
     index: usize,
@@ -178,7 +178,7 @@ impl IHMM {
             // mixture_log_odds += self.transition_log_odds[[cls.unwrap_or(self.hidden_states.len()),si]];
             // mixture_log_odds += self.transition_log_odds[[crs.unwrap_or(self.hidden_states.len()),si]];
 
-            mixture_log_odds /= 2.;
+            // mixture_log_odds /= 2.;
 
             eprint!("({:?},",feature_log_odds);
             eprint!("{:?}),",mixture_log_odds);
@@ -769,8 +769,8 @@ impl MarkovNode {
         let parent = None;
         let samples = original.samples().to_vec();
         let features = original.features().to_vec();
-        let emissions = original.medians().to_vec();
-        // let emissions = original.local_gains().unwrap_or(&vec![0.;features.len()]).to_vec();
+        // let emissions = original.medians().to_vec();
+        let emissions = original.local_gains().unwrap_or(&vec![0.;features.len()]).to_vec();
 
 
         let wrapped = MarkovNode{
@@ -940,8 +940,8 @@ pub mod tree_braider_tests {
     //
     #[test]
     fn test_markov_multipart() {
-        let mut model = iris_model();
-        // let mut model = gene_model();
+        // let mut model = iris_model();
+        let mut model = gene_model();
         model.initialize(10);
         for state in &model.hidden_states {
             eprintln!("Population: {:?}",state.nodes.len());
@@ -950,7 +950,7 @@ pub mod tree_braider_tests {
             eprintln!("PDET");
             eprintln!("{:?}",state.emission_model.pdet());
         }
-        for i in 0..1000 {
+        for i in 0..200 {
             model.sweep();
             for state in &model.hidden_states {
                 // eprintln!("{:?}",state);

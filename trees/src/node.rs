@@ -18,6 +18,7 @@ use crate::Feature;
 use crate::Sample;
 use crate::Prerequisite;
 use crate::Split;
+use crate::Braid;
 use crate::io::DropMode;
 use crate::io::PredictionMode;
 use crate::io::Parameters;
@@ -58,6 +59,7 @@ pub struct Node {
     split: Option<Split>,
 
     prerequisites: Vec<Prerequisite>,
+    braids: Vec<Braid>,
 
     pub medians: Vec<f64>,
     pub feature_weights: Vec<f64>,
@@ -134,13 +136,17 @@ impl Node {
 
     pub fn rayon_best_split(&self) -> Option<Split> {
 
-        let splits: Vec<Split> = (0..self.input_features().len()).into_par_iter().flat_map(|i| self.feature_index_split(i)).collect();
+        let splits: Vec<Split> =
+            (0..self.input_features().len())
+            .into_par_iter()
+            .flat_map(|i| self.feature_index_split(i))
+            .collect();
         let dispersions: Vec<f64> = splits.iter().map(|s| s.dispersion).collect();
         Some(splits[argmin(&dispersions)?.0].clone())
 
     }
 
-    pub fn feature_index_split(&self,feature_index:usize) -> Option<Split>{
+    pub fn feature_index_split(&self,feature_index:usize) -> Option<Split> {
         let feature = self.input_features()[feature_index].clone();
         let (draw_order,drop_set) = self.input_table.sort_by_feature(feature_index);
         let dispersions = self.output_table.order_dispersions(&draw_order,&drop_set,&self.feature_weights)?;
@@ -149,6 +155,23 @@ impl Node {
         let split_value = self.input_table.feature_fetch(feature_index,split_sample_index);
         Some(Split::new(feature,split_value,minimum_dispersion))
 
+    }
+
+    pub fn braid_split(&self,draw_order:&[usize],drop_set:&HashSet<usize>) -> Option<Braid> {
+        None
+    }
+
+    pub fn derive_complete_by_braid(&self,split:&Split,prototype:Option<&Node>) -> Vec<Node> {
+
+        let mut left_prerequisites = self.prerequisites.clone();
+        let mut right_prerequisites = self.prerequisites.clone();
+        left_prerequisites.push(split.left());
+        right_prerequisites.push(split.right());
+        let mut left_child_id = self.id.clone();
+        let mut right_child_id = self.id.clone();
+        left_child_id.push_str(&format!("!F{:?}:S{:?}L",split.feature,split.value));
+        right_child_id.push_str(&format!("!F{:?}:S{:?}R",split.feature,split.value));
+        vec![prototype.unwrap_or(self).derive_complete_by_prerequisites(&left_prerequisites,&left_child_id),prototype.unwrap_or(self).derive_complete_by_prerequisites(&right_prerequisites,&right_child_id)]
     }
 
     pub fn derive_complete_by_split(&self,split:&Split,prototype:Option<&Node>) -> Vec<Node> {
@@ -172,12 +195,25 @@ impl Node {
 
         let samples: Vec<usize> = self.indices_given_prerequisites(&prerequisites);
 
-        self.derive_specified(&samples,&input_features,&output_features, Some(prerequisites.to_owned()),new_id)
+        let mut child = self.derive_specified(&samples,&input_features,&output_features, Some(prerequisites.to_owned()),new_id);
 
+        child.prototype = true;
 
     }
 
     pub fn derive_specified(&self, samples: &[usize], input_features: &[usize], output_features: &[usize], prerequisite_opt: Option<Vec<Prerequisite>>, new_id: &str) -> Node {
+
+        // This is the base derivation of a node from self.
+        // Other derivations produce a node specification, then call this method
+
+        // Features and samples in the child node are to be specified using LOCAL INDEXING.
+
+        // DESIGN DECISION: For the moment I am allowing derivation from non-prototype nodes.
+        // I may get rid of this later. As a result the global indices of a feature may not match
+        // the indices provided above.
+
+        // Derived nodes are guaranteed have matching features/tables
+        // Derived nodes are not guaranteed to be a prototype, set this elsewhere
 
         let mut new_input_table = self.input_table.derive_specified(&input_features,samples);
         let mut new_output_table = self.output_table.derive_specified(&output_features,samples);
@@ -538,8 +574,9 @@ impl Node {
 
     // pub fn assert_integrity(&self) {
     //
-    //     // Here we check assumptions that must remain true of each node: that each sample in the node fulfills the requiresments
+    //     // Here we check assumptions that must remain true of each node: that each sample in the node fulfills the requirements
     //     // of that node.
+    //
     // }
 
 }

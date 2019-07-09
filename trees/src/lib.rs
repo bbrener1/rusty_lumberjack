@@ -44,6 +44,8 @@ use std::cmp::Ordering;
 use std::fmt::Debug;
 use std::sync::Arc;
 
+use rank_vector::{RankVector,Node};
+
 
 #[derive(Debug,Clone,Serialize,Deserialize,PartialEq,Eq,Hash)]
 pub struct Feature {
@@ -151,14 +153,56 @@ impl Split {
 
 }
 
-pub struct SubsamplingLayer {
-    feature_key: Vec<Feature>,
-    feature_indices: Vec<Option<usize>>,
-    sample_key: Vec<Sample>,
-    sample_indices: Vec<Option<usize>>,
+pub struct Braid {
+    features: Vec<Feature>,
+    compound_vector: RankVector<Vec<Node>>,
+    compound_split: Option<f64>,
 }
 
-impl SubsamplingLayer {
+impl Braid {
+    fn from_rvs(features: Vec<Feature>, rvs: &[RankVector<Vec<Node>>]) -> Braid {
+
+        let len = rvs.get(0).unwrap_or(&RankVector::empty()).raw_len();
+
+        assert!(!rvs.iter().any(|rv| rv.raw_len() != len));
+
+        // We would like to convert all values to rank-values using modified competition ranking
+
+        // There are two advantages to using rank values: scaling, eg all features scaled identically,
+        // and converting sparse 0s to 1s, allowing us to use geometric averaging without headaches.
+
+        // Modified competition ranking is used to preserve extreme values as extreme. Eg, for a
+        // sparse dataset, [0,0,0,0,0,0,10], conventional ranking would rank 10 as 1. This is
+        // undesirable when comparing to ex [1,2,3,3,4,4,10], where conventional ranking would
+        // rank 10 as 5.
+
+        let ranked_values: Vec<Vec<usize>> = rvs.iter().map(|rv| modified_competition_ranking(&rv.full_values())).collect();
+
+        let mut compound_values = vec![0.;len];
+
+        for i in 0..len {
+            for vec in ranked_values {
+
+                // Here we can guarantee that all values are above 0 because we are using
+                // 1-indexed ranking instead of raw values for geometric averaging.
+                // Therefore we can safely take a ln.
+
+                compound_values[i] += (vec[i] as f64).ln();
+            }
+            compound_values[i] /= ranked_values.len() as f64;
+            compound_values[i] = compound_values[i].exp();
+        }
+
+        let compound_vector = RankVector::link(&compound_values);
+
+        Braid {
+            features,
+            compound_vector,
+        }
+    }
+
+    fn split(&self)
+
 }
 
 fn read_header(location: &str) -> Vec<String> {
@@ -422,11 +466,20 @@ fn argsort(input: &Vec<f64>) -> Vec<(usize,f64)> {
     out
 }
 
-// fn argsort(input: &Vec<f64>) -> Vec<(usize,f64)> {
-//     let mut out = input.iter().cloned().enumerate().collect::<Vec<(usize,f64)>>();
-//     out.sort_unstable_by(|a,b| a.1.partial_cmp(&b.1).unwrap_or(Ordering::Greater));
-//     out
-// }
+fn modified_competition_ranking(input:&[f64]) -> Vec<usize> {
+    let mut intermediate1 = input.iter().enumerate().collect::<Vec<(usize,&f64)>>();
+    intermediate1.sort_unstable_by(|a,b| a.1.partial_cmp(b.1).unwrap_or(Ordering::Greater));
+    let mut intermediate2 = intermediate1.iter().enumerate().map(|(rank,(position,value))| (rank+1,(*position,*value))).collect::<Vec<(usize,(usize,&f64))>>();
+    for i in 0..(intermediate2.len().max(1)-1) {
+        let (r1,(_,v1)) = intermediate2[i];
+        let (_,(_,v2)) = intermediate2[i+1];
+        if v1 == v2 {
+            intermediate2[i+1].0 = r1;
+        }
+    }
+    intermediate2.sort_unstable_by(|a,b| ((a.1).0).cmp(&(b.1).0));
+    intermediate2.into_iter().map(|(rank,(position,value))| rank).collect()
+}
 
 fn tsv_format<T:Debug>(input:&Vec<Vec<T>>) -> String {
 
@@ -590,5 +643,19 @@ pub mod tree_lib_tests {
 
     }
 
+    #[test]
+    fn test_modified_competition_ranking() {
+
+        let a = vec![2.,0.,1.,2.,0.,3.];
+        let b = modified_competition_ranking(&a);
+        let c = vec![4,1,3,4,1,6];
+
+        let d: Vec<f64> = Vec::new();
+        let e: Vec<usize> = Vec::new();
+
+        assert_eq!(b,c);
+        assert_eq!(e,modified_competition_ranking(&d));
+
+    }
 
 }
