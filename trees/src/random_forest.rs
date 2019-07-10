@@ -63,15 +63,25 @@ impl Forest {
 
             eprintln!("Constructing {} trees",self.size);
 
-            let trees: Vec<Tree> = (1_usize..self.size+1).into_par_iter().map(|tree| {
-
-                eprintln!("Tree {}",tree);
-
-                let mut new_tree = self.prototype_tree.as_ref().expect("No prototype tree").clone();
-                new_tree.report_address = format!("{}.{}",parameters.report_address, tree).to_string();
-                new_tree.grow_branches(parameters.clone());
-                new_tree
-            }).collect();
+            let trees: Vec<Tree> =
+                (1_usize..self.size+1)
+                .map(|i|
+                    {
+                        let mut new_tree = self.prototype_tree.as_ref().expect("No prototype tree").clone();
+                        new_tree.report_address = format!("{}.{}",parameters.report_address, i).to_string();
+                        (i,new_tree)
+                    }
+                )
+                .collect::<Vec<(usize,Tree)>>()
+                .into_par_iter()
+                .map(|(i,mut new_tree)|
+                    {
+                        new_tree.grow_branches(parameters.clone());
+                        eprintln!("Tree {}",i);
+                        new_tree
+                    }
+                )
+                .collect();
 
             for tree in trees {
                 if let Ok(compact) = tree.serialize_compact_consume() {
