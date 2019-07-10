@@ -259,21 +259,9 @@ impl<'a> Tree {
 
 pub fn grow_branches(target:&mut Node, parameters: Arc<Parameters>,level:usize) {
     if target.samples().len() > parameters.leaf_size_cutoff && level < parameters.depth_cutoff {
-        // if target.sub_split_node(parameters.sample_subsample,parameters.input_features,parameters.output_features).is_some() {
+        // if let Some(mut cs) = target.sub_split_node(parameters.sample_subsample,parameters.input_features,parameters.output_features) {
         if let Some(mut cs) = target.braid_split_node(parameters.sample_subsample,parameters.input_features,parameters.output_features) {
-            let c1o = cs.pop();
-            let c2o = cs.pop();
-            if let (Some(mut c1),Some(mut c2)) = (c1o,c2o) {
-                join(
-                    || {
-                        grow_branches(&mut c1, parameters.clone(), level + 1);
-                    },
-                    || {
-                        grow_branches(&mut c2, parameters.clone(), level + 1);
-                    }
-                );
-                target.set_children(vec![c1,c2]);
-            }
+            target.children = cs;
         }
     }
     // report_node_structure(target,report_address);
