@@ -76,17 +76,13 @@ impl Forest {
                     })
                     .collect::<Vec<Tree>>()
                     .into_par_iter()
-                    .map(|mut new_tree| {
+                    .flat_map(|mut new_tree| {
                         new_tree.grow_branches(parameters.clone());
-                        new_tree
+                        new_tree.serialize_compact_consume()
                     })
-                    .collect::<Vec<Tree>>();
-                    for tree in ct {
-                        if let Ok(compact) = tree.serialize_compact_consume() {
-                            if remember {
-                                self.predictive_trees.push(compact);
-                            }
-                        }
+                    .collect::<Vec<PredictiveTree>>();
+                    if remember {
+                        self.predictive_trees.extend_from_slice(&ct);
                     }
             }
 
