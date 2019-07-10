@@ -162,7 +162,7 @@ impl Node {
 
         let splits: Vec<Split> =
             (0..self.input_features().len())
-            .into_par_iter()
+            // .into_par_iter()
             .flat_map(|i| self.feature_index_split(i))
             .collect();
         let dispersions: Vec<f64> = splits.iter().map(|s| s.dispersion).collect();

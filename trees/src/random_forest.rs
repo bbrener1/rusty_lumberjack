@@ -7,6 +7,8 @@ use std::collections::HashMap;
 use std::sync::mpsc;
 use std::sync::Arc;
 
+use rayon::prelude::*;
+
 use std::fs::OpenOptions;
 
 
@@ -61,14 +63,18 @@ impl Forest {
 
             eprintln!("Constructing {} trees",self.size);
 
-            for tree in 1..self.size+1 {
+            let trees: Vec<Tree> = (1_usize..self.size+1).into_par_iter().map(|tree| {
 
                 eprintln!("Tree {}",tree);
 
                 let mut new_tree = self.prototype_tree.as_ref().expect("No prototype tree").clone();
                 new_tree.report_address = format!("{}.{}",parameters.report_address, tree).to_string();
                 new_tree.grow_branches(parameters.clone());
-                if let Ok(compact) = new_tree.serialize_compact_consume() {
+                new_tree
+            }).collect();
+
+            for tree in trees {
+                if let Ok(compact) = tree.serialize_compact_consume() {
                     if remember {
                         self.predictive_trees.push(compact);
                     }
