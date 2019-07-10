@@ -147,6 +147,10 @@ impl RankTable {
     // A certain feature. This is the ranking of each sample in this table by that feature
     // least to greatest
 
+    pub fn rv_fetch(&self,index:usize) -> &RankVector<Vec<Node>> {
+        &self.meta_vector[index]
+    }
+
     pub fn sort_by_feature(&self, feature:usize) -> (Vec<usize>,HashSet<usize>) {
         self.meta_vector[feature].draw_and_drop()
     }

@@ -7,7 +7,7 @@
 extern crate ndarray_linalg;
 // extern crate intel_mkl_src;
 // extern crate openblas_src;
-extern crate blas_src;
+// extern crate blas_src;
 extern crate trees;
 extern crate ihmm;
 

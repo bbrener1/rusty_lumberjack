@@ -140,7 +140,9 @@ impl<'a> Tree {
 
     pub fn derive_specified(&self,samples:&Vec<usize>,input_features:&Vec<usize>,output_features:&Vec<usize>,iteration: usize) -> Tree {
 
-        let new_root = self.root.derive_specified(samples,input_features,output_features,None,"RT");
+        let mut new_root = self.root.derive_specified(samples,input_features,output_features,None,None,"RT");
+
+        new_root.prototype = true;
 
         let mut address: Vec<String> = self.report_address.split('.').map(|x| x.to_string()).collect();
         *address.last_mut().unwrap() = iteration.to_string();
@@ -256,7 +258,8 @@ impl<'a> Tree {
 
 pub fn grow_branches(target:&mut Node, parameters: Arc<Parameters>,level:usize) {
     if target.samples().len() > parameters.leaf_size_cutoff && level < parameters.depth_cutoff {
-        if target.sub_split_node(parameters.sample_subsample,parameters.input_features,parameters.output_features).is_some() {
+        // if target.sub_split_node(parameters.sample_subsample,parameters.input_features,parameters.output_features).is_some() {
+        if target.braid_split_node(parameters.sample_subsample,parameters.input_features,parameters.output_features).is_some() {
             for child in target.children.iter_mut() {
                 grow_branches(child,parameters.clone(), level+1);
             }

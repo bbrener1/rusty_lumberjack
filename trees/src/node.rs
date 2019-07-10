@@ -41,7 +41,7 @@ use rayon::prelude::*;
 #[derive(Clone,Serialize,Deserialize)]
 pub struct Node {
 
-    prototype: bool,
+    pub prototype: bool,
 
     input_table: RankTable,
     output_table: RankTable,
@@ -101,6 +101,7 @@ impl Node {
             split: None,
 
             prerequisites: vec![],
+            braids: vec![],
 
             medians: medians,
             feature_weights: feature_weights,
@@ -134,6 +135,27 @@ impl Node {
         else { None }
     }
 
+    pub fn braid_split_node(&mut self,samples:usize,input_features:usize,output_features:usize) -> Option<()> {
+
+        if !self.prototype { panic!("Attempted to take a braid off an incomplete node") };
+
+        let thickness = 4;
+        let mut features = Vec::with_capacity(thickness);
+        for i in 0..thickness {
+            let mut compact = self.subsample(samples,input_features,output_features);
+            if let Some(Split{feature,..}) = compact.rayon_best_split() {
+                features.push(feature);
+            }
+        }
+        let rvs: Vec<_> = features.iter().map(|f| self.input_table.rv_fetch(f.index).clone()).collect();
+
+        let braid = Braid::from_rvs(features, &rvs);
+
+        self.children = self.derive_complete_by_braid(braid)?;
+
+        Some(())
+    }
+
     pub fn rayon_best_split(&self) -> Option<Split> {
 
         let splits: Vec<Split> =
@@ -157,21 +179,33 @@ impl Node {
 
     }
 
-    pub fn braid_split(&self,draw_order:&[usize],drop_set:&HashSet<usize>) -> Option<Braid> {
-        None
-    }
 
-    pub fn derive_complete_by_braid(&self,split:&Split,prototype:Option<&Node>) -> Vec<Node> {
+    pub fn derive_complete_by_braid(&mut self,braid:Braid) -> Option<Vec<Node>> {
+        let (draw_order,drop_set) = braid.draw_order();
+        let dispersions = self.output_table.order_dispersions(&draw_order,&drop_set,&self.feature_weights)?;
+        let (split_index,minimum_dispersion) = argmin(&dispersions[1..])?;
 
-        let mut left_prerequisites = self.prerequisites.clone();
-        let mut right_prerequisites = self.prerequisites.clone();
-        left_prerequisites.push(split.left());
-        right_prerequisites.push(split.right());
+        let left_indices:Vec<usize> = draw_order[..split_index].to_owned();
+        let right_indices:Vec<usize> = draw_order[split_index..].to_owned();
+
         let mut left_child_id = self.id.clone();
         let mut right_child_id = self.id.clone();
-        left_child_id.push_str(&format!("!F{:?}:S{:?}L",split.feature,split.value));
-        right_child_id.push_str(&format!("!F{:?}:S{:?}R",split.feature,split.value));
-        vec![prototype.unwrap_or(self).derive_complete_by_prerequisites(&left_prerequisites,&left_child_id),prototype.unwrap_or(self).derive_complete_by_prerequisites(&right_prerequisites,&right_child_id)]
+        left_child_id.push_str(&format!("!F{:?}:L",braid.features));
+        right_child_id.push_str(&format!("!F{:?}:R",braid.features));
+
+        let input_features: Vec<usize> = (0..self.input_features().len()).collect();
+        let output_features: Vec<usize> = (0..self.output_features().len()).collect();
+
+        let mut new_braids = self.braids.clone();
+        new_braids.push(braid);
+
+        let mut left_child = self.derive_specified(&left_indices, &input_features, &output_features, None, Some(new_braids.clone()), &left_child_id);
+        let mut right_child = self.derive_specified(&right_indices, &input_features, &output_features, None, Some(new_braids), &right_child_id);
+
+        left_child.prototype = true;
+        right_child.prototype = true;
+
+        Some(vec![left_child,right_child])
     }
 
     pub fn derive_complete_by_split(&self,split:&Split,prototype:Option<&Node>) -> Vec<Node> {
@@ -195,13 +229,14 @@ impl Node {
 
         let samples: Vec<usize> = self.indices_given_prerequisites(&prerequisites);
 
-        let mut child = self.derive_specified(&samples,&input_features,&output_features, Some(prerequisites.to_owned()),new_id);
+        let mut child = self.derive_specified(&samples,&input_features,&output_features, Some(prerequisites.to_owned()),None,new_id);
 
         child.prototype = true;
 
+        child
     }
 
-    pub fn derive_specified(&self, samples: &[usize], input_features: &[usize], output_features: &[usize], prerequisite_opt: Option<Vec<Prerequisite>>, new_id: &str) -> Node {
+    pub fn derive_specified(&self, samples: &[usize], input_features: &[usize], output_features: &[usize], prerequisite_opt: Option<Vec<Prerequisite>>, braid_opt: Option<Vec<Braid>>, new_id: &str) -> Node {
 
         // This is the base derivation of a node from self.
         // Other derivations produce a node specification, then call this method
@@ -227,6 +262,8 @@ impl Node {
                 prerequisites.to_owned()
             }
             else {self.prerequisites.clone()};
+
+        let mut new_braids = braid_opt.unwrap_or(self.braids.clone());
 
         let medians = new_output_table.medians();
         let dispersions = new_output_table.dispersions();
@@ -254,6 +291,7 @@ impl Node {
             split: None,
 
             prerequisites: new_prerequisites,
+            braids: new_braids,
 
             medians: medians,
             feature_weights: feature_weights,
@@ -290,7 +328,7 @@ impl Node {
         let ofi: Vec<usize> = output_features.into_iter().map(|(i,f)| i).collect();
         let si: Vec<usize> = samples.into_iter().map(|(i,s)| i).collect();
         let id = format!("{}!SSS",self.id,).to_string();
-        self.derive_specified(&si,&ifi,&ofi,None,&id)
+        self.derive_specified(&si,&ifi,&ofi,None,None,&id)
     }
 
     pub fn report(&self,verbose:bool) {

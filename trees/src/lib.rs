@@ -35,7 +35,7 @@ mod randutils;
 use std::env;
 use std::io as sio;
 use std::f64;
-use std::collections::HashMap;
+use std::collections::{HashMap,HashSet};
 use std::fs::File;
 use std::io::stdin;
 use std::io::prelude::*;
@@ -44,6 +44,7 @@ use std::cmp::Ordering;
 use std::fmt::Debug;
 use std::sync::Arc;
 
+use io::DispersionMode;
 use rank_vector::{RankVector,Node};
 
 
@@ -153,6 +154,7 @@ impl Split {
 
 }
 
+#[derive(Clone,Serialize,Deserialize)]
 pub struct Braid {
     features: Vec<Feature>,
     compound_vector: RankVector<Vec<Node>>,
@@ -162,7 +164,7 @@ pub struct Braid {
 impl Braid {
     fn from_rvs(features: Vec<Feature>, rvs: &[RankVector<Vec<Node>>]) -> Braid {
 
-        let len = rvs.get(0).unwrap_or(&RankVector::empty()).raw_len();
+        let len = rvs.get(0).unwrap_or(&RankVector::<Vec<Node>>::empty()).raw_len();
 
         assert!(!rvs.iter().any(|rv| rv.raw_len() != len));
 
@@ -178,10 +180,10 @@ impl Braid {
 
         let ranked_values: Vec<Vec<usize>> = rvs.iter().map(|rv| modified_competition_ranking(&rv.full_values())).collect();
 
-        let mut compound_values = vec![0.;len];
+        let mut compound_values: Vec<f64> = vec![0.;len];
 
         for i in 0..len {
-            for vec in ranked_values {
+            for vec in ranked_values.iter() {
 
                 // Here we can guarantee that all values are above 0 because we are using
                 // 1-indexed ranking instead of raw values for geometric averaging.
@@ -193,15 +195,27 @@ impl Braid {
             compound_values[i] = compound_values[i].exp();
         }
 
-        let compound_vector = RankVector::link(&compound_values);
+        let compound_vector = RankVector::<Vec<Node>>::link(&compound_values);
 
         Braid {
             features,
             compound_vector,
+            compound_split: None,
         }
     }
 
-    fn split(&self)
+    fn draw_order(&self) -> (Vec<usize>,HashSet<usize>) {
+        self.compound_vector.draw_and_drop()
+    }
+
+    fn set_split(&mut self, split:f64) {
+        self.compound_split = Some(split)
+    }
+
+    fn set_split_by_index(&mut self, split:usize) {
+        let value = self.compound_vector.fetch(split);
+        self.compound_split = Some(value);
+    }
 
 }
 
