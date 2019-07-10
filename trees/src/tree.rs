@@ -261,6 +261,9 @@ pub fn grow_branches(target:&mut Node, parameters: Arc<Parameters>,level:usize) 
     if target.samples().len() > parameters.leaf_size_cutoff && level < parameters.depth_cutoff {
         // if let Some(mut cs) = target.sub_split_node(parameters.sample_subsample,parameters.input_features,parameters.output_features) {
         if let Some(mut cs) = target.braid_split_node(parameters.sample_subsample,parameters.input_features,parameters.output_features) {
+            for child in cs.iter_mut() {
+                grow_branches(child, parameters.clone(), level+1);
+            }
             target.children = cs;
         }
     }
