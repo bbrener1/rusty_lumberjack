@@ -67,24 +67,17 @@ impl Forest {
                 (1_usize..self.size+1)
                 .collect::<Vec<usize>>()
                 .chunks(10)
-                .map(|iv|
+                .flat_map(|iv|
                     {
                         iv.iter()
                         .map(|i| {
+                            eprintln!("Tree {}",i);
                             let mut new_tree = self.prototype_tree.as_ref().expect("No prototype tree").clone();
                             new_tree.report_address = format!("{}.{}",parameters.report_address, i).to_string();
                             new_tree
                         })
                         .collect::<Vec<Tree>>()
-                    }
-                )
-                .collect::<Vec<Vec<Tree>>>()
-                .into_iter()
-                .enumerate()
-                .flat_map(move |(i,tv)|
-                    {
-                        eprintln!("Tree batch {}",i);
-                        tv.into_par_iter()
+                        .into_par_iter()
                         .map(|mut new_tree| {
                             new_tree.grow_branches(parameters.clone());
                             new_tree
@@ -93,7 +86,7 @@ impl Forest {
                         .into_iter()
                     }
                 )
-                .collect();
+                .collect::<Vec<Tree>>();
 
             for tree in trees {
                 if let Ok(compact) = tree.serialize_compact_consume() {
