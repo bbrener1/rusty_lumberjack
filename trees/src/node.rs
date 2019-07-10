@@ -114,28 +114,26 @@ impl Node {
 
     }
 
-    pub fn split_node(&mut self) -> Option<()> {
+    pub fn split_node(&mut self) -> Option<Vec<Node>> {
         if let Some(split) = self.rayon_best_split() {
             self.split = Some(split);
             // eprintln!("Deriving split:{:?}",self.split);
-            self.children = self.derive_complete_by_split(self.split.as_ref().unwrap(), None);
-            Some(())
+            Some(self.derive_complete_by_split(self.split.as_ref().unwrap(), None))
         }
         else { None }
     }
 
-    pub fn sub_split_node(&mut self,samples:usize,input_features:usize,output_features:usize) -> Option<()> {
+    pub fn sub_split_node(&mut self,samples:usize,input_features:usize,output_features:usize) -> Option<Vec<Node>> {
         let mut compact = self.subsample(samples,input_features,output_features);
         if let Some(split) = compact.rayon_best_split() {
             self.split = Some(split);
             // eprintln!("Deriving split:{:?}",self.split);
-            self.children = self.derive_complete_by_split(self.split.as_ref().unwrap(), None);
-            Some(())
+            Some(self.derive_complete_by_split(self.split.as_ref().unwrap(), None))
         }
         else { None }
     }
 
-    pub fn braid_split_node(&mut self,samples:usize,input_features:usize,output_features:usize) -> Option<()> {
+    pub fn braid_split_node(&mut self,samples:usize,input_features:usize,output_features:usize) -> Option<Vec<Node>> {
 
         if !self.prototype { panic!("Attempted to take a braid off an incomplete node") };
 
@@ -153,9 +151,7 @@ impl Node {
 
         // eprintln!("Braid split:{:?}",braid);
 
-        self.children = self.derive_complete_by_braid(braid)?;
-
-        Some(())
+        self.derive_complete_by_braid(braid)
     }
 
     pub fn rayon_best_split(&self) -> Option<Split> {
@@ -462,6 +458,10 @@ impl Node {
             absolute_gains: self.absolute_gains.clone(),
         }
 
+    }
+
+    pub fn set_children(&mut self, children: Vec<Node>) {
+        self.children = children;
     }
 
     pub fn output_rank_table(&self) -> &RankTable {

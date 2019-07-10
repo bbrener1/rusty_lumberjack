@@ -63,27 +63,42 @@ impl Forest {
 
             eprintln!("Constructing {} trees",self.size);
 
-            for chunk in
-                (1_usize..self.size+1)
-                .collect::<Vec<usize>>()
-                .chunks(10) {
-                    let ct = chunk.iter()
-                    .map(|i| {
-                        eprintln!("Tree {}",i);
-                        let mut new_tree = self.prototype_tree.as_ref().expect("No prototype tree").clone();
-                        new_tree.report_address = format!("{}.{}",parameters.report_address, i).to_string();
-                        new_tree
-                    })
-                    .collect::<Vec<Tree>>()
-                    .into_par_iter()
-                    .flat_map(|mut new_tree| {
-                        new_tree.grow_branches(parameters.clone());
-                        new_tree.serialize_compact_consume()
-                    })
-                    .collect::<Vec<PredictiveTree>>();
+            // for chunk in
+            //     (1_usize..self.size+1)
+            //     .collect::<Vec<usize>>()
+            //     .chunks(10) {
+            //         let ct = chunk.iter()
+            //         .map(|i| {
+            //             eprintln!("Tree {}",i);
+            //             let mut new_tree = self.prototype_tree.as_ref().expect("No prototype tree").clone();
+            //             new_tree.report_address = format!("{}.{}",parameters.report_address, i).to_string();
+            //             new_tree
+            //         })
+            //         .collect::<Vec<Tree>>()
+            //         .into_par_iter()
+            //         .flat_map(|mut new_tree| {
+            //             new_tree.grow_branches(parameters.clone());
+            //             new_tree.serialize_compact_consume()
+            //         })
+            //         .collect::<Vec<PredictiveTree>>();
+            //         if remember {
+            //             self.predictive_trees.extend_from_slice(&ct);
+            //         }
+            // }
+
+
+            for tree in 1..self.size+1 {
+
+                eprintln!("Tree {}",tree);
+
+                let mut new_tree = self.prototype_tree.as_ref().expect("No prototype tree").clone();
+                new_tree.report_address = format!("{}.{}",parameters.report_address, tree).to_string();
+                new_tree.grow_branches(parameters.clone());
+                if let Ok(compact) = new_tree.serialize_compact_consume() {
                     if remember {
-                        self.predictive_trees.extend_from_slice(&ct);
+                        self.predictive_trees.push(compact);
                     }
+                }
             }
 
             let mut output_header_dump = OpenOptions::new().create(true).append(false).open([&self.parameters.report_address.clone(),".ifh"].join(""))?;

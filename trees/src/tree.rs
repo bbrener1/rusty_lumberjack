@@ -9,6 +9,7 @@ use std::fs::OpenOptions;
 use std::iter::repeat;
 use std::collections::HashMap;
 use serde_json;
+use rayon::join;
 
 
 extern crate rand;
@@ -259,9 +260,19 @@ impl<'a> Tree {
 pub fn grow_branches(target:&mut Node, parameters: Arc<Parameters>,level:usize) {
     if target.samples().len() > parameters.leaf_size_cutoff && level < parameters.depth_cutoff {
         // if target.sub_split_node(parameters.sample_subsample,parameters.input_features,parameters.output_features).is_some() {
-        if target.braid_split_node(parameters.sample_subsample,parameters.input_features,parameters.output_features).is_some() {
-            for child in target.children.iter_mut() {
-                grow_branches(child,parameters.clone(), level+1);
+        if let Some(mut cs) = target.braid_split_node(parameters.sample_subsample,parameters.input_features,parameters.output_features) {
+            let c1o = cs.pop();
+            let c2o = cs.pop();
+            if let (Some(mut c1),Some(mut c2)) = (c1o,c2o) {
+                join(
+                    || {
+                        grow_branches(&mut c1, parameters.clone(), level + 1);
+                    },
+                    || {
+                        grow_branches(&mut c2, parameters.clone(), level + 1);
+                    }
+                );
+                target.set_children(vec![c1,c2]);
             }
         }
     }
