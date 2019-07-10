@@ -63,39 +63,32 @@ impl Forest {
 
             eprintln!("Constructing {} trees",self.size);
 
-            let trees: Vec<Tree> =
+            for chunk in
                 (1_usize..self.size+1)
                 .collect::<Vec<usize>>()
-                .chunks(10)
-                .flat_map(|iv|
-                    {
-                        iv.iter()
-                        .map(|i| {
-                            eprintln!("Tree {}",i);
-                            let mut new_tree = self.prototype_tree.as_ref().expect("No prototype tree").clone();
-                            new_tree.report_address = format!("{}.{}",parameters.report_address, i).to_string();
-                            new_tree
-                        })
-                        .collect::<Vec<Tree>>()
-                        .into_par_iter()
-                        .map(|mut new_tree| {
-                            new_tree.grow_branches(parameters.clone());
-                            new_tree
-                        })
-                        .collect::<Vec<Tree>>()
-                        .into_iter()
+                .chunks(10) {
+                    let ct = chunk.iter()
+                    .map(|i| {
+                        eprintln!("Tree {}",i);
+                        let mut new_tree = self.prototype_tree.as_ref().expect("No prototype tree").clone();
+                        new_tree.report_address = format!("{}.{}",parameters.report_address, i).to_string();
+                        new_tree
+                    })
+                    .collect::<Vec<Tree>>()
+                    .into_par_iter()
+                    .map(|mut new_tree| {
+                        new_tree.grow_branches(parameters.clone());
+                        new_tree
+                    })
+                    .collect::<Vec<Tree>>();
+                    for tree in ct {
+                        if let Ok(compact) = tree.serialize_compact_consume() {
+                            if remember {
+                                self.predictive_trees.push(compact);
+                            }
+                        }
                     }
-                )
-                .collect::<Vec<Tree>>();
-
-            for tree in trees {
-                if let Ok(compact) = tree.serialize_compact_consume() {
-                    if remember {
-                        self.predictive_trees.push(compact);
-                    }
-                }
             }
-
 
             let mut output_header_dump = OpenOptions::new().create(true).append(false).open([&self.parameters.report_address.clone(),".ifh"].join(""))?;
             output_header_dump.write(self.prototype_tree.as_ref().unwrap().input_feature_names().join("\n").as_bytes())?;
