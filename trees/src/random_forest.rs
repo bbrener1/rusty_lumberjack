@@ -74,7 +74,7 @@ impl Forest {
                 )
                 .collect::<Vec<(usize,Tree)>>()
                 .into_par_iter()
-                .map(|(i,mut new_tree)|
+                .map(move |(i,mut new_tree)|
                     {
                         new_tree.grow_branches(parameters.clone());
                         eprintln!("Tree {}",i);
