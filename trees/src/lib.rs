@@ -154,10 +154,13 @@ impl Split {
 
 }
 
-#[derive(Clone,Serialize,Deserialize)]
+#[derive(Clone,Serialize,Deserialize,Debug)]
 pub struct Braid {
     features: Vec<Feature>,
-    compound_vector: RankVector<Vec<Node>>,
+    // compound_vector: RankVector<Vec<Node>>,
+    compound_values: Vec<f64>,
+    draw_order: Vec<usize>,
+    drop_set: HashSet<usize>,
     compound_split: Option<f64>,
 }
 
@@ -196,16 +199,20 @@ impl Braid {
         }
 
         let compound_vector = RankVector::<Vec<Node>>::link(&compound_values);
+        let (draw_order,drop_set) = compound_vector.draw_and_drop();
 
         Braid {
             features,
-            compound_vector,
+            // compound_vector,
+            compound_values,
+            draw_order,
+            drop_set,
             compound_split: None,
         }
     }
 
-    fn draw_order(&self) -> (Vec<usize>,HashSet<usize>) {
-        self.compound_vector.draw_and_drop()
+    fn draw_order(&self) -> (&[usize],&HashSet<usize>) {
+        (&self.draw_order,&self.drop_set)
     }
 
     fn set_split(&mut self, split:f64) {
@@ -213,7 +220,7 @@ impl Braid {
     }
 
     fn set_split_by_index(&mut self, split:usize) {
-        let value = self.compound_vector.fetch(split);
+        let value = self.compound_values[split];
         self.compound_split = Some(value);
     }
 

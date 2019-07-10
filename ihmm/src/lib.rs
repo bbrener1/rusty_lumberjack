@@ -955,7 +955,7 @@ pub mod tree_braider_tests {
             eprintln!("PDET");
             eprintln!("{:?}",state.emission_model.pdet());
         }
-        for i in 0..200 {
+        for i in 0..1000 {
             model.sweep();
             for state in &model.hidden_states {
                 // eprintln!("{:?}",state);

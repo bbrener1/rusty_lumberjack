@@ -10,7 +10,7 @@ use std::clone::Clone;
 use std::borrow::{Borrow,BorrowMut};
 use crate::io::DropMode;
 
-#[derive(Clone,Debug,Serialize,Deserialize)]
+#[derive(Clone,Serialize,Deserialize)]
 pub struct RankVector<T> {
     drop_set: Option<HashSet<usize>>,
     dirty_set: Option<HashSet<usize>>,
@@ -1184,6 +1184,12 @@ impl RankVector<Vec<Node>> {
 
     }
 
+}
+
+impl Debug for RankVector<Vec<Node>> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "RankVec {:?},{:?}", self.full_values(),self.rank_order)
+    }
 }
 
 impl RankVector<SmallVec<[Node;1024]>> {

@@ -151,6 +151,8 @@ impl Node {
 
         let braid = Braid::from_rvs(features, &rvs);
 
+        // eprintln!("Braid split:{:?}",braid);
+
         self.children = self.derive_complete_by_braid(braid)?;
 
         Some(())
@@ -420,6 +422,7 @@ impl Node {
             samples: samples,
 
             prerequisites: self.prerequisites,
+            braids: self.braids,
 
             medians: self.medians,
             dispersions: self.dispersions,
@@ -449,6 +452,7 @@ impl Node {
             samples: self.samples().iter().cloned().collect(),
 
             prerequisites: self.prerequisites.clone(),
+            braids: self.braids.clone(),
 
             medians: self.medians.clone(),
             dispersions: self.dispersions.clone(),
@@ -642,6 +646,7 @@ pub struct StrippedNode {
     split: Option<Split>,
 
     prerequisites: Vec<Prerequisite>,
+    braids: Vec<Braid>,
 
     features: Vec<Feature>,
     samples: Vec<Sample>,
@@ -885,6 +890,7 @@ mod node_testing {
             samples: vec![],
 
             prerequisites: vec![],
+            braids: vec![],
 
             medians: vec![],
             dispersions: vec![],
