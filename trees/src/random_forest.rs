@@ -65,20 +65,32 @@ impl Forest {
 
             let trees: Vec<Tree> =
                 (1_usize..self.size+1)
-                .map(|i|
+                .collect::<Vec<usize>>()
+                .chunks(10)
+                .map(|iv|
                     {
-                        let mut new_tree = self.prototype_tree.as_ref().expect("No prototype tree").clone();
-                        new_tree.report_address = format!("{}.{}",parameters.report_address, i).to_string();
-                        (i,new_tree)
+                        iv.iter()
+                        .map(|i| {
+                            let mut new_tree = self.prototype_tree.as_ref().expect("No prototype tree").clone();
+                            new_tree.report_address = format!("{}.{}",parameters.report_address, i).to_string();
+                            new_tree
+                        })
+                        .collect::<Vec<Tree>>()
                     }
                 )
-                .collect::<Vec<(usize,Tree)>>()
-                .into_par_iter()
-                .map(move |(i,mut new_tree)|
+                .collect::<Vec<Vec<Tree>>>()
+                .into_iter()
+                .enumerate()
+                .flat_map(move |(i,tv)|
                     {
-                        new_tree.grow_branches(parameters.clone());
-                        eprintln!("Tree {}",i);
-                        new_tree
+                        eprintln!("Tree batch {}",i);
+                        tv.into_par_iter()
+                        .map(|mut new_tree| {
+                            new_tree.grow_branches(parameters.clone());
+                            new_tree
+                        })
+                        .collect::<Vec<Tree>>()
+                        .into_iter()
                     }
                 )
                 .collect();
