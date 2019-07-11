@@ -22,9 +22,10 @@ use crate::io::DropMode;
 use crate::io::PredictionMode;
 use crate::io::Parameters;
 
-#[derive(Clone)]
+#[derive(Clone,Serialize,Deserialize,Debug)]
 pub struct Tree {
-    pub root: Node,
+    pub prototype: Option<Node>,
+    pub root: StrippedNode,
     dropout: DropMode,
     weights: Option<Vec<f64>>,
     size_limit: usize,
@@ -35,14 +36,13 @@ pub struct Tree {
 impl<'a> Tree {
 
     pub fn prototype_tree(inputs:&Vec<Vec<f64>>,outputs:&Vec<Vec<f64>>,input_features:&[Feature],output_features:&[Feature],samples:&[Sample], feature_weight_option: Option<Vec<f64>>, parameters: Arc<Parameters> ,report_address: String) -> Tree {
-        // let pool = ThreadPool::new(processor_limit);
         let processor_limit = parameters.processor_limit;
-        // let mut root = Node::root(counts,feature_names,sample_names,input_features,output_features,pool.clone());
-        let root = Node::prototype(inputs,outputs,input_features,output_features,samples, parameters.clone() , feature_weight_option.clone());
+        let prototype = Node::prototype(inputs,outputs,input_features,output_features,samples, parameters.clone() , feature_weight_option.clone());
+        let root = prototype.strip_clone();
         let weights = feature_weight_option;
 
-        Tree{
-            // pool: pool,
+        Tree {
+            prototype: Some(prototype),
             root: root,
             dropout: parameters.dropout,
             weights: weights,
@@ -54,59 +54,21 @@ impl<'a> Tree {
 
     pub fn serialize(self) -> Result<(),Error> {
 
-        self.report_summary()?;
-        self.dump_data()?;
-        // self.report_interactions()?;
-
         println!("Serializing to:");
         println!("{}",self.report_address);
 
         let mut tree_dump = OpenOptions::new().create(true).append(true).open(self.report_address)?;
-        tree_dump.write(self.root.to_string()?.as_bytes())?;
+        tree_dump.write(self.root.to_string().as_bytes())?;
         tree_dump.write(b"\n")?;
 
         Ok(())
     }
 
-    pub fn serialize_compact(&self) -> Result<(),Error> {
-        println!("Serializing to:");
-        println!("{}.compact",self.report_address);
-        let mut tree_dump = OpenOptions::new().create(true).append(true).open([&self.report_address,".compact"].join(""))?;
-        tree_dump.write(self.root.strip_clone().to_string().as_bytes())?;
-        tree_dump.write(b"\n")?;
-        Ok(())
+    pub fn serialize_clone(&self) -> Result<(),Error> {
+        self.clone().serialize()
     }
 
-    pub fn serialize_compact_consume(self) -> Result<PredictiveTree,Error> {
-        println!("Serializing to:");
-        println!("{}.compact",self.report_address);
-
-        let mut tree_dump = OpenOptions::new().create(true).append(true).open([&self.report_address,".compact"].join(""))?;
-
-        let p_tree = self.strip_consume();
-
-        tree_dump.write(p_tree.root.clone().to_string().as_bytes())?;
-        tree_dump.write(b"\n")?;
-        Ok(p_tree)
-    }
-
-    pub fn strip(&self) -> PredictiveTree {
-        PredictiveTree {
-            root: self.root.strip_clone(),
-            dropout: self.dropout,
-            report_address: self.report_address.clone()
-        }
-    }
-
-    pub fn strip_consume(self) -> PredictiveTree {
-        PredictiveTree {
-            root: self.root.strip_consume(),
-            dropout: self.dropout,
-            report_address: self.report_address,
-        }
-    }
-
-    pub fn reload(location: &str, size_limit: usize, depth_limit: usize , report_address: String) -> Result<Tree,Error> {
+    pub fn reload(location: &str, size_limit: usize, depth_limit: usize ) -> Result<Tree,Error> {
 
         println!("Reloading!");
 
@@ -116,7 +78,7 @@ impl<'a> Tree {
 
         // println!("{}",json_string);
 
-        let root = Node::from_str(&json_string)?;
+        let root = StrippedNode::from_json(&json_string)?;
 
         println!("Deserialized root wrapper");
 
@@ -124,26 +86,29 @@ impl<'a> Tree {
 
         Ok(Tree {
             dropout: root.dropout(),
+            prototype: None,
             root: root,
             weights: None,
             size_limit: size_limit,
             depth_limit: depth_limit,
-            report_address: report_address
+            report_address: location.to_string(),
         })
 
     }
 
 
     pub fn grow_branches(&mut self,parameters:Arc<Parameters>) {
-        grow_branches(&mut self.root, parameters,0);
+        self.root = grow_branches(self.prototype.clone().expect("Tree without prototype"), parameters,0);
         self.root.root_absolute_gains();
     }
 
     pub fn derive_specified(&self,samples:&Vec<usize>,input_features:&Vec<usize>,output_features:&Vec<usize>,iteration: usize) -> Tree {
 
-        let mut new_root = self.root.derive_specified(samples,input_features,output_features,None,None,"RT");
+        let mut new_prototype = self.prototype.as_ref().expect("Tree without prototype").derive_specified(samples,input_features,output_features,None,None,"RT");
 
-        new_root.prototype = true;
+        new_prototype.prototype = true;
+
+        let new_root = new_prototype.strip_clone();
 
         let mut address: Vec<String> = self.report_address.split('.').map(|x| x.to_string()).collect();
         *address.last_mut().unwrap() = iteration.to_string();
@@ -151,6 +116,7 @@ impl<'a> Tree {
         address_string.pop();
 
         Tree{
+            prototype: Some(new_prototype),
             root: new_root,
             dropout: self.dropout,
             weights: self.weights.clone(),
@@ -165,19 +131,11 @@ impl<'a> Tree {
         self.root.set_weights(weights);
     }
 
-    pub fn set_dispersion_mode(&mut self, dispersion_mode:DispersionMode) {
-        self.root.set_dispersion_mode(dispersion_mode);
-    }
-
-    pub fn dispersion_mode(&self) -> DispersionMode {
-        self.root.dispersion_mode()
-    }
-
-    pub fn nodes(&self) -> Vec<&Node> {
+    pub fn nodes(&self) -> Vec<&StrippedNode> {
         self.root.crawl_children()
     }
 
-    pub fn root(&self) -> &Node {
+    pub fn root(&self) -> &StrippedNode {
         &self.root
     }
 
@@ -189,127 +147,29 @@ impl<'a> Tree {
         self.root.dimensions()
     }
 
+    // pub fn mut_crawl_to_leaves_target(&'a self, target: &'a mut Node) -> Vec<&'a mut Node> {
+    //     let mut output = Vec::new();
+    //     if target.children.len() < 1 {
+    //         return vec![target]
+    //     }
+    //     else {
+    //         for child in target.children.iter_mut() {
+    //             output.extend(self.mut_crawl_to_leaves(child));
+    //         }
+    //     };
+    //     output
+    // }
 
-    pub fn mut_crawl_to_leaves(&'a self, target: &'a mut Node) -> Vec<&'a mut Node> {
-        let mut output = Vec::new();
-        if target.children.len() < 1 {
-            return vec![target]
-        }
-        else {
-            for child in target.children.iter_mut() {
-                output.extend(self.mut_crawl_to_leaves(child));
-            }
-        };
-        output
-    }
-
-    pub fn crawl_to_leaves(&self) -> Vec<& Node> {
+    pub fn crawl_to_leaves(&self) -> Vec<& StrippedNode> {
         self.root.crawl_leaves()
     }
 
-    pub fn crawl_nodes(&self) -> Vec<& Node> {
+    pub fn crawl_nodes(&self) -> Vec<& StrippedNode> {
         self.root.crawl_children()
     }
 
-    pub fn report_summary(&self) -> Result<(),Error> {
-        let mut tree_dump = OpenOptions::new().create(true).append(true).open([&self.report_address,".summary"].join(""))?;
-        for node in self.crawl_nodes() {
-            tree_dump.write(node.summary().as_bytes())?;
-        }
-        Ok(())
-    }
-    //
-    // pub fn report_interactions(&self) -> Result<(),Error> {
-    //     let mut tree_dump = OpenOptions::new().create(true).append(true).open([&self.report_address,".interactions"].join(""))?;
-    //     // println!("{}",self.root.translate_interactions());
-    //     tree_dump.write(self.root.translate_interactions().as_bytes())?;
-    //     Ok(())
-    // }
-
-    pub fn dump_data(&self) -> Result<(),Error>{
-        let mut tree_dump = OpenOptions::new().create(true).append(true).open([&self.report_address,".dump"].join(""))?;
-        for node in self.root.crawl_children() {
-            tree_dump.write(node.data_dump().as_bytes())?;
-        }
-        Ok(())
-    }
-
-    pub fn input_features(&self) -> &[Feature] {
-        &self.root.input_features()
-    }
-
-    pub fn input_feature_names(&self) -> Vec<String> {
-        self.root.input_feature_names()
-    }
-
     pub fn output_feature_names(&self) -> Vec<String> {
-        self.root.output_feature_names()
-    }
-
-    pub fn samples(&self) -> &[Sample] {
-        self.root.samples()
-    }
-
-    pub fn output_features(&self) -> &[Feature] {
-        &self.root.output_features()
-    }
-
-}
-
-
-pub fn grow_branches(target:&mut Node, parameters: Arc<Parameters>,level:usize) {
-    if target.samples().len() > parameters.leaf_size_cutoff && level < parameters.depth_cutoff {
-        // if target.sub_split_node(parameters.sample_subsample,parameters.input_features,parameters.output_features).is_some() {
-        if let Some(mut cs) = target.braid_split_node(parameters.sample_subsample,parameters.input_features,parameters.output_features) {
-            let c1o = cs.pop();
-            let c2o = cs.pop();
-            if let (Some(mut c1),Some(mut c2)) = (c1o,c2o) {
-                join(
-                    || {
-                        grow_branches(&mut c1, parameters.clone(), level + 1);
-                    },
-                    || {
-                        grow_branches(&mut c2, parameters.clone(), level + 1);
-                    }
-                );
-                target.set_children(vec![c1,c2]);
-            }
-        }
-    }
-    // report_node_structure(target,report_address);
-}
-
-#[derive(Clone,Debug)]
-pub struct PredictiveTree {
-    pub root: StrippedNode,
-    dropout: DropMode,
-    report_address: String
-}
-
-impl PredictiveTree {
-
-    pub fn reload(location: &str, size_limit: usize , report_address: String) -> Result<PredictiveTree,Error> {
-
-        println!("Reloading!");
-
-        let mut json_file = File::open(location)?;
-        let mut json_string = String::new();
-        json_file.read_to_string(&mut json_string)?;
-
-        // println!("{}",json_string);
-
-        let root: StrippedNode = serde_json::from_str(&json_string).unwrap();
-
-        println!("Deserialized root wrapper");
-
-        println!("Finished recursive unwrapping and obtained a Node tree");
-
-        Ok(PredictiveTree {
-            dropout: root.dropout(),
-            root: root,
-            report_address: report_address
-        })
-
+        self.root.feature_names()
     }
 
     pub fn serialize_compact(&self) -> Result<(),Error> {
@@ -330,19 +190,6 @@ impl PredictiveTree {
         Ok(())
     }
 
-    pub fn crawl_to_leaves(&self) -> Vec<&StrippedNode> {
-        self.root.crawl_leaves()
-    }
-
-    pub fn mut_crawl_to_leaves(&mut self) -> Vec<&mut StrippedNode> {
-        self.root.mut_crawl_to_leaves()
-    }
-
-    pub fn crawl_nodes(&self) -> Vec<&StrippedNode> {
-        self.root.crawl_children()
-    }
-
-
     pub fn predict_leaves(&self,vector:&Vec<f64>, header: &HashMap<String,usize>, prediction_mode:&PredictionMode, drop_mode: &DropMode) -> Vec<&StrippedNode> {
         self.root.predict_leaves(vector,header,drop_mode,prediction_mode)
     }
@@ -350,6 +197,31 @@ impl PredictiveTree {
 
 
 
+}
+
+pub fn grow_branches(mut target:Node, parameters: Arc<Parameters>,level:usize) -> StrippedNode {
+    if target.samples().len() > parameters.leaf_size_cutoff && level < parameters.depth_cutoff {
+        // if target.sub_split_node(parameters.sample_subsample,parameters.input_features,parameters.output_features).is_some() {
+        if let Some(mut cs) = target.braid_split_node(parameters.sample_subsample,parameters.input_features,parameters.output_features) {
+            let mut stripped = target.strip_consume();
+            let c1o = cs.pop();
+            let c2o = cs.pop();
+            if let (Some(mut c1),Some(mut c2)) = (c1o,c2o) {
+                let (c1s,c2s) = join(
+                    || {
+                        grow_branches(c1, parameters.clone(), level + 1)
+                    },
+                    || {
+                        grow_branches(c2, parameters.clone(), level + 1)
+                    }
+                );
+                stripped.set_children(vec![c1s,c2s]);
+            }
+            stripped
+        }
+        else {target.strip_consume()}
+    }
+    else {target.strip_consume()}
 }
 
 

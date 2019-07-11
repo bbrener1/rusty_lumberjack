@@ -38,7 +38,7 @@ use std::env;
 use rayon::prelude::*;
 
 
-#[derive(Clone,Serialize,Deserialize)]
+#[derive(Clone,Serialize,Deserialize,Debug)]
 pub struct Node {
 
     pub prototype: bool,
@@ -669,6 +669,14 @@ impl StrippedNode {
         &self.features[..]
     }
 
+    pub fn feature_names(&self) -> Vec<String> {
+        self.features().iter().map(|f| f.name().clone()).collect()
+    }
+
+    pub fn dimensions(&self) -> (usize,usize) {
+        (self.features.len(),self.samples.len())
+    }
+
     pub fn samples(&self) -> &[Sample] {
         &self.samples[..]
     }
@@ -681,12 +689,8 @@ impl StrippedNode {
         &self.medians
     }
 
-    pub fn mads(&self) -> &Vec<f64> {
-        &self.dispersions
-    }
-
-    pub fn covs(&self) -> Vec<f64> {
-        self.mads().iter().zip(self.medians().iter()).map(|(d,m)| d/m).map(|x| if x.is_normal() {x} else {0.}).collect()
+    pub fn set_children(&mut self, children: Vec<StrippedNode>) {
+        self.children = children;
     }
 
     pub fn absolute_gains(&self) -> &Option<Vec<f64>> {
@@ -742,6 +746,26 @@ impl StrippedNode {
         }
         output.push(&self);
         output
+    }
+
+    pub fn compute_absolute_gains(&mut self,root_dispersions: &Vec<f64>) {
+
+        let mut absolute_gains = Vec::with_capacity(root_dispersions.len());
+
+        for (nd,od) in self.dispersions.iter().zip(root_dispersions.iter()) {
+            absolute_gains.push(od-nd)
+        }
+        self.absolute_gains = Some(absolute_gains);
+
+        for child in self.children.iter_mut() {
+            child.compute_absolute_gains(root_dispersions);
+        }
+    }
+
+    pub fn root_absolute_gains(&mut self) {
+        for child in self.children.iter_mut() {
+            child.compute_absolute_gains(&self.dispersions);
+        }
     }
 
     pub fn predict_leaves(&self,vector: &Vec<f64>, header: &HashMap<String,usize>,drop_mode: &DropMode, prediction_mode:&PredictionMode) -> Vec<&StrippedNode> {

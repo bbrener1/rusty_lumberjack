@@ -16,7 +16,7 @@ use rayon::prelude::*;
 
 use num_cpus;
 
-use crate::tree::PredictiveTree;
+use crate::tree::Tree;
 use crate::random_forest::Forest;
 
 
@@ -745,7 +745,7 @@ pub enum DropMode {
 pub enum TreeBackups {
     File(String),
     Vector(Vec<String>),
-    Trees(Vec<PredictiveTree>)
+    Trees(Vec<Tree>)
 }
 
 pub fn read_matrix(location:&str) -> Vec<Vec<f64>> {
