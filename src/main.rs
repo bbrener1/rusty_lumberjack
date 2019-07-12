@@ -7,12 +7,11 @@
 extern crate ndarray_linalg;
 // extern crate intel_mkl_src;
 // extern crate openblas_src;
-// extern crate blas_src;
+extern crate blas_src;
 extern crate trees;
 extern crate ihmm;
 
 use std::env;
-use trees::io::{Command,construct,predict,combined,Parameters};
 
 fn main() {
 
@@ -21,19 +20,18 @@ fn main() {
 
     let mut arg_iter = env::args();
 
-    let command_literal = arg_iter.next();
+    let command_literal = arg_iter.next().unwrap();
 
-    let command = Command::parse(&arg_iter.next().unwrap());
+    match command_literal.as_str() {
 
-    let mut parameters = Parameters::read(&mut arg_iter);
-
-    parameters.command = command;
-
-    match parameters.command {
-        Command::Construct => construct(parameters),
-        Command::Predict => predict(parameters),
-        Command::Combined => combined(parameters),
-        Command::Analyze => unimplemented!(),
+        "construct" | "predict" | "combined" => {
+            trees::io::interpret(&command_literal,&mut arg_iter);
+        },
+        "analyze" => {
+            ihmm::io::interpret(&mut arg_iter);
+        },
+        _ => {
+            panic!("Invalid top level command, please use 'construct','predict','combined', or 'analyze'");
+        },
     }
-
 }

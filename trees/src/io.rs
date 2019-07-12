@@ -608,6 +608,24 @@ impl Command {
             }
         }
     }
+
+}
+
+pub fn interpret(literal:&str, arg_iter:&mut std::env::Args) {
+
+    let command = Command::parse(literal);
+
+    let mut parameters = Parameters::read(arg_iter);
+
+    parameters.command = command;
+
+    match parameters.command {
+        Command::Construct => construct(parameters),
+        Command::Predict => predict(parameters),
+        Command::Combined => combined(parameters),
+        Command::Analyze => unimplemented!(),
+    }
+
 }
 
 impl PredictionMode {

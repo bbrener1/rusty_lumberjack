@@ -62,6 +62,8 @@ class Node:
         self.level = level
         self.feature = node_json['feature']
         self.split = node_json['split']
+        self.prerequisites = node_json['prerequisites']
+        self.braids = node_json['braids']
         self.features = [f['name'] for f in node_json['features']]
         self.samples = [s['name'] for s in node_json['samples']]
         self.medians = node_json['medians']
@@ -690,7 +692,7 @@ class Tree:
 
 class Forest:
 
-    def __init__(self,trees,input,output,input_features=None,output_features=None,samples=None):
+    def __init__(self,trees,input,output,input_features=None,output_features=None,samples=None,split_labels=None):
         if input_features is None:
             input_features = [str(i) for i in range(input.shape[1])]
         if output_features is None:
@@ -708,6 +710,8 @@ class Forest:
 
         self.input_dim = input.shape
         self.output_dim = output.shape
+
+        self.split_labels = split_clusters
 
         self.trees = list(map(lambda x: Tree(x,self),trees))
 
@@ -832,7 +836,7 @@ class Forest:
             level.extend(tree.level(target))
         return level
 
-    def load(location, prefix="/run", ifh="/run.ifh",ofh='run.ofh',input="input.counts",output="output.counts"):
+    def load(location, prefix="/run", ifh="/run.ifh",ofh='run.ofh',clusters='run.clusters',input="input.counts",output="output.counts"):
 
         combined_tree_files = sorted(glob.glob(location + prefix + "*.compact"))
 
@@ -848,7 +852,9 @@ class Forest:
         ifh = np.loadtxt(location+ifh,dtype=str)
         ofh = np.loadtxt(location+ofh,dtype=str)
 
-        first_forest = Forest(raw_forest[1:],input_features=ifh,output_features=ofh,input=input,output=output)
+        clusters = np.loadtxt(location+clusters)
+
+        first_forest = Forest(raw_forest[1:],input_features=ifh,output_features=ofh,input=input,output=output,clusters=clusters)
 
         first_forest.prototype = Tree(raw_forest[0],first_forest)
 
@@ -1286,46 +1292,42 @@ class Forest:
 
         return cell_sort,leaf_sort,self.ouput_counts
 
-    # def cluster_splits(self,override=False,no_plot=False,*args,**kwargs):
-    #
-    #     nodes = self.nodes(root=False)
-    #
-    #     gain_matrix = self.local_gain_matrix(nodes).T+1
-    #
-    #     if hasattr(self,'split_clusters') and not override:
-    #         print("Clustering has already been done")
-    #         # return self.split_labels
-    #     else:
-    #         self.split_labels = np.array(sdg.fit_predict(gain_matrix,"fuzzy",*args,**kwargs))
-    #
-    #     cluster_set = set(self.split_labels)
-    #     clusters = []
-    #     for cluster in cluster_set:
-    #         split_index = np.arange(len(self.split_labels))[self.split_labels == cluster]
-    #         clusters.append(NodeCluster(self,[nodes[i] for i in split_index],cluster))
-    #
-    #     # split_order = np.argsort(self.split_labels)
-    #     split_order = dendrogram(linkage(gain_matrix,metric='cos',method='average'),no_plot=True)['leaves']
-    #     feature_order = dendrogram(linkage(gain_matrix.T+1,metric='cosine',method='average'),no_plot=True)['leaves']
-    #
-    #     image = gain_matrix[split_order].T[feature_order].T
-    #     neg = image < 0
-    #     pos = image > 0
-    #     image[neg] = -1 * np.log(np.abs(image[neg]) + 1)
-    #     image[pos] = np.log(image[pos] + 1)
-    #
-    #     median = np.median(image)
-    #     range = np.max(image) - median
-    #
-    #
-    #     plt.figure(figsize=(10,10))
-    #     plt.imshow(image,aspect='auto',cmap='bwr',vmin=median-range,vmax=median+range)
-    #     plt.colorbar()
-    #     plt.show()
-    #
-    #     self.split_clusters = clusters
-    #
-    #     return self.split_labels,image
+
+
+    def interpret_splits(self,override=False,no_plot=False,*args,**kwargs):
+
+        nodes = self.nodes(root=False)
+
+        gain_matrix = self.local_gain_matrix(nodes).T+1
+        
+        cluster_set = set(self.split_labels)
+        clusters = []
+        for cluster in cluster_set:
+            split_index = np.arange(len(self.split_labels))[self.split_labels == cluster]
+            clusters.append(NodeCluster(self,[nodes[i] for i in split_index],cluster))
+
+        # split_order = np.argsort(self.split_labels)
+        split_order = dendrogram(linkage(gain_matrix,metric='cos',method='average'),no_plot=True)['leaves']
+        feature_order = dendrogram(linkage(gain_matrix.T+1,metric='cosine',method='average'),no_plot=True)['leaves']
+
+        image = gain_matrix[split_order].T[feature_order].T
+        neg = image < 0
+        pos = image > 0
+        image[neg] = -1 * np.log(np.abs(image[neg]) + 1)
+        image[pos] = np.log(image[pos] + 1)
+
+        median = np.median(image)
+        range = np.max(image) - median
+
+
+        plt.figure(figsize=(10,10))
+        plt.imshow(image,aspect='auto',cmap='bwr',vmin=median-range,vmax=median+range)
+        plt.colorbar()
+        plt.show()
+
+        self.split_clusters = clusters
+
+        return self.split_labels,image
 
 
     def filter_cells(cells,prerequisite):

@@ -168,8 +168,12 @@ impl<'a> Tree {
         self.root.crawl_children()
     }
 
+    pub fn input_feature_names(&self) -> Vec<String> {
+        self.prototype.as_ref().expect("Missing prototype").input_feature_names()
+    }
+
     pub fn output_feature_names(&self) -> Vec<String> {
-        self.root.feature_names()
+        self.prototype.as_ref().expect("Missing prototype").output_feature_names()
     }
 
     pub fn serialize_compact(&self) -> Result<(),Error> {

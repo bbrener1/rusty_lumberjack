@@ -15,13 +15,7 @@ extern crate time;
 extern crate smallvec;
 extern crate rayon;
 
-#[macro_use(array,azip)]
-extern crate ndarray;
-extern crate ndarray_linalg;
-// extern crate openblas_src;
-// extern crate intel_mkl_src;
 extern crate num_traits;
-
 
 mod rank_vector;
 mod rank_table;
@@ -81,7 +75,7 @@ impl Feature {
     }
 }
 
-#[derive(Debug,Clone,Serialize,Deserialize,PartialEq)]
+#[derive(Debug,Clone,Serialize,Deserialize,PartialEq,Eq,Hash)]
 pub struct Sample {
     name: String,
     index: usize,
@@ -157,7 +151,7 @@ impl Split {
 #[derive(Clone,Serialize,Deserialize,Debug)]
 pub struct Braid {
     features: Vec<Feature>,
-    // compound_vector: RankVector<Vec<Node>>,
+    samples: Vec<Sample>,
     compound_values: Vec<f64>,
     draw_order: Vec<usize>,
     drop_set: HashSet<usize>,
@@ -165,7 +159,7 @@ pub struct Braid {
 }
 
 impl Braid {
-    fn from_rvs(features: Vec<Feature>, rvs: &[RankVector<Vec<Node>>]) -> Braid {
+    fn from_rvs(features: Vec<Feature>,samples:Vec<Sample>,rvs: &[RankVector<Vec<Node>>]) -> Braid {
 
         let len = rvs.get(0).unwrap_or(&RankVector::<Vec<Node>>::empty()).raw_len();
 
@@ -203,6 +197,7 @@ impl Braid {
 
         Braid {
             features,
+            samples,
             // compound_vector,
             compound_values,
             draw_order,

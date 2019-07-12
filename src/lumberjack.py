@@ -103,15 +103,48 @@ def fit(input_counts,output_counts=None,ifh=None,ofh=None,header=None,backtrace=
     print("Generating trees")
 
     inner_fit(input_counts,output_counts,location,ifh=location + 'tmp.ifh',ofh=location + 'tmp.ofh',backtrace=backtrace,**kwargs)
+    ihmm_fit(location)
 
     print("CHECK OUTPUT")
     print(os.listdir(tmp_dir.name))
 
-    forest = tr.Forest.load(location,prefix="tmp",ifh="tmp.ifh",ofh="tmp.ofh",input="input.counts",output="output.counts")
+    forest = tr.Forest.load(location,prefix="tmp",ifh="tmp.ifh",ofh="tmp.ofh",clusters="tmp.clusters",input="input.counts",output="output.counts")
 
     tmp_dir.cleanup()
 
     return forest
+
+def ihmm_fit(location,**kwargs):
+
+    path_to_rust = (Path(__file__).parent / "../target/release/lumberjack_1").resolve()
+
+    print("Running " + str(path_to_rust))
+
+    arg_list = []
+
+    arg_list.extend([str(path_to_rust),"analyze", "-n", location + "*.compact","-o",location + "tmp.clusters"])
+
+    for arg in kwargs.keys():
+        arg_list.append("-" + str(arg))
+        arg_list.append(str(kwargs[arg]))
+
+    print("Command: " + " ".join(arg_list))
+
+    with sp.Popen(arg_list,stdin=sp.PIPE,stdout=sp.PIPE,stderr=sp.PIPE,universal_newlines=True) as cp:
+        # try:
+        #     cp.communicate(input=targets,timeout=1)
+        # except:
+        #     pass
+        while True:
+            # sleep(0.1)
+            rc = cp.poll()
+            if rc is not None:
+                print(cp.stdout.read())
+                print(cp.stderr.read())
+                break
+            output = cp.stdout.readline()
+            # print("Read line")
+            print(output.strip())
 
 
 def inner_fit(input_counts,output_counts,location,backtrace=False, **kwargs):
@@ -148,7 +181,6 @@ def inner_fit(input_counts,output_counts,location,backtrace=False, **kwargs):
         #     cp.communicate(input=targets,timeout=1)
         # except:
         #     pass
-        print("Trying to readline")
         while True:
             # sleep(0.1)
             rc = cp.poll()

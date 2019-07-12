@@ -145,9 +145,12 @@ impl Node {
                 features.push(feature);
             }
         }
+
+        let samples = self.samples.clone();
+
         let rvs: Vec<_> = features.iter().map(|f| self.input_table.rv_fetch(f.index).clone()).collect();
 
-        let braid = Braid::from_rvs(features, &rvs);
+        let braid = Braid::from_rvs(features, samples, &rvs);
 
         // eprintln!("Braid split:{:?}",braid);
 

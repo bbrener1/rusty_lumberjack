@@ -12,20 +12,23 @@ use rayon::prelude::*;
 
 mod dirichlet;
 mod multivariate_normal;
+pub mod io;
 
 use trees::node::StrippedNode;
 use trees::{Feature,Sample,Prerequisite,gn_argmax};
 
 use std::collections::{HashMap,HashSet};
 
-use std::io;
 use std::io::Write;
 use std::io::prelude::*;
 
 use std::io::Read;
 use std::error::Error;
+use std::fmt::Debug;
+
 
 use std::fs;
+use std::fs::OpenOptions;
 use std::fs::File;
 use std::path::Path;
 use std::ffi::OsStr;
@@ -66,6 +69,7 @@ pub struct MarkovNode {
     oracle: bool,
     hidden_state: Option<usize>,
     parent: Option<usize>,
+    sister: Option<usize>,
     children: Option<(usize,usize)>,
     samples: Vec<Sample>,
     features: Vec<Feature>,
@@ -116,7 +120,8 @@ pub struct IHMM {
 impl IHMM {
     fn new(nodes:Vec<MarkovNode>) -> IHMM {
 
-        let emissions = MarkovNode::reduced_encode(&nodes);
+        // let emissions = MarkovNode::reduced_encode(&nodes);
+        let emissions = MarkovNode::sample_encode(&nodes);
 
         let features = emissions.dim().1;
 
@@ -131,6 +136,38 @@ impl IHMM {
             nodes: nodes,
             emissions: emissions,
         }
+    }
+
+    fn from_stripped(nodes:&[StrippedNode],gain:bool) -> IHMM {
+
+        let m_nodes = MarkovNode::from_stripped_vec(nodes,gain);
+        IHMM::new(m_nodes)
+    }
+
+    fn from_location(location:&str,gain:bool) -> IHMM {
+        let s_nodes = StrippedNode::from_location(location).expect("Failed to read in nodes");
+        IHMM::from_stripped(&s_nodes,gain)
+    }
+
+    fn cluster(nodes:&[StrippedNode],sweeps:Option<usize>,states:Option<usize>,gain:bool) -> Vec<usize> {
+        let mut ihmm = IHMM::from_stripped(nodes,gain);
+        ihmm.initialize(states.unwrap_or(10));
+        for i in 0..sweeps.unwrap_or(1000) {
+            ihmm.sweep();
+        };
+        let represented_states = ihmm.represented_states();
+        ihmm.node_states().into_iter().map(|s| s.unwrap_or(represented_states.len())).collect()
+    }
+
+    fn cluster_to_location(nodes:&[StrippedNode],location:&str,sweeps:Option<usize>,states:Option<usize>,gain:bool) -> Result<(),std::io::Error> {
+        let mut ihmm = IHMM::from_stripped(nodes,gain);
+        ihmm.initialize(states.unwrap_or(10));
+        for i in 0..sweeps.unwrap_or(1000) {
+            ihmm.sweep();
+        };
+        let represented_states = ihmm.represented_states();
+        let node_states = ihmm.node_states().into_iter().map(|s| s.unwrap_or(represented_states.len())).collect();
+        write_array(&node_states, location)
     }
 
     fn initialize(&mut self,states:usize) {
@@ -240,16 +277,6 @@ impl IHMM {
         let ni = transition_matrix.sum_axis(Axis(0));
         let potential_states = self.hidden_states.len() + 1;
 
-        // eprintln!("BETA DEBUG");
-        // eprintln!("KI:{:?}",ki.dim());
-        // eprintln!("NI:{:?}",ni.dim());
-        // eprintln!("POTENTIAL STATES:{:?}",potential_states);
-        // eprintln!("LN_BETA:{:?}",ln_beta.len());
-        // eprintln!("LN_BETA:{:?}",ln_beta);
-        // eprintln!("LN_BETA_CMSM:{:?}",ln_beta_cmsm.len());
-        // eprintln!("LN_BETA_CMSM:{:?}",ln_beta_cmsm);
-        // eprintln!("MAXIMUM:{:?}",maximum);
-
         let likelihood = |beta| {
             let mut cml = 0.;
             for i in 0..potential_states {
@@ -269,11 +296,38 @@ impl IHMM {
             maximum_beta = self.resample_beta(Some(maximum * 10));
         }
 
+        eprintln!("BETA:{}",maximum_beta);
+
         maximum_beta
     }
 
     fn resample_gamma(&mut self,maximum_option:Option<usize>) -> usize {
-        1
+        let maximum = maximum_option.unwrap_or(10);
+        let ln_gamma: Vec<f64> = (1..(self.nodes.len()*2)).map(|v| (v as f64).ln()).collect();
+        let ln_gamma_cmsm: Vec<f64> = ln_gamma.iter().scan(0., |acc,v| {*acc += v; Some(*acc)}).collect();
+        let transition_matrix = self.get_oracle_transition_matrix();
+
+        let k = self.hidden_states.len() + 1;
+        let to: usize = transition_matrix.iter().sum();
+
+        let likelihood = |gamma| {
+            (k*gamma) as f64 + (ln_gamma_cmsm[to + gamma] - ln_gamma_cmsm[gamma]) - gamma as f64
+        };
+
+        let likelihoods = (1..maximum).map(|gamma| likelihood(gamma));
+
+        // eprintln!("LIKELIHOODS:{:?}",likelihoods.clone().collect::<Vec<f64>>());
+
+        let mut maximum_gamma = gn_argmax(likelihoods).unwrap() + 1;
+
+        if maximum_gamma == maximum && maximum < self.nodes.len() {
+            maximum_gamma = self.resample_gamma(Some(maximum * 10));
+        }
+
+        eprintln!("GAMMA:{}",maximum_gamma);
+
+        maximum_gamma
+
     }
 
 
@@ -590,8 +644,9 @@ impl IHMM {
 
         // Now we have to evaluate the second layer of the transition model.
 
-        let mut oracle_transitions = oracle_transition_matrix.sum_axis(Axis(1)) + Array::ones(oracle_transition_matrix.dim().1);
-        oracle_transitions.slice_mut(s![-1]).fill(self.gamma.get());
+        let mut oracle_transitions = oracle_transition_matrix.sum_axis(Axis(1)) + (Array::ones(oracle_transition_matrix.dim().1) * self.beta.get());
+        let last_index = (oracle_transitions.dim() as i32 - 1).max(0) as usize;
+        oracle_transitions[[last_index]] += self.gamma.get();
         let oracle_transition_total = oracle_transitions.sum();
 
         // eprintln!("Direct transition totals:");
@@ -652,6 +707,10 @@ impl IHMM {
 
     fn nodes_by_index(&self,indices:&[usize]) -> Vec<&MarkovNode> {
         indices.iter().map(|i| &self.nodes[*i]).collect()
+    }
+
+    pub fn node_states(&self) -> Vec<Option<usize>> {
+        self.nodes.iter().map(|node| node.hidden_state).collect()
     }
 
     fn state_indices(&self, state:Option<usize>) -> Vec<usize> {
@@ -744,43 +803,108 @@ impl MarkovNode {
         else {panic!();}
     }
 
-    pub fn from_stripped_vec(stripped:&Vec<StrippedNode>) -> Vec<MarkovNode> {
+    pub fn sample_encode(nodes:&Vec<MarkovNode>) -> Array<f64,Ix2> {
+        let mut samples = HashSet::new();
+        for node in nodes {
+            for sample in &node.samples {
+                samples.insert(sample);
+            }
+        }
+        if samples.iter().any(|f| *f.index() > samples.len() + 1) {
+            panic!("Not all samples read correctly, missing indices");
+        }
+
+        let mut data: Array<f64,Ix2> = Array::zeros((nodes.len(),samples.len()));
+
+        for (i,node) in nodes.iter().enumerate() {
+            for sample in node.samples.iter() {
+                data[[i,*sample.index()]] += 1.;
+            }
+        }
+
+        for node in nodes.iter() {
+            if let Some(sister) = node.sister {
+                for sample in node.samples.iter() {
+                    data[[sister,*sample.index()]] -= 1.;
+                }
+            }
+        }
+
+        if let Ok((Some(u),sig_v,Some(vt))) = data.svd(true,true) {
+
+            let reduction = g_reduction;
+
+            let mut sig = Array::zeros((sig_v.dim(),sig_v.dim()));
+            sig.diag_mut().assign(&sig_v);
+
+            let lower_bound = EPSILON * 1000.;
+
+            let mut i_sig = Array::zeros((sig_v.dim(),sig_v.dim()));
+            i_sig.diag_mut().assign(&sig_v.mapv(|v| if v > lower_bound {1./v} else {0.} ));
+
+            let reduced_u = u.slice(s![..,..reduction]).to_owned();
+            let mut reduced_sig: Array<f64,Ix2> = Array::zeros((reduction,reduction));
+            reduced_sig.diag_mut().assign(&sig_v.iter().take(reduction).cloned().collect::<Array<f64,Ix1>>());
+            let mut reduced_i_sig = Array::zeros((reduction,reduction));
+            reduced_i_sig.diag_mut().assign(&reduced_sig.diag().mapv(|v| if v > lower_bound {1./v} else {0.} ));
+            let reduced_vt = vt.slice(s![..reduction,..]).to_owned();
+
+            eprintln!("Reduced SVD:{:?},{:?},{:?}",reduced_u.shape(),reduced_sig.dim(),reduced_vt.dim());
+
+            data = data.dot(&reduced_vt.t());
+
+            data
+        }
+
+        else {panic!();}
+    }
+
+
+    pub fn from_stripped_vec(stripped:&[StrippedNode],gain:bool) -> Vec<MarkovNode> {
         let mut markov = vec![];
         for root in stripped {
             let ci = markov.len();
-            markov.append(&mut MarkovNode::from_stripped_node(root, ci));
+            markov.append(&mut MarkovNode::from_stripped_node(root, ci,gain));
         }
         markov
     }
 
-    pub fn from_stripped_node(original:&StrippedNode,passed_index:usize) -> Vec<MarkovNode> {
+    pub fn from_stripped_node(original:&StrippedNode,passed_index:usize,gain:bool) -> Vec<MarkovNode> {
 
         let mut nodes = vec![];
         let mut children = None;
         let mut index = passed_index;
         if let [ref lc,ref rc] = original.children[..] {
-            let mut left_children = MarkovNode::from_stripped_node(lc,index);
+            let mut left_children = MarkovNode::from_stripped_node(lc,index,gain);
             let lci = left_children.last().unwrap().index;
-            let mut right_children = MarkovNode::from_stripped_node(rc,lci+1);
+            let mut right_children = MarkovNode::from_stripped_node(rc,lci+1,gain);
             let rci = right_children.last().unwrap().index;
             index = rci + 1;
             left_children.last_mut().unwrap().parent = Some(index);
+            left_children.last_mut().unwrap().sister = Some(rci);
             right_children.last_mut().unwrap().parent = Some(index);
+            right_children.last_mut().unwrap().sister = Some(lci);
             children = Some((lci,rci));
             nodes.append(&mut left_children);
             nodes.append(&mut right_children);
         }
 
         let parent = None;
+        let sister = None;
         let samples = original.samples().to_vec();
         let features = original.features().to_vec();
-        let emissions = original.medians().to_vec();
-        // let emissions = original.local_gains().unwrap_or(&vec![0.;features.len()]).to_vec();
-
+        let emissions =
+            if gain {
+                original.local_gains().unwrap_or(&vec![0.;features.len()]).to_vec()
+            }
+            else {
+                original.medians().to_vec()
+            };
 
         let wrapped = MarkovNode{
             index,
             parent,
+            sister,
             children,
             samples,
             features,
@@ -794,12 +918,10 @@ impl MarkovNode {
 
         nodes
     }
-}
-
-impl IHMM {
 
 
 }
+
 
 
 pub fn sample_log_odds(odds:Vec<f64>) -> Option<usize> {
@@ -830,7 +952,7 @@ pub fn sample_log_odds(odds:Vec<f64>) -> Option<usize> {
 fn read_matrix(location:&str) -> Result<Array<f64,Ix2>,Box<Error>> {
 
     let element_array_file = File::open(location)?;
-    let mut element_array_lines = io::BufReader::new(&element_array_file).lines();
+    let mut element_array_lines = std::io::BufReader::new(&element_array_file).lines();
 
     let mut outer_vector: Vec<Vec<f64>> = Vec::new();
     for (i,line) in element_array_lines.by_ref().enumerate() {
@@ -872,6 +994,19 @@ pub struct Transition {
     oracle:bool
 }
 
+pub fn tsv_format<T:Debug,D:ndarray::RemoveAxis>(input:&Array<T,D>) -> String {
+
+    input.axis_iter(Axis(0)).map(|x| x.iter().map(|y| format!("{:?}",y)).collect::<Vec<String>>().join("\t")).collect::<Vec<String>>().join("\n")
+
+}
+
+pub fn write_array<T:Debug,D:ndarray::RemoveAxis>(input:&Array<T,D>,location:&str) -> Result<(),std::io::Error> {
+    let mut handle = OpenOptions::new().create(true).append(true).open(location)?;
+    handle.write(tsv_format(input).as_bytes())?;
+
+    Ok(())
+
+}
 
 #[cfg(test)]
 pub mod tree_braider_tests {
@@ -884,12 +1019,12 @@ pub mod tree_braider_tests {
 
     pub fn iris_forest() -> Vec<MarkovNode> {
         // MarkovNode::from_stripped_vec(&StrippedNode::from_location("../testing/small_iris_forest/").unwrap())
-        MarkovNode::from_stripped_vec(&StrippedNode::from_location("../testing/iris_forest/").unwrap())
+        MarkovNode::from_stripped_vec(&StrippedNode::from_location("../testing/iris_forest/").unwrap(),true)
     }
 
     pub fn gene_forest() -> Vec<MarkovNode> {
         // MarkovNode::from_stripped_vec(&StrippedNode::from_location("../testing/johnston_forest/").unwrap())
-        MarkovNode::from_stripped_vec(&StrippedNode::from_location("../testing/nesterowa_forest/").unwrap())
+        MarkovNode::from_stripped_vec(&StrippedNode::from_location("../testing/nesterowa_forest/").unwrap(),true)
     }
 
     pub fn iris_model() -> IHMM {
@@ -909,7 +1044,7 @@ pub mod tree_braider_tests {
         eprintln!("Test readout");
         let stripped_nodes = StrippedNode::from_location("../testing/iris_forest/").unwrap();
         eprintln!("Stripped nodes read");
-        MarkovNode::from_stripped_vec(&stripped_nodes);
+        MarkovNode::from_stripped_vec(&stripped_nodes,true);
     }
 
     #[test]
