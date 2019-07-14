@@ -90,7 +90,7 @@ impl Forest {
                 eprintln!("Tree {}",tree);
 
                 let mut new_tree = self.prototype_tree.as_ref().expect("No prototype tree").clone();
-                new_tree.report_address = format!("{}.{}",parameters.report_address, tree).to_string();
+                new_tree.report_address = format!("{}.{}.compact",parameters.report_address, tree).to_string();
                 new_tree.grow_branches(parameters.clone());
                 if remember {
                     new_tree.serialize_clone()?;

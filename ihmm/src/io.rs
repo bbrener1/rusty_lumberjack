@@ -90,7 +90,7 @@ impl Parameters {
                 "-s" | "-sweeps" => {
                     arg_struct.sweeps = Some(args.next().expect("Error parsing sweep limit").parse::<usize>().expect("Error parsing sweep limit"));
                 },
-                "-is" | "-initial_states" => {
+                "-is" | "-initial_states" | "-states" => {
                     arg_struct.initial_states = Some(args.next().expect("Error parsing initial states").parse::<usize>().expect("Error parsing initial states"));
                 },
                 "-o" | "-output" => {

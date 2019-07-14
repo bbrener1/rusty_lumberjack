@@ -1,4 +1,6 @@
 
+// extern crate blas_src;
+
 #[macro_use(array,azip,s)]
 extern crate ndarray;
 extern crate ndarray_linalg;

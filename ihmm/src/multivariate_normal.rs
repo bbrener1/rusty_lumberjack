@@ -180,6 +180,7 @@ impl MVN {
             else {
                 eprintln!("SVD FAILED:");
                 eprintln!("{:?}",posterior_covariance);
+                // return Err(LinalgError::from(LapackError::new(0)))
                 return Err(LinalgError::Lapack{return_code:0})
             }
         }
@@ -316,6 +317,7 @@ pub fn pinv_pdet(mtx:&ArrayView<f64,Ix2>) -> Result<(Array<f64,Ix2>,f64,f64),Lin
         eprintln!("SVD FAILED:");
         eprintln!("{:?}",mtx);
         Err(LinalgError::Lapack{return_code:0})
+        // Err(LinalgError::from(LapackError::new(0)))
     }
     // else {Err(LinalgError::from(LapackError::new(0)))}
 }
@@ -354,7 +356,7 @@ mod tree_braider_tests {
     // extern crate intel_mkl_src;
     // extern crate openblas_src;
     // extern crate netlib_src;
-    extern crate blas_src;
+    // extern crate blas_src;
 
     use super::*;
     use crate::read_matrix;
