@@ -155,6 +155,7 @@ impl IHMM {
         let mut ihmm = IHMM::from_stripped(nodes,gain);
         ihmm.initialize(states.unwrap_or(10));
         for i in 0..sweeps.unwrap_or(1000) {
+            eprintln!("Sweep {}",i);
             ihmm.sweep();
         };
         let represented_states = ihmm.represented_states();
@@ -225,13 +226,13 @@ impl IHMM {
         }
         eprint!("]\n");
 
-        // let new_state_log_odds = {
-        //     let new_state_feature_log_odds = self.new_state_feature_log_odds(&features, &mask);
-        //     let new_state_mixture_log_odds = self.new_state_mixture_log_odds(cls) + self.new_state_mixture_log_odds(crs);
-        //     new_state_feature_log_odds + new_state_mixture_log_odds
-        // };
+        let new_state_log_odds = {
+            let new_state_feature_log_odds = self.new_state_feature_log_odds(&emissions);
+            let new_state_mixture_log_odds = self.new_state_mixture_log_odds(cls) + self.new_state_mixture_log_odds(crs);
+            new_state_feature_log_odds + new_state_mixture_log_odds
+        };
 
-        // state_log_odds.push(new_state_log_odds);
+        state_log_odds.push(new_state_log_odds);
 
         let log_max: f64 = state_log_odds.iter().fold(std::f64::NEG_INFINITY,|acc,o| f64::max(acc,*o));
         state_log_odds = state_log_odds.iter().map(|o| o - log_max).collect();
@@ -349,6 +350,7 @@ impl IHMM {
         self.remove_unrepresented_states();
         self.estimate_states();
         self.resample_hyperparameters();
+        self.report();
     }
 
     fn remove_unrepresented_states(&mut self) {
@@ -729,6 +731,17 @@ impl IHMM {
         // self.nodes.iter().map(|n| n.index).collect()
     }
 
+    pub fn report(&self) {
+        eprintln!("######################");
+        for (i,state) in self.hidden_states.iter().enumerate() {
+            eprintln!("HS{} Means:{:?}",i,state.emission_model.means());
+        }
+        eprintln!("Populations:{:?}",self.hidden_states.iter().map(|hs| hs.nodes.len()).collect::<Vec<usize>>());
+        eprintln!("Beta:{}",self.beta.get());
+        eprintln!("Gamma:{}",self.gamma.get());
+        eprintln!("")
+    }
+
 
 }
 
@@ -920,6 +933,7 @@ impl MarkovNode {
 
         nodes
     }
+
 
 
 }
