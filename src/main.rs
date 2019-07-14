@@ -25,10 +25,10 @@ fn main() {
 
     let command_top = arg_iter.next().expect("Empty command?");
 
-    match command_literal.as_str() {
+    match command_top.as_str() {
 
         "construct" | "predict" | "combined" => {
-            trees::io::interpret(&command_literal,&mut arg_iter);
+            trees::io::interpret(&command_top,&mut arg_iter);
         },
         "analyze" => {
             ihmm::io::interpret(&mut arg_iter);
