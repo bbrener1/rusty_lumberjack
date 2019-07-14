@@ -23,6 +23,8 @@ fn main() {
 
     let command_literal = arg_iter.next().unwrap();
 
+    let command_top = arg_iter.next().expect("Empty command?");
+
     match command_literal.as_str() {
 
         "construct" | "predict" | "combined" => {
