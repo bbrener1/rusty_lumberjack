@@ -202,9 +202,9 @@ impl IHMM {
 
         let emissions = self.emissions.row(node_index);
         let node = &self.nodes[node_index];
-        let ps = node.parent.map(|pi| self.nodes[pi].hidden_state).unwrap_or(None);
-        // let cls = self.nodes[node.children?.0].hidden_state;// PARENT XX CHILD SWITCH
-        // let crs = self.nodes[node.children?.1].hidden_state;
+        // let ps = node.parent.map(|pi| self.nodes[pi].hidden_state).unwrap_or(None);
+        let cls = self.nodes[node.children?.0].hidden_state;// PARENT XX CHILD SWITCH
+        let crs = self.nodes[node.children?.1].hidden_state;
         // eprintln!("Computing feature log likelihoods");
 
         let mut state_log_odds = Vec::with_capacity(self.hidden_states.len() + 1);
@@ -216,15 +216,15 @@ impl IHMM {
 
             let mut mixture_log_odds = 0.;
 
-            mixture_log_odds += self.transition_log_odds[[ps.unwrap_or(self.hidden_states.len()),si]]; // PARENT XX CHILD SWITCH
+            // mixture_log_odds += self.transition_log_odds[[ps.unwrap_or(self.hidden_states.len()),si]]; // PARENT XX CHILD SWITCH
 
             // mixture_log_odds += cls.map(|cli| self.transition_log_odds[[cli,si]]).unwrap_or(0.);
             // mixture_log_odds += crs.map(|cri| self.transition_log_odds[[cri,si]]).unwrap_or(0.);
 
-            // mixture_log_odds += self.transition_log_odds[[cls.unwrap_or(self.hidden_states.len()),si]];
-            // mixture_log_odds += self.transition_log_odds[[crs.unwrap_or(self.hidden_states.len()),si]];
-            //
-            // mixture_log_odds /= 2.;
+            mixture_log_odds += self.transition_log_odds[[cls.unwrap_or(self.hidden_states.len()),si]];
+            mixture_log_odds += self.transition_log_odds[[crs.unwrap_or(self.hidden_states.len()),si]];
+
+            mixture_log_odds /= 2.;
 
             eprint!("({:?},",feature_log_odds);
             eprint!("{:?}),",mixture_log_odds);
@@ -234,8 +234,8 @@ impl IHMM {
 
         let new_state_log_odds = {
             let new_state_feature_log_odds = self.new_state_feature_log_odds(&emissions);
-            let new_state_mixture_log_odds = self.new_state_mixture_log_odds(ps); // PARENT XX CHILD SWITCH
-            // let new_state_mixture_log_odds = self.new_state_mixture_log_odds(cls) + self.new_state_mixture_log_odds(crs);
+            // let new_state_mixture_log_odds = self.new_state_mixture_log_odds(ps); // PARENT XX CHILD SWITCH
+            let new_state_mixture_log_odds = self.new_state_mixture_log_odds(cls) + self.new_state_mixture_log_odds(crs);
             new_state_feature_log_odds + new_state_mixture_log_odds
         };
 
@@ -511,6 +511,9 @@ impl IHMM {
                 transitions.push((node_state,left_child.hidden_state,left_child.oracle));
                 transitions.push((node_state,right_child.hidden_state,right_child.oracle));
             }
+            else {
+                transitions.push((node_state,None,node.oracle));
+            }
         }
         transitions
     }
@@ -537,8 +540,8 @@ impl IHMM {
         // Null state is last row and last column.
 
         let hidden_states = self.hidden_states.len();
-        let transitions = self.get_parent_transitions(&self.live_indices());
-        // let transitions = self.get_child_transitions(&self.live_indices()); // PARENT XX CHILD SWITCH
+        // let transitions = self.get_parent_transitions(&self.live_indices());
+        let transitions = self.get_child_transitions(&self.live_indices()); // PARENT XX CHILD SWITCH
         let mut transition_matrix: Array<usize,Ix2> = Array::zeros((hidden_states+1,hidden_states+1));
         for (s1,s2,o) in transitions {
             if !o {
@@ -550,8 +553,8 @@ impl IHMM {
             }
 
         }
-        transition_matrix
-        // transition_matrix.t().to_owned() // PARENT XX CHILD SWITCH
+        // transition_matrix
+        transition_matrix.t().to_owned() // PARENT XX CHILD SWITCH
 
     }
 
@@ -582,16 +585,16 @@ impl IHMM {
         // Null state is last row and last column.
 
         let hidden_states = self.hidden_states.len();
-        let transitions = self.get_parent_transitions(&self.live_indices());
-        // let transitions = self.get_child_transitions(&self.live_indices()); // PARENT XX CHILD SWITCH
+        // let transitions = self.get_parent_transitions(&self.live_indices());
+        let transitions = self.get_child_transitions(&self.live_indices()); // PARENT XX CHILD SWITCH
         let mut transition_matrix: Array<usize,Ix2> = Array::zeros((hidden_states+1,hidden_states+1));
         for (s1,s2,_) in transitions {
             let s1i = s1.unwrap_or(hidden_states);
             let s2i = s2.unwrap_or(hidden_states);
             transition_matrix[[s1i,s2i]] += 1;
         }
-        transition_matrix
-        // transition_matrix.t().to_owned() // PARENT XX CHILD SWITCH
+        // transition_matrix
+        transition_matrix.t().to_owned() // PARENT XX CHILD SWITCH
     }
 
     fn recompute_transitions(&self) -> (Array<f64,Ix2>,Array<f64,Ix2>) {
