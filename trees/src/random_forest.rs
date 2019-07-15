@@ -31,7 +31,7 @@ use crate::node::StrippedNode;
 impl Forest {
     pub fn initialize(input_array: &Vec<Vec<f64>>,output_array: &Vec<Vec<f64>>, parameters: Arc<Parameters>, report_address:&str) -> Forest {
 
-        let report_string = format!("{}.0",report_address).to_string();
+        let report_string = format!("{}.prototype",report_address).to_string();
 
         let samples = Sample::nvec(&parameters.sample_names);
 

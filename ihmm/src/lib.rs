@@ -64,7 +64,7 @@ use multivariate_normal::MVN;
 use multivariate_normal::{array_mask,array_mask_axis,array_double_select,array_double_mask};
 use dirichlet::{SymmetricDirichlet,Categorical};
 
-const g_reduction:usize = 10;
+const G_REDUCTION: usize = 10;
 
 pub struct MarkovNode {
     index: usize,
@@ -117,6 +117,7 @@ pub struct IHMM {
     oracle_probability: Array<f64,Ix2>,
     prior_emission_model: MVN,
     hidden_states: Vec<HiddenState>,
+    reduction: usize,
 }
 
 impl IHMM {
@@ -137,6 +138,7 @@ impl IHMM {
             oracle_probability: Array::ones((0,0)),
             nodes: nodes,
             emissions: emissions,
+            reduction: G_REDUCTION,
         }
     }
 
@@ -179,6 +181,7 @@ impl IHMM {
     fn initialize(&mut self,states:usize) {
         eprintln!("Initializing");
         let features = self.emissions.dim().1;
+        self.reduction = features.min(self.reduction);
         for _ in 0..states {
             self.hidden_states.push(HiddenState::blank(features,states));
         }
@@ -199,9 +202,9 @@ impl IHMM {
 
         let emissions = self.emissions.row(node_index);
         let node = &self.nodes[node_index];
-        // let ps = node.parent.map(|pi| self.nodes[pi].hidden_state).unwrap_or(None);
-        let cls = self.nodes[node.children?.0].hidden_state;// PARENT XX CHILD SWITCH
-        let crs = self.nodes[node.children?.1].hidden_state;
+        let ps = node.parent.map(|pi| self.nodes[pi].hidden_state).unwrap_or(None);
+        // let cls = self.nodes[node.children?.0].hidden_state;// PARENT XX CHILD SWITCH
+        // let crs = self.nodes[node.children?.1].hidden_state;
         // eprintln!("Computing feature log likelihoods");
 
         let mut state_log_odds = Vec::with_capacity(self.hidden_states.len() + 1);
@@ -213,15 +216,15 @@ impl IHMM {
 
             let mut mixture_log_odds = 0.;
 
-            // mixture_log_odds += self.transition_log_odds[[ps.unwrap_or(self.hidden_states.len()),si]]; // PARENT XX CHILD SWITCH
+            mixture_log_odds += self.transition_log_odds[[ps.unwrap_or(self.hidden_states.len()),si]]; // PARENT XX CHILD SWITCH
 
             // mixture_log_odds += cls.map(|cli| self.transition_log_odds[[cli,si]]).unwrap_or(0.);
             // mixture_log_odds += crs.map(|cri| self.transition_log_odds[[cri,si]]).unwrap_or(0.);
 
-            mixture_log_odds += self.transition_log_odds[[cls.unwrap_or(self.hidden_states.len()),si]];
-            mixture_log_odds += self.transition_log_odds[[crs.unwrap_or(self.hidden_states.len()),si]];
-
-            mixture_log_odds /= 2.;
+            // mixture_log_odds += self.transition_log_odds[[cls.unwrap_or(self.hidden_states.len()),si]];
+            // mixture_log_odds += self.transition_log_odds[[crs.unwrap_or(self.hidden_states.len()),si]];
+            //
+            // mixture_log_odds /= 2.;
 
             eprint!("({:?},",feature_log_odds);
             eprint!("{:?}),",mixture_log_odds);
@@ -231,7 +234,8 @@ impl IHMM {
 
         let new_state_log_odds = {
             let new_state_feature_log_odds = self.new_state_feature_log_odds(&emissions);
-            let new_state_mixture_log_odds = self.new_state_mixture_log_odds(cls) + self.new_state_mixture_log_odds(crs);
+            let new_state_mixture_log_odds = self.new_state_mixture_log_odds(ps); // PARENT XX CHILD SWITCH
+            // let new_state_mixture_log_odds = self.new_state_mixture_log_odds(cls) + self.new_state_mixture_log_odds(crs);
             new_state_feature_log_odds + new_state_mixture_log_odds
         };
 
@@ -533,8 +537,8 @@ impl IHMM {
         // Null state is last row and last column.
 
         let hidden_states = self.hidden_states.len();
-        // let transitions = self.get_parent_transitions(&self.live_indices());
-        let transitions = self.get_child_transitions(&self.live_indices()); // PARENT XX CHILD SWITCH
+        let transitions = self.get_parent_transitions(&self.live_indices());
+        // let transitions = self.get_child_transitions(&self.live_indices()); // PARENT XX CHILD SWITCH
         let mut transition_matrix: Array<usize,Ix2> = Array::zeros((hidden_states+1,hidden_states+1));
         for (s1,s2,o) in transitions {
             if !o {
@@ -546,8 +550,8 @@ impl IHMM {
             }
 
         }
-        // transition_matrix
-        transition_matrix.t().to_owned() // PARENT XX CHILD SWITCH
+        transition_matrix
+        // transition_matrix.t().to_owned() // PARENT XX CHILD SWITCH
 
     }
 
@@ -578,16 +582,16 @@ impl IHMM {
         // Null state is last row and last column.
 
         let hidden_states = self.hidden_states.len();
-        // let transitions = self.get_parent_transitions(&self.live_indices());
-        let transitions = self.get_child_transitions(&self.live_indices()); // PARENT XX CHILD SWITCH
+        let transitions = self.get_parent_transitions(&self.live_indices());
+        // let transitions = self.get_child_transitions(&self.live_indices()); // PARENT XX CHILD SWITCH
         let mut transition_matrix: Array<usize,Ix2> = Array::zeros((hidden_states+1,hidden_states+1));
         for (s1,s2,_) in transitions {
             let s1i = s1.unwrap_or(hidden_states);
             let s2i = s2.unwrap_or(hidden_states);
             transition_matrix[[s1i,s2i]] += 1;
         }
-        // transition_matrix
-        transition_matrix.t().to_owned() // PARENT XX CHILD SWITCH
+        transition_matrix
+        // transition_matrix.t().to_owned() // PARENT XX CHILD SWITCH
     }
 
     fn recompute_transitions(&self) -> (Array<f64,Ix2>,Array<f64,Ix2>) {
@@ -639,6 +643,7 @@ impl IHMM {
         // to avoid counting gamma multiple times per represented state.
 
         direct_transition_matrix.slice_mut(s![..,-1]).assign(&(Array::ones(represented_states.len()) * self.beta.get()));
+        // direct_transition_matrix.slice_mut(s![..,-1]).assign(&Array::ones(represented_states.len()));
         oracle_transition_matrix.slice_mut(s![..,-1]).assign(&Array::zeros(represented_states.len()));
 
         eprintln!("Direct transition counts:");
@@ -670,6 +675,7 @@ impl IHMM {
         // Now we have to evaluate the second layer of the transition model.
 
         let mut oracle_transitions = oracle_transition_matrix.sum_axis(Axis(1)) + (Array::ones(oracle_transition_matrix.dim().1) * self.beta.get());
+        // let mut oracle_transitions = oracle_transition_matrix.sum_axis(Axis(1)) + Array::ones(oracle_transition_matrix.dim().1);
         let last_index = (oracle_transitions.dim() as i32 - 1).max(0) as usize;
         oracle_transitions[[last_index]] += self.gamma.get();
         let oracle_transition_total = oracle_transitions.sum();
@@ -747,9 +753,9 @@ impl IHMM {
         // This function should be altered based on whether or not you are using child or
         // parent inheritance
 
-        self.nodes.iter().filter(|n| n.children.is_some()).map(|n| n.index).collect()
+        // self.nodes.iter().filter(|n| n.children.is_some()).map(|n| n.index).collect()
         // PARENT XX CHILD SWITCH
-        // self.nodes.iter().map(|n| n.index).collect()
+        self.nodes.iter().map(|n| n.index).collect()
     }
 
     pub fn report(&self) {
@@ -812,7 +818,7 @@ impl MarkovNode {
 
         if let Ok((Some(u),sig_v,Some(vt))) = data.svd(true,true) {
 
-            let reduction = g_reduction;
+            let reduction = features.len().min(G_REDUCTION);
 
             let mut sig = Array::zeros((sig_v.dim(),sig_v.dim()));
             sig.diag_mut().assign(&sig_v);
@@ -868,7 +874,7 @@ impl MarkovNode {
 
         if let Ok((Some(u),sig_v,Some(vt))) = data.svd(true,true) {
 
-            let reduction = g_reduction;
+            let reduction = samples.len().min(G_REDUCTION);
 
             let mut sig = Array::zeros((sig_v.dim(),sig_v.dim()));
             sig.diag_mut().assign(&sig_v);

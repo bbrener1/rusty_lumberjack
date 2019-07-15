@@ -27,7 +27,7 @@ fn main() {
 
     match command_top.as_str() {
 
-        "construct" | "predict" | "combined" => {
+        "construct" | "generate" | "predict" | "combined" => {
             trees::io::interpret(&command_top,&mut arg_iter);
         },
         "analyze" => {
