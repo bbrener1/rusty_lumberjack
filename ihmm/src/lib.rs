@@ -13,6 +13,7 @@ extern crate rayon;
 use rayon::prelude::*;
 
 mod dirichlet;
+mod mini_multi;
 mod multivariate_normal;
 pub mod io;
 
@@ -60,7 +61,9 @@ use std::f64::EPSILON;
 use rand::{thread_rng,Rng};
 use rand::distributions::{Distribution,Binomial};
 
-use multivariate_normal::MVN;
+// use multivariate_normal::MVN;
+// NOTE: Minimulti is only appropriate when working on PCA-type data. Data must be orthonormal. 
+use mini_multi::MVN;
 use multivariate_normal::{array_mask,array_mask_axis,array_double_select,array_double_mask};
 use dirichlet::{SymmetricDirichlet,Categorical};
 
