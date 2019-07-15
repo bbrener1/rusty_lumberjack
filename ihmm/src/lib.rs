@@ -64,7 +64,7 @@ use multivariate_normal::MVN;
 use multivariate_normal::{array_mask,array_mask_axis,array_double_select,array_double_mask};
 use dirichlet::{SymmetricDirichlet,Categorical};
 
-const G_REDUCTION: usize = 10;
+const G_REDUCTION: usize = 30;
 
 pub struct MarkovNode {
     index: usize,
