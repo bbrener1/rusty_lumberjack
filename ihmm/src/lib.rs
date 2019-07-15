@@ -262,8 +262,8 @@ impl IHMM {
 
 
     fn resample_states(&mut self) {
-        let hidden_states: Vec<Option<usize>> = self.live_indices().into_iter().map(|ni| {
-        // let hidden_states: Vec<Option<usize>> = self.live_indices().into_par_iter().map(|ni| {
+        // let hidden_states: Vec<Option<usize>> = self.live_indices().into_iter().map(|ni| {
+        let hidden_states: Vec<Option<usize>> = self.live_indices().into_par_iter().map(|ni| {
             self.sample_node_state(ni)
         }).collect();
         for (ni,state) in self.live_indices().into_iter().zip(hidden_states) {
@@ -645,8 +645,8 @@ impl IHMM {
         // However we have to set the last column of the oracle transition matrix to zero in order
         // to avoid counting gamma multiple times per represented state.
 
-        direct_transition_matrix.slice_mut(s![..,-1]).assign(&(Array::ones(represented_states.len()) * self.beta.get()));
-        // direct_transition_matrix.slice_mut(s![..,-1]).assign(&Array::ones(represented_states.len()));
+        // direct_transition_matrix.slice_mut(s![..,-1]).assign(&(Array::ones(represented_states.len()) * self.beta.get()));
+        direct_transition_matrix.slice_mut(s![..,-1]).assign(&Array::ones(represented_states.len()));
         oracle_transition_matrix.slice_mut(s![..,-1]).assign(&Array::zeros(represented_states.len()));
 
         eprintln!("Direct transition counts:");
@@ -677,8 +677,8 @@ impl IHMM {
 
         // Now we have to evaluate the second layer of the transition model.
 
-        let mut oracle_transitions = oracle_transition_matrix.sum_axis(Axis(1)) + (Array::ones(oracle_transition_matrix.dim().1) * self.beta.get());
-        // let mut oracle_transitions = oracle_transition_matrix.sum_axis(Axis(1)) + Array::ones(oracle_transition_matrix.dim().1);
+        // let mut oracle_transitions = oracle_transition_matrix.sum_axis(Axis(1)) + (Array::ones(oracle_transition_matrix.dim().1) * self.beta.get());
+        let mut oracle_transitions = oracle_transition_matrix.sum_axis(Axis(1)) + Array::ones(oracle_transition_matrix.dim().1);
         let last_index = (oracle_transitions.dim() as i32 - 1).max(0) as usize;
         oracle_transitions[[last_index]] += self.gamma.get();
         let oracle_transition_total = oracle_transitions.sum();
