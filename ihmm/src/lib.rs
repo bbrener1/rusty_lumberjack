@@ -756,9 +756,9 @@ impl IHMM {
         // This function should be altered based on whether or not you are using child or
         // parent inheritance
 
-        // self.nodes.iter().filter(|n| n.children.is_some()).map(|n| n.index).collect()
+        self.nodes.iter().filter(|n| n.children.is_some()).map(|n| n.index).collect()
         // PARENT XX CHILD SWITCH
-        self.nodes.iter().map(|n| n.index).collect()
+        // self.nodes.iter().map(|n| n.index).collect()
     }
 
     pub fn report(&self) {
