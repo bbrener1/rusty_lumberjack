@@ -1,5 +1,5 @@
 
-// extern crate blas_src;
+extern crate blas_src;
 
 #[macro_use(array,azip,s)]
 extern crate ndarray;
@@ -166,11 +166,14 @@ impl IHMM {
         let mut ihmm = IHMM::from_stripped(nodes,gain);
         ihmm.initialize(states.unwrap_or(10));
         for i in 0..sweeps.unwrap_or(1000) {
+            eprintln!("Sweep {}",i);
             ihmm.sweep();
         };
         let represented_states = ihmm.represented_states();
         let node_states = ihmm.node_states().into_iter().map(|s| s.unwrap_or(represented_states.len())).collect();
-        write_array(&node_states, location)
+        let transitions = ihmm.get_total_transition_matrix();
+        write_array(&node_states, &format!("{}.cluster",location))?;
+        write_array(&transitions, &format!("{}.transitions",location))
     }
 
     fn initialize(&mut self,states:usize) {
@@ -564,6 +567,24 @@ impl IHMM {
                 transition_matrix[[s1i,s2i]] += 1;
             }
 
+        }
+        // transition_matrix
+        transition_matrix.t().to_owned() // PARENT XX CHILD SWITCH
+    }
+
+    fn get_total_transition_matrix(&self) -> Array<usize,Ix2> {
+
+        // Returns a matrix of transition counts i,j where i is parent state, j is child state,
+        // Null state is last row and last column.
+
+        let hidden_states = self.hidden_states.len();
+        // let transitions = self.get_parent_transitions(&self.live_indices());
+        let transitions = self.get_child_transitions(&self.live_indices()); // PARENT XX CHILD SWITCH
+        let mut transition_matrix: Array<usize,Ix2> = Array::zeros((hidden_states+1,hidden_states+1));
+        for (s1,s2,_) in transitions {
+            let s1i = s1.unwrap_or(hidden_states);
+            let s2i = s2.unwrap_or(hidden_states);
+            transition_matrix[[s1i,s2i]] += 1;
         }
         // transition_matrix
         transition_matrix.t().to_owned() // PARENT XX CHILD SWITCH
@@ -1027,6 +1048,7 @@ pub fn write_array<T:Debug,D:ndarray::RemoveAxis>(input:&Array<T,D>,location:&st
 #[cfg(test)]
 pub mod tree_braider_tests {
 
+    extern crate blas_src;
     use super::*;
 
     pub fn iris_matrix() -> Array<f64,Ix2> {
@@ -1096,8 +1118,8 @@ pub mod tree_braider_tests {
     //
     #[test]
     fn test_markov_multipart() {
-        // let mut model = iris_model();
-        let mut model = gene_model();
+        let mut model = iris_model();
+        // let mut model = gene_model();
         model.initialize(10);
         for state in &model.hidden_states {
             eprintln!("Population: {:?}",state.nodes.len());
