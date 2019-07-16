@@ -77,7 +77,7 @@ impl MVN {
 
         let centered_data = (data - &self.means);
 
-        let log_likelihood = -0.5 * (centered_data.iter().map(|v| v.powi(2)).sum::<f64>() + 1. + self.means.dim() as f64);
+        let log_likelihood = -0.5 * (centered_data.iter().map(|v| v.powi(2)).sum::<f64>() + 1. + (self.means.dim() as f64 * PI.ln()));
 
         log_likelihood
 

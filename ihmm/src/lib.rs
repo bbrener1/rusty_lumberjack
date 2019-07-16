@@ -62,12 +62,12 @@ use rand::{thread_rng,Rng};
 use rand::distributions::{Distribution,Binomial};
 
 // use multivariate_normal::MVN;
-// NOTE: Minimulti is only appropriate when working on PCA-type data. Data must be orthonormal. 
+// NOTE: Minimulti is only appropriate when working on PCA-type data. Data must be orthonormal.
 use mini_multi::MVN;
 use multivariate_normal::{array_mask,array_mask_axis,array_double_select,array_double_mask};
 use dirichlet::{SymmetricDirichlet,Categorical};
 
-const G_REDUCTION: usize = 30;
+const G_REDUCTION: usize = 3;
 
 pub struct MarkovNode {
     index: usize,
@@ -116,8 +116,10 @@ pub struct IHMM {
     beta: NonZeroUsize,
     gamma: NonZeroUsize,
     beta_e: f64,
-    transition_log_odds: Array<f64,Ix2>,
-    oracle_probability: Array<f64,Ix2>,
+    parent_transition_log_odds: Array<f64,Ix2>,
+    child_transition_log_odds: Array<f64,Ix2>,
+    parent_oracle_log_odds: Array<f64,Ix2>,
+    child_oracle_log_odds: Array<f64,Ix2>,
     prior_emission_model: MVN,
     hidden_states: Vec<HiddenState>,
     reduction: usize,
@@ -137,8 +139,10 @@ impl IHMM {
             beta_e: 0.,
             hidden_states: vec![],
             prior_emission_model: MVN::identity_prior(1, features),
-            transition_log_odds: Array::zeros((0,0)),
-            oracle_probability: Array::ones((0,0)),
+            parent_transition_log_odds: Array::zeros((0,0)),
+            child_transition_log_odds: Array::zeros((0,0)),
+            parent_oracle_log_odds: Array::ones((0,0)),
+            child_oracle_log_odds: Array::ones((0,0)),
             nodes: nodes,
             emissions: emissions,
             reduction: G_REDUCTION,
@@ -176,7 +180,7 @@ impl IHMM {
         };
         let represented_states = ihmm.represented_states();
         let node_states = ihmm.node_states().into_iter().map(|s| s.unwrap_or(represented_states.len())).collect();
-        let transitions = ihmm.get_total_transition_matrix();
+        let transitions = ihmm.compute_transition_matrix(&ihmm.get_transitions(&ihmm.live_indices()),false) + ihmm.compute_transition_matrix(&ihmm.get_transitions(&ihmm.live_indices()),true);
         write_array(&node_states, &format!("{}.cluster",location))?;
         write_array(&transitions, &format!("{}.transitions",location))
     }
@@ -195,9 +199,7 @@ impl IHMM {
             self.nodes[ni].oracle = rand::random::<f64>() < (1./(states as f64));
         }
         eprintln!("Estimating transitions");
-        let (trans_log_odds,oracle_p) = self.recompute_transitions();
-        self.transition_log_odds = trans_log_odds;
-        self.oracle_probability = oracle_p;
+        self.compute_transition_model();
         self.estimate_states();
     }
 
@@ -205,7 +207,7 @@ impl IHMM {
 
         let emissions = self.emissions.row(node_index);
         let node = &self.nodes[node_index];
-        // let ps = node.parent.map(|pi| self.nodes[pi].hidden_state).unwrap_or(None);
+        let ps = node.parent.map(|pi| self.nodes[pi].hidden_state).unwrap_or(None);
         let cls = self.nodes[node.children?.0].hidden_state;// PARENT XX CHILD SWITCH
         let crs = self.nodes[node.children?.1].hidden_state;
         // eprintln!("Computing feature log likelihoods");
@@ -219,13 +221,11 @@ impl IHMM {
 
             let mut mixture_log_odds = 0.;
 
-            // mixture_log_odds += self.transition_log_odds[[ps.unwrap_or(self.hidden_states.len()),si]]; // PARENT XX CHILD SWITCH
+            mixture_log_odds += self.parent_transition_log_odds[[ps.unwrap_or(self.hidden_states.len()),si]]; // PARENT XX CHILD SWITCH
 
-            // mixture_log_odds += cls.map(|cli| self.transition_log_odds[[cli,si]]).unwrap_or(0.);
-            // mixture_log_odds += crs.map(|cri| self.transition_log_odds[[cri,si]]).unwrap_or(0.);
 
-            mixture_log_odds += self.transition_log_odds[[cls.unwrap_or(self.hidden_states.len()),si]];
-            mixture_log_odds += self.transition_log_odds[[crs.unwrap_or(self.hidden_states.len()),si]];
+            mixture_log_odds += self.child_transition_log_odds[[cls.unwrap_or(self.hidden_states.len()),si]];
+            mixture_log_odds += self.child_transition_log_odds[[crs.unwrap_or(self.hidden_states.len()),si]];
 
             mixture_log_odds /= 2.;
 
@@ -238,7 +238,7 @@ impl IHMM {
         let new_state_log_odds = {
             let new_state_feature_log_odds = self.new_state_feature_log_odds(&emissions);
             // let new_state_mixture_log_odds = self.new_state_mixture_log_odds(ps); // PARENT XX CHILD SWITCH
-            let new_state_mixture_log_odds = self.new_state_mixture_log_odds(cls) + self.new_state_mixture_log_odds(crs);
+            let new_state_mixture_log_odds = self.new_state_mixture_log_odds(node_index) + self.new_state_mixture_log_odds(node_index);
             new_state_feature_log_odds + new_state_mixture_log_odds
         };
 
@@ -254,11 +254,26 @@ impl IHMM {
         state
     }
 
-    pub fn sample_oracle_transition(&self, s1:Option<usize>,s2:Option<usize>) -> bool {
+    pub fn sample_oracle_transition(&self, index:usize) -> bool {
 
-        let s1i = s1.unwrap_or(self.hidden_states.len());
-        let s2i = s2.unwrap_or(self.hidden_states.len());
-        let oracle_transition_probability = self.oracle_probability[[s1i,s2i]];
+        let mut log_odds = 0.;
+        let node = &self.nodes[index];
+        let null_index = self.hidden_states.len();
+        let node_state = node.hidden_state.unwrap_or(null_index);
+        if let Some(parent_index) = node.parent {
+            let parent = &self.nodes[parent_index];
+            let parent_state = parent.hidden_state.unwrap_or(null_index);
+            log_odds += self.parent_oracle_log_odds[[parent_state,node_state]];
+        }
+        if let Some((c1i,c2i)) = node.children {
+            let c1 = &self.nodes[c1i];
+            let c2 = &self.nodes[c2i];
+            let c1_state = c1.hidden_state.unwrap_or(null_index);
+            let c2_state = c2.hidden_state.unwrap_or(null_index);
+            log_odds += self.child_oracle_log_odds[[node_state,c1_state]];
+            log_odds += self.child_oracle_log_odds[[node_state,c2_state]];
+        }
+        let oracle_transition_probability = log_odds.exp2() / (1. + log_odds.exp2());
         rand::random::<f64>() < oracle_transition_probability
 
     }
@@ -284,7 +299,7 @@ impl IHMM {
         let maximum = maximum_option.unwrap_or(10);
         let ln_beta: Vec<f64> = (1..(self.nodes.len()*2)).map(|v| (v as f64).ln()).collect();
         let ln_beta_cmsm: Vec<f64> = ln_beta.iter().scan(0., |acc,v| {*acc += v; Some(*acc)}).collect();
-        let transition_matrix = self.get_direct_transition_matrix();
+        let transition_matrix = self.compute_transition_matrix(&self.get_transitions(&self.live_indices()), false);
 
         let ki = transition_matrix.mapv(|v| if v > 0 {1} else {0}).sum_axis(Axis(0));
         let ni = transition_matrix.sum_axis(Axis(0));
@@ -318,7 +333,7 @@ impl IHMM {
         let maximum = maximum_option.unwrap_or(10);
         let ln_gamma: Vec<f64> = (1..(self.nodes.len()*2)).map(|v| (v as f64).ln()).collect();
         let ln_gamma_cmsm: Vec<f64> = ln_gamma.iter().scan(0., |acc,v| {*acc += v; Some(*acc)}).collect();
-        let transition_matrix = self.get_oracle_transition_matrix();
+        let transition_matrix = self.compute_transition_matrix(&self.get_transitions(&self.live_indices()), true);
 
         let k = self.hidden_states.len() + 1;
         let to: usize = transition_matrix.iter().sum();
@@ -348,7 +363,7 @@ impl IHMM {
         let node_states = self.nodes.iter().map(|n| n.hidden_state);
         let parent_states: Vec<Option<usize>> = self.get_node_parent_states(&(0..self.nodes.len()).collect::<Vec<usize>>());
         let transitions = node_states.zip(parent_states.into_iter());
-        let oracles: Vec<bool> = transitions.map(|(s1,s2)| self.sample_oracle_transition(s1, s2)).collect();
+        let oracles: Vec<bool> = self.live_indices().into_iter().map(|i| self.sample_oracle_transition(i)).collect();
         for (ni,oracle) in oracles.into_iter().enumerate() {
             self.nodes[ni].oracle = oracle;
         }
@@ -404,9 +419,7 @@ impl IHMM {
 
         self.hidden_states = new_states;
 
-        let (transition_log_odds,oracle_probability) = self.recompute_transitions();
-        self.transition_log_odds = transition_log_odds;
-        self.oracle_probability = oracle_probability;
+        self.compute_transition_model();
 
         for (i,s) in self.hidden_states.iter().enumerate(){
             eprintln!("NM{:?}:{:?}",i,s.emission_model.means());
@@ -461,9 +474,26 @@ impl IHMM {
         self.prior_emission_model.log_likelihood(data)
     }
 
-    fn new_state_mixture_log_odds(&self,adjacent_state: Option<usize>) -> f64 {
-        let ai = adjacent_state.unwrap_or(self.hidden_states.len());
-        self.transition_log_odds[[ai,self.hidden_states.len()]]
+    fn new_state_mixture_log_odds(&self,index:usize) -> f64 {
+        let mut log_odds = 0.;
+        let node = &self.nodes[index];
+        let null_index = self.hidden_states.len();
+        let new_state = self.hidden_states.len();
+
+        if let Some(parent_index) = node.parent {
+            let parent = &self.nodes[parent_index];
+            let parent_state = parent.hidden_state.unwrap_or(null_index);
+            log_odds += self.parent_transition_log_odds[[parent_state,new_state]];
+        }
+        if let Some((c1i,c2i)) = node.children {
+            let c1 = &self.nodes[c1i];
+            let c2 = &self.nodes[c2i];
+            let c1_state = c1.hidden_state.unwrap_or(null_index);
+            let c2_state = c2.hidden_state.unwrap_or(null_index);
+            log_odds += self.child_transition_log_odds[[new_state,c1_state]];
+            log_odds += self.child_transition_log_odds[[new_state,c2_state]];
+        }
+        log_odds
     }
 
 
@@ -503,7 +533,11 @@ impl IHMM {
         return state_map
     }
 
-    fn get_child_transitions(&self, indices:&[usize]) -> Vec<(Option<usize>,Option<usize>,bool)> {
+    fn get_transitions(&self, indices:&[usize]) -> Vec<(Option<usize>,Option<usize>,bool)> {
+
+        // Here we return a list of transitions by state from parent to both children
+        // usize 1 is parent state, usize 2 is child state
+
         let mut transitions = Vec::with_capacity(indices.len());
         for ni in indices {
             let node = &self.nodes[*ni];
@@ -515,17 +549,8 @@ impl IHMM {
                 transitions.push((node_state,right_child.hidden_state,right_child.oracle));
             }
             else {
-                transitions.push((node_state,None,node.oracle));
+                transitions.push((node_state,None,false));
             }
-        }
-        transitions
-    }
-
-    fn get_parent_transitions(&self, indices:&[usize]) -> Vec<(Option<usize>,Option<usize>,bool)> {
-        let mut transitions = Vec::with_capacity(indices.len());
-        for ni in indices {
-            let node = &self.nodes[*ni];
-            let node_state = node.hidden_state;
             if let Some(pi) = node.parent {
                 let parent = &self.nodes[pi];
                 transitions.push((parent.hidden_state,node_state,node.oracle));
@@ -537,17 +562,16 @@ impl IHMM {
         transitions
     }
 
-    fn get_direct_transition_matrix(&self) -> Array<usize,Ix2> {
+
+    fn compute_transition_matrix(&self,transitions:&[(Option<usize>,Option<usize>,bool)],oracle:bool) -> Array<usize,Ix2> {
 
         // Returns a matrix of transition counts i,j where i is parent state, j is child state,
         // Null state is last row and last column.
 
         let hidden_states = self.hidden_states.len();
-        // let transitions = self.get_parent_transitions(&self.live_indices());
-        let transitions = self.get_child_transitions(&self.live_indices()); // PARENT XX CHILD SWITCH
         let mut transition_matrix: Array<usize,Ix2> = Array::zeros((hidden_states+1,hidden_states+1));
         for (s1,s2,o) in transitions {
-            if !o {
+            if *o == oracle {
 
                 let s1i = s1.unwrap_or(hidden_states);
                 let s2i = s2.unwrap_or(hidden_states);
@@ -556,53 +580,17 @@ impl IHMM {
             }
 
         }
-        // transition_matrix
-        transition_matrix.t().to_owned() // PARENT XX CHILD SWITCH
-
+        transition_matrix
     }
 
-    fn get_oracle_transition_matrix(&self) -> Array<usize,Ix2> {
 
-        // Returns a matrix of transition counts i,j where i is parent state, j is child state,
-        // Null state is last row and last column.
+    fn compute_transition_model(&mut self) {
 
-        let hidden_states = self.hidden_states.len();
-        // let transitions = self.get_parent_transitions(&self.live_indices());
-        let transitions = self.get_child_transitions(&self.live_indices()); // PARENT XX CHILD SWITCH
-        let mut transition_matrix: Array<usize,Ix2> = Array::zeros((hidden_states+1,hidden_states+1));
-        for (s1,s2,o) in transitions {
-            if o {
-                let s1i = s1.unwrap_or(hidden_states);
-                let s2i = s2.unwrap_or(hidden_states);
-                transition_matrix[[s1i,s2i]] += 1;
-            }
+        // We have to compute two things to completely represent a transition model:
+        // The odds of a given state given that we know the states of the child nodes,
+        // The odds of a given state given that we know the states of the parent node,
 
-        }
-        // transition_matrix
-        transition_matrix.t().to_owned() // PARENT XX CHILD SWITCH
-    }
-
-    fn get_total_transition_matrix(&self) -> Array<usize,Ix2> {
-
-        // Returns a matrix of transition counts i,j where i is parent state, j is child state,
-        // Null state is last row and last column.
-
-        let hidden_states = self.hidden_states.len();
-        // let transitions = self.get_parent_transitions(&self.live_indices());
-        let transitions = self.get_child_transitions(&self.live_indices()); // PARENT XX CHILD SWITCH
-        let mut transition_matrix: Array<usize,Ix2> = Array::zeros((hidden_states+1,hidden_states+1));
-        for (s1,s2,_) in transitions {
-            let s1i = s1.unwrap_or(hidden_states);
-            let s2i = s2.unwrap_or(hidden_states);
-            transition_matrix[[s1i,s2i]] += 1;
-        }
-        // transition_matrix
-        transition_matrix.t().to_owned() // PARENT XX CHILD SWITCH
-    }
-
-    fn recompute_transitions(&self) -> (Array<f64,Ix2>,Array<f64,Ix2>) {
-
-        // There are three important things we have to compute for each state:
+        // For each type of transition, we have to know:
 
         // The odds of transitioning from state i to state j directly,
         // The odds of transitioning from state i to the first oracle,
@@ -629,15 +617,13 @@ impl IHMM {
 
         // Now we initialize the matrix containing state-state transition log odds.
 
-        // IMPORTANT NOTE: IF YOU SWITCH TO CHILD TRANSITIONS, YOU HAVE TO TRANSPOSE THIS MATRIX
-        // TO PRESERVE THE DIRECTIONALITY OF THE TRANSITION LOOK UP
-
         let mut direct_transition_odds: Array<f64,Ix2> = Array::ones((represented_states.len(),represented_states.len()));
         let mut oracle_transition_odds: Array<f64,Ix1> = Array::ones(represented_states.len());
-        // The actual matrix returned by the getter methods has the null state as the last colum and the last row
 
-        let mut direct_transition_matrix = self.get_direct_transition_matrix();
-        let mut oracle_transition_matrix = self.get_oracle_transition_matrix();
+        // We expect the input transition matrices to have the null state as the last colum and the last row
+
+        let mut direct_transition_matrix = self.compute_transition_matrix(&self.get_transitions(&self.live_indices()), false);
+        let mut oracle_transition_matrix = self.compute_transition_matrix(&self.get_transitions(&self.live_indices()), true);
 
         // eprintln!("DTM:{:?}",direct_transition_matrix.dim());
         // eprintln!("OTM:{:?}",oracle_transition_matrix.dim());
@@ -648,8 +634,7 @@ impl IHMM {
         // However we have to set the last column of the oracle transition matrix to zero in order
         // to avoid counting gamma multiple times per represented state.
 
-        // direct_transition_matrix.slice_mut(s![..,-1]).assign(&(Array::ones(represented_states.len()) * self.beta.get()));
-        direct_transition_matrix.slice_mut(s![..,-1]).assign(&Array::ones(represented_states.len()));
+        direct_transition_matrix.slice_mut(s![..,-1]).assign(&(Array::ones(represented_states.len()) * self.beta.get()));
         oracle_transition_matrix.slice_mut(s![..,-1]).assign(&Array::zeros(represented_states.len()));
 
         eprintln!("Direct transition counts:");
@@ -681,10 +666,10 @@ impl IHMM {
         // Now we have to evaluate the second layer of the transition model.
 
         // let mut oracle_transitions = oracle_transition_matrix.sum_axis(Axis(1)) + (Array::ones(oracle_transition_matrix.dim().1) * self.beta.get());
-        let mut oracle_transitions = oracle_transition_matrix.sum_axis(Axis(1)) + Array::ones(oracle_transition_matrix.dim().1);
-        let last_index = (oracle_transitions.dim() as i32 - 1).max(0) as usize;
-        oracle_transitions[[last_index]] += self.gamma.get();
-        let oracle_transition_total = oracle_transitions.sum();
+        let mut oracle_transition_totals = oracle_transition_matrix.sum_axis(Axis(1)) + Array::ones(oracle_transition_matrix.dim().1);
+        let last_index = (oracle_transition_totals.dim() as i32 - 1).max(0) as usize;
+        oracle_transition_totals[[last_index]] += self.gamma.get();
+        let oracle_transition_total = oracle_transition_totals.sum();
 
         // eprintln!("Direct transition totals:");
         // eprintln!("{:?}",oracle_transitions);
@@ -692,7 +677,7 @@ impl IHMM {
         // Here we have a slight hack. We are representing the transition to a novel state in the last column of the matrix
         // This is because we cannot transition to a null state anyway
 
-        let oracle_transition_odds: Array<f64,Ix1> = oracle_transitions.mapv(|t| t as f64 / (oracle_transition_total + self.gamma.get()) as f64);
+        let oracle_transition_odds: Array<f64,Ix1> = oracle_transition_totals.mapv(|t| t as f64 / (oracle_transition_total + self.gamma.get()) as f64);
 
         // eprintln!("Oracle transitions computed!");
         // eprintln!("{:?}",oracle_transition_odds);
@@ -715,16 +700,115 @@ impl IHMM {
         eprintln!("Log odds computed!");
         eprintln!("{:?}",log_odds);
 
-        let oracle_probability = &oracle_product_matrix / &(&oracle_product_matrix + &direct_transition_odds);
+        let oracle_log_odds = (&oracle_product_matrix / &direct_transition_odds).mapv(|v| v.log2());
 
         // eprintln!("Oracle probability computed!");
         // eprintln!("{:?}",oracle_probability);
 
         assert!(!log_odds.iter().any(|ll| ll.is_nan()));
-        assert!(!oracle_probability.iter().any(|ll| ll.is_nan()));
+        assert!(!oracle_log_odds.iter().any(|ll| ll.is_nan()));
 
-        (log_odds,oracle_probability)
+        // Unfortunately at this stage, we have only half of the picture.
+        // We also wish to know what the odds are of a given state, if we know the state of the child
 
+        let mut child_direct_transition_odds: Array<f64,Ix2> = Array::ones((represented_states.len(),represented_states.len()));
+        let mut child_oracle_transition_odds: Array<f64,Ix2> = Array::ones((represented_states.len(),represented_states.len()));
+
+        // We would like to keep the lookup orientation the same for consistency
+        // Eg, P(State i | Child State j) is located at i,j
+        // However, this means that the location of the probabilities of a new state must be altered.
+        // A child cannot be in an unrepresented state at any given sweep,
+        // And a node we are sampling cannot be in the null state.
+
+        // Given Bayes: P(A|B) = P(B|A)P(A) / P(B) => O(A|B) = O(A) * (P(B|A) / P(B|A')
+        // P(State | Child State) = P(Child State | State) * P(Child State) / P(State)
+        // P(Child State| Parent State) / P(Child State | Not Parent State) is already given by the transition matrices
+
+        // let mut child_direct_transition_matrix = self.compute_transition_matrix(&self.get_transitions(&self.live_indices()), false);
+        // child_direct_transition_matrix.slice_mut(s![-1,..]).assign(&(Array::ones(represented_states.len()) * self.beta.get()));
+        //
+        // eprintln!("Direct transition counts:");
+        // eprintln!("{:?}",child_direct_transition_matrix);
+        //
+        // let child_transition_totals = child_direct_transition_matrix.sum_axis(Axis(0)) + Array::ones(direct_transition_matrix.dim().0);
+        // let total_direct_transitions = child_transition_totals.sum();
+        //
+        // let child_transition_totals = &direct_transition_totals + &oracle_transition_totals;
+        // let total_transitions = child_transition_totals.sum();
+
+        for child_state in 0..represented_states.len() {
+            for parent_state in 0..represented_states.len() {
+
+                // O(Parent State | Child State) = O(Parent State) * (P(Child|Parent) / P(Child | Not Parent))
+
+                let op = direct_transition_totals[[parent_state]] as f64 / (direct_transition_totals.sum() - direct_transition_totals[[parent_state]]) as f64;
+                let on = direct_transition_matrix[[parent_state,child_state]] as f64 / (direct_transition_matrix.slice(s![..,child_state]).sum() - direct_transition_matrix[[parent_state,child_state]]) as f64;
+
+                child_direct_transition_odds[[parent_state,child_state]] = op * on;
+                // // P(Child State | Parent State)
+                // let pcp = direct_transition_matrix[[parent_state,child_state]] as f64 / direct_transition_totals[[parent_state]] as f64;
+                // // P(Child State)
+                // let pc = child_transition_totals[[child_state]] as f64 / total_transitions as f64;
+                // // P(State)
+                // let ps = child_transition_totals[[parent_state]] as f64 / total_transitions as f64;
+                // let ppc = (pcp * pc) / ps;
+                // child_direct_transition_odds[[parent_state,child_state]] = ppc / (1. - ppc);
+            }
+        };
+
+        eprintln!("Child transfer odds:{:?}",child_direct_transition_odds);
+
+        let child_oracle_probability = child_direct_transition_odds.slice(s![-1,..]).mapv(|v| v/(1.+v));
+
+        eprintln!("Child oracle probability:{:?}",child_oracle_probability);
+
+        // Given Bayes: P(A|B) = P(B|A)P(A) / P(B) => O(A|B) = O(A) * (P(B|A) / P(B|A')
+        // O(Oracle | Child State) = O(Oracle) * (P(Child State | Oracle) / P(Child State | Not Oracle))
+        // P(Oracle | Child State) = P(Child State | Oracle) * P(Child State) / P(Oracle)
+
+        for child_state in 0..represented_states.len() {
+            for parent_state in 0..represented_states.len() {
+                let oracle_index = (direct_transition_totals.dim() as i32 - 1).max(0) as usize;
+                let oo = direct_transition_totals[[oracle_index]] as f64 / (direct_transition_totals.sum() - direct_transition_totals[oracle_index]) as f64;
+                let co = oracle_transition_totals[[child_state]] as f64 / oracle_transition_total as f64;
+                let cno = direct_transition_totals[[child_state]] as f64 / direct_transition_totals.sum() as f64;
+
+                child_oracle_transition_odds[[parent_state,child_state]] = oo * (co/cno);
+
+                // // P(Child State | Oracle)
+                // let pco = oracle_transition_totals[[child_state]] as f64 / oracle_transition_total as f64;
+                // // P(Child State)
+                // let pc = child_transition_totals[[child_state]] as f64 / total_transitions as f64;
+                // // P(Oracle)
+                // let po = child_oracle_probability[[child_state]];
+                // let ppc = (pco * pc) / po;
+                // child_oracle_transition_odds[[parent_state,child_state]] = ppc / (1. - ppc);
+            }
+        };
+
+        let child_oracle_log_odds = child_oracle_transition_odds.mapv(|v| v.log2());
+        
+        let mut child_oracle_product_matrix: Array<f64,Ix2> = Array::ones((represented_states.len(),represented_states.len()));
+
+        for child_state in 0..represented_states.len() {
+            for parent_state in 0..represented_states.len() {
+                child_oracle_product_matrix[[parent_state,child_state]] = child_oracle_transition_odds[[parent_state,child_state]] * oracle_odds[[parent_state]]
+            }
+        };
+
+        eprintln!("Child oracle product matrix{:?}", child_oracle_product_matrix);
+
+        eprintln!("Sum:{:?}",(&child_direct_transition_odds + &child_oracle_product_matrix));
+
+        let child_log_odds = (child_direct_transition_odds + child_oracle_product_matrix).mapv(|v| v.log2());
+
+        self.parent_transition_log_odds = log_odds;
+        self.parent_oracle_log_odds = oracle_log_odds;
+        self.child_transition_log_odds = child_log_odds;
+        self.child_oracle_log_odds = child_oracle_log_odds;
+
+        eprintln!("Transitions:{:?}",self.parent_transition_log_odds);
+        eprintln!("{:?}",self.child_transition_log_odds);
 
     }
 
@@ -759,9 +843,8 @@ impl IHMM {
         // This function should be altered based on whether or not you are using child or
         // parent inheritance
 
-        self.nodes.iter().filter(|n| n.children.is_some()).map(|n| n.index).collect()
-        // PARENT XX CHILD SWITCH
-        // self.nodes.iter().map(|n| n.index).collect()
+        // self.nodes.iter().filter(|n| n.children.is_some()).map(|n| n.index).collect()
+        self.nodes.iter().map(|n| n.index).collect()
     }
 
     pub fn report(&self) {
@@ -1132,7 +1215,7 @@ pub mod tree_braider_tests {
     fn test_markov_multipart() {
         let mut model = iris_model();
         // let mut model = gene_model();
-        model.initialize(10);
+        model.initialize(3);
         for state in &model.hidden_states {
             eprintln!("Population: {:?}",state.nodes.len());
             eprintln!("MEANS");
@@ -1140,7 +1223,7 @@ pub mod tree_braider_tests {
             eprintln!("PDET");
             eprintln!("{:?}",state.emission_model.pdet());
         }
-        for i in 0..1000 {
+        for i in 0..1 {
             model.sweep();
             for state in &model.hidden_states {
                 // eprintln!("{:?}",state);
@@ -1158,8 +1241,9 @@ pub mod tree_braider_tests {
             eprintln!("###############################");
             eprintln!("Populations:{:?}",model.hidden_states.iter().map(|hs| hs.nodes.len()).collect::<Vec<usize>>());
             eprintln!("PDET:{:?}",model.hidden_states.iter().map(|hs| *hs.emission_model.pdet()).collect::<Vec<f64>>());
-            eprintln!("ORACLE MIXTURE:{:?}",model.get_oracle_transition_matrix().sum_axis(Axis(0)));
             eprintln!("BETA:{:?}",model.beta);
+            eprintln!("Transitions:{:?}",model.parent_transition_log_odds);
+            eprintln!("{:?}",model.child_transition_log_odds);
         }
         // for state in &model.hidden_states {
         //     eprintln!("{:?}", state);
