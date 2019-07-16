@@ -724,35 +724,15 @@ impl IHMM {
         // P(State | Child State) = P(Child State | State) * P(Child State) / P(State)
         // P(Child State| Parent State) / P(Child State | Not Parent State) is already given by the transition matrices
 
-        // let mut child_direct_transition_matrix = self.compute_transition_matrix(&self.get_transitions(&self.live_indices()), false);
-        // child_direct_transition_matrix.slice_mut(s![-1,..]).assign(&(Array::ones(represented_states.len()) * self.beta.get()));
-        //
-        // eprintln!("Direct transition counts:");
-        // eprintln!("{:?}",child_direct_transition_matrix);
-        //
-        // let child_transition_totals = child_direct_transition_matrix.sum_axis(Axis(0)) + Array::ones(direct_transition_matrix.dim().0);
-        // let total_direct_transitions = child_transition_totals.sum();
-        //
-        // let child_transition_totals = &direct_transition_totals + &oracle_transition_totals;
-        // let total_transitions = child_transition_totals.sum();
-
         for child_state in 0..represented_states.len() {
             for parent_state in 0..represented_states.len() {
 
                 // O(Parent State | Child State) = O(Parent State) * (P(Child|Parent) / P(Child | Not Parent))
 
-                let op = direct_transition_totals[[parent_state]] as f64 / (direct_transition_totals.sum() - direct_transition_totals[[parent_state]]) as f64;
-                let on = direct_transition_matrix[[parent_state,child_state]] as f64 / (direct_transition_matrix.slice(s![..,child_state]).sum() - direct_transition_matrix[[parent_state,child_state]]) as f64;
+                let op = direct_transition_totals[[parent_state]] as f64 / (direct_transition_totals.sum() - direct_transition_totals[[parent_state]] + 1) as f64;
+                let on = direct_transition_matrix[[parent_state,child_state]] as f64 / (direct_transition_matrix.slice(s![..,child_state]).sum() - direct_transition_matrix[[parent_state,child_state]] + 1) as f64;
 
                 child_direct_transition_odds[[parent_state,child_state]] = op * on;
-                // // P(Child State | Parent State)
-                // let pcp = direct_transition_matrix[[parent_state,child_state]] as f64 / direct_transition_totals[[parent_state]] as f64;
-                // // P(Child State)
-                // let pc = child_transition_totals[[child_state]] as f64 / total_transitions as f64;
-                // // P(State)
-                // let ps = child_transition_totals[[parent_state]] as f64 / total_transitions as f64;
-                // let ppc = (pcp * pc) / ps;
-                // child_direct_transition_odds[[parent_state,child_state]] = ppc / (1. - ppc);
             }
         };
 
@@ -769,25 +749,17 @@ impl IHMM {
         for child_state in 0..represented_states.len() {
             for parent_state in 0..represented_states.len() {
                 let oracle_index = (direct_transition_totals.dim() as i32 - 1).max(0) as usize;
-                let oo = direct_transition_totals[[oracle_index]] as f64 / (direct_transition_totals.sum() - direct_transition_totals[oracle_index]) as f64;
-                let co = oracle_transition_totals[[child_state]] as f64 / oracle_transition_total as f64;
-                let cno = direct_transition_totals[[child_state]] as f64 / direct_transition_totals.sum() as f64;
+                let oo = direct_transition_totals[[oracle_index]] as f64 / (direct_transition_totals.sum() - direct_transition_totals[oracle_index] + 1) as f64;
+                let co = oracle_transition_totals[[child_state]] as f64 / (oracle_transition_total + 1) as f64;
+                let cno = direct_transition_totals[[child_state]] as f64 / (direct_transition_totals.sum() + 1) as f64;
 
                 child_oracle_transition_odds[[parent_state,child_state]] = oo * (co/cno);
 
-                // // P(Child State | Oracle)
-                // let pco = oracle_transition_totals[[child_state]] as f64 / oracle_transition_total as f64;
-                // // P(Child State)
-                // let pc = child_transition_totals[[child_state]] as f64 / total_transitions as f64;
-                // // P(Oracle)
-                // let po = child_oracle_probability[[child_state]];
-                // let ppc = (pco * pc) / po;
-                // child_oracle_transition_odds[[parent_state,child_state]] = ppc / (1. - ppc);
             }
         };
 
         let child_oracle_log_odds = child_oracle_transition_odds.mapv(|v| v.log2());
-        
+
         let mut child_oracle_product_matrix: Array<f64,Ix2> = Array::ones((represented_states.len(),represented_states.len()));
 
         for child_state in 0..represented_states.len() {
@@ -1223,7 +1195,7 @@ pub mod tree_braider_tests {
             eprintln!("PDET");
             eprintln!("{:?}",state.emission_model.pdet());
         }
-        for i in 0..1 {
+        for i in 0..100 {
             model.sweep();
             for state in &model.hidden_states {
                 // eprintln!("{:?}",state);
