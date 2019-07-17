@@ -52,15 +52,12 @@ import smooth_density_graph as sdg
 
 class Node:
 
-    def __init__(self, node_json,tree,forest,parent=None,lr=None,prerequisites=None,level=0):
-        if prerequisites is None:
-            prerequisites = []
+    def __init__(self, node_json,tree,forest,parent=None,lr=None,level=0):
         self.tree = tree
         self.forest = forest
         self.parent = parent
         self.lr = lr
         self.level = level
-        self.feature = node_json['feature']
         self.split = node_json['split']
         self.prerequisites = node_json['prerequisites']
         self.braids = node_json['braids']
@@ -73,10 +70,9 @@ class Node:
         self.absolute_gains = node_json['absolute_gains']
         self.children = []
         self.child_clusters = ([],[])
-        self.prerequisites = prerequisites
         if len(node_json['children']) > 0:
-            self.children.append(Node(node_json['children'][0],self.tree,self.forest,parent=self,lr=0,prerequisites = prerequisites + [(self.feature,self.split,'<')],level=level+1))
-            self.children.append(Node(node_json['children'][1],self.tree,self.forest,parent=self,lr=1,prerequisites = prerequisites + [(self.feature,self.split,'>')],level=level+1))
+            self.children.append(Node(node_json['children'][0],self.tree,self.forest,parent=self,lr=0,level=level+1))
+            self.children.append(Node(node_json['children'][1],self.tree,self.forest,parent=self,lr=1,level=level+1))
 
     def null():
         null_dictionary = {}
@@ -711,9 +707,9 @@ class Forest:
         self.input_dim = input.shape
         self.output_dim = output.shape
 
-        self.split_labels = split_clusters
+        self.split_labels = split_labels
 
-        self.trees = list(map(lambda x: Tree(x,self),trees))
+        self.trees = trees
 
         for i,node in enumerate(self.nodes()):
             node.index = i
@@ -836,16 +832,9 @@ class Forest:
             level.extend(tree.level(target))
         return level
 
-    def load(location, prefix="/run", ifh="/run.ifh",ofh='run.ofh',clusters='run.clusters',input="input.counts",output="output.counts"):
+    def load(location, prefix="/run", ifh="/run.ifh",ofh='run.ofh',clusters='run.cluster',input="input.counts",output="output.counts"):
 
         combined_tree_files = sorted(glob.glob(location + prefix + "*.compact"))
-
-        print(combined_tree_files)
-
-        raw_forest = []
-
-        for tree_file in combined_tree_files:
-            raw_forest.append(json.load(open(tree_file.strip())))
 
         input = np.loadtxt(location+input)
         output = np.loadtxt(location+output)
@@ -854,9 +843,16 @@ class Forest:
 
         clusters = np.loadtxt(location+clusters)
 
-        first_forest = Forest(raw_forest[1:],input_features=ifh,output_features=ofh,input=input,output=output,clusters=clusters)
+        first_forest = Forest([],input_features=ifh,output_features=ofh,input=input,output=output,split_labels=clusters)
 
-        first_forest.prototype = Tree(raw_forest[0],first_forest)
+        trees = []
+        for tree_file in combined_tree_files:
+            print(f"Loading {tree_file}")
+            trees.append(Tree(json.load(open(tree_file.strip())),first_forest))
+
+        first_forest.prototype = trees.pop()
+
+        first_forest.trees = trees
 
         sample_encoding = first_forest.node_sample_encoding(first_forest.leaves())
 
@@ -1296,7 +1292,7 @@ class Forest:
 
     def interpret_splits(self,override=False,no_plot=False,*args,**kwargs):
 
-        nodes = self.nodes(root=False)
+        nodes = self.nodes(root=True)
 
         gain_matrix = self.local_gain_matrix(nodes).T+1
 
@@ -1306,8 +1302,8 @@ class Forest:
             split_index = np.arange(len(self.split_labels))[self.split_labels == cluster]
             clusters.append(NodeCluster(self,[nodes[i] for i in split_index],cluster))
 
-        # split_order = np.argsort(self.split_labels)
-        split_order = dendrogram(linkage(gain_matrix,metric='cos',method='average'),no_plot=True)['leaves']
+        split_order = np.argsort(self.split_labels)
+        # split_order = dendrogram(linkage(gain_matrix,metric='cos',method='average'),no_plot=True)['leaves']
         feature_order = dendrogram(linkage(gain_matrix.T+1,metric='cosine',method='average'),no_plot=True)['leaves']
 
         image = gain_matrix[split_order].T[feature_order].T
