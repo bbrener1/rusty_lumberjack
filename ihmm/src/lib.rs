@@ -131,8 +131,8 @@ pub struct IHMM {
 impl IHMM {
     fn new(nodes:Vec<MarkovNode>) -> IHMM {
 
-        let emissions = MarkovNode::encode(&nodes);
-        // let emissions = MarkovNode::reduced_encode(&nodes);
+        // let emissions = MarkovNode::encode(&nodes);
+        let emissions = MarkovNode::reduced_encode(&nodes);
         // let emissions = MarkovNode::sample_encode(&nodes);
 
         let features = emissions.dim().1;
@@ -219,7 +219,7 @@ impl IHMM {
 
         let mut state_log_odds = Vec::with_capacity(self.hidden_states.len() + 1);
 
-        eprintln!("E:{:?}",emissions);
+        // eprintln!("E:{:?}",emissions);
 
         eprint!("{:?}:[",node_index);
         for si in 0..(self.hidden_states.len()+1) {
