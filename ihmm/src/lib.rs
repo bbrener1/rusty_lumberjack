@@ -281,14 +281,14 @@ impl IHMM {
             let parent_state = parent.hidden_state.unwrap_or(null_index);
             log_odds += self.parent_oracle_log_odds[[parent_state,node_state]];
         }
-        if let Some((c1i,c2i)) = node.children {
-            let c1 = &self.nodes[c1i];
-            let c2 = &self.nodes[c2i];
-            let c1_state = c1.hidden_state.unwrap_or(null_index);
-            let c2_state = c2.hidden_state.unwrap_or(null_index);
-            log_odds += self.child_oracle_log_odds[[node_state,c1_state]];
-            log_odds += self.child_oracle_log_odds[[node_state,c2_state]];
-        }
+        // if let Some((c1i,c2i)) = node.children {
+        //     let c1 = &self.nodes[c1i];
+        //     let c2 = &self.nodes[c2i];
+        //     let c1_state = c1.hidden_state.unwrap_or(null_index);
+        //     let c2_state = c2.hidden_state.unwrap_or(null_index);
+        //     log_odds += self.child_oracle_log_odds[[node_state,c1_state]];
+        //     log_odds += self.child_oracle_log_odds[[node_state,c2_state]];
+        // }
         let oracle_transition_probability = log_odds.exp2() / (1. + log_odds.exp2());
         rand::random::<f64>() < oracle_transition_probability
 

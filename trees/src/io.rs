@@ -103,7 +103,7 @@ pub fn construct(mut args: Parameters) {
 
     let mut rnd_forest = Forest::initialize(&input_array,&output_array, arc_params.clone(), report_address);
 
-    rnd_forest.generate(arc_params.clone(),false);
+    rnd_forest.generate(arc_params.clone(),false).unwrap();
 
 
 

@@ -1299,7 +1299,7 @@ class Forest:
         nodes = self.nodes(root=False)
 
         gain_matrix = self.local_gain_matrix(nodes).T+1
-        
+
         cluster_set = set(self.split_labels)
         clusters = []
         for cluster in cluster_set:
