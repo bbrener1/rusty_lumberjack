@@ -15,6 +15,7 @@ use rayon::prelude::*;
 mod dirichlet;
 mod mini_multi;
 mod multivariate_normal;
+mod multivariate_normal_base;
 pub mod io;
 
 use trees::node::StrippedNode;
@@ -61,13 +62,14 @@ use std::f64::EPSILON;
 use rand::{thread_rng,Rng};
 use rand::distributions::{Distribution,Binomial};
 
+use multivariate_normal_base::MVN;
 // use multivariate_normal::MVN;
 // NOTE: Minimulti is only appropriate when working on PCA-type data. Data must be orthonormal.
-use mini_multi::MVN;
+// use mini_multi::MVN;
 use multivariate_normal::{array_mask,array_mask_axis,array_double_select,array_double_mask};
 use dirichlet::{SymmetricDirichlet,Categorical};
 
-const G_REDUCTION: usize = 3;
+const G_REDUCTION: usize = 10;
 
 pub struct MarkovNode {
     index: usize,
@@ -223,11 +225,10 @@ impl IHMM {
 
             mixture_log_odds += self.parent_transition_log_odds[[ps.unwrap_or(self.hidden_states.len()),si]]; // PARENT XX CHILD SWITCH
 
-
             mixture_log_odds += self.child_transition_log_odds[[cls.unwrap_or(self.hidden_states.len()),si]];
             mixture_log_odds += self.child_transition_log_odds[[crs.unwrap_or(self.hidden_states.len()),si]];
 
-            mixture_log_odds /= 2.;
+            // mixture_log_odds /= 3.;
 
             eprint!("({:?},",feature_log_odds);
             eprint!("{:?}),",mixture_log_odds);
@@ -280,8 +281,8 @@ impl IHMM {
 
 
     fn resample_states(&mut self) {
-        // let hidden_states: Vec<Option<usize>> = self.live_indices().into_iter().map(|ni| {
-        let hidden_states: Vec<Option<usize>> = self.live_indices().into_par_iter().map(|ni| {
+        let hidden_states: Vec<Option<usize>> = self.live_indices().into_iter().map(|ni| {
+        // let hidden_states: Vec<Option<usize>> = self.live_indices().into_par_iter().map(|ni| {
             self.sample_node_state(ni)
         }).collect();
         for (ni,state) in self.live_indices().into_iter().zip(hidden_states) {
@@ -493,6 +494,7 @@ impl IHMM {
             log_odds += self.child_transition_log_odds[[new_state,c1_state]];
             log_odds += self.child_transition_log_odds[[new_state,c2_state]];
         }
+        // log_odds /= 3.;
         log_odds
     }
 
