@@ -62,8 +62,8 @@ use std::f64::EPSILON;
 use rand::{thread_rng,Rng};
 use rand::distributions::{Distribution,Binomial};
 
-use multivariate_normal_base::MVN;
-// use multivariate_normal::MVN;
+// use multivariate_normal_base::MVN;
+use multivariate_normal::MVN;
 // NOTE: Minimulti is only appropriate when working on PCA-type data. Data must be orthonormal.
 // use mini_multi::MVN;
 use multivariate_normal::{array_mask,array_mask_axis,array_double_select,array_double_mask};
@@ -122,6 +122,7 @@ pub struct IHMM {
     child_transition_log_odds: Array<f64,Ix2>,
     parent_oracle_log_odds: Array<f64,Ix2>,
     child_oracle_log_odds: Array<f64,Ix2>,
+    population_model: Array<f64,Ix1>,
     prior_emission_model: MVN,
     hidden_states: Vec<HiddenState>,
     reduction: usize,
@@ -145,6 +146,7 @@ impl IHMM {
             child_transition_log_odds: Array::zeros((0,0)),
             parent_oracle_log_odds: Array::ones((0,0)),
             child_oracle_log_odds: Array::ones((0,0)),
+            population_model: Array::ones(0),
             nodes: nodes,
             emissions: emissions,
             reduction: G_REDUCTION,
@@ -217,11 +219,21 @@ impl IHMM {
         let mut state_log_odds = Vec::with_capacity(self.hidden_states.len() + 1);
 
         eprint!("{:?}:[",node_index);
-        for (si,state) in self.hidden_states.iter().enumerate() {
+        for si in 0..(self.hidden_states.len()+1) {
 
-            let feature_log_odds = state.feature_log_likelihood(&emissions);
-
+            let mut feature_log_odds = 0.;
             let mut mixture_log_odds = 0.;
+
+            if let Some(state) = &self.hidden_states.get(si).as_ref() {
+                feature_log_odds += state.feature_log_likelihood(&emissions);
+            }
+            else {
+                feature_log_odds += self.new_state_feature_log_odds(&emissions);
+            }
+
+            feature_log_odds *= 3.;
+
+            // mixture_log_odds += self.population_model[[si]];
 
             mixture_log_odds += self.parent_transition_log_odds[[ps.unwrap_or(self.hidden_states.len()),si]]; // PARENT XX CHILD SWITCH
 
@@ -236,14 +248,14 @@ impl IHMM {
         }
         eprint!("]\n");
 
-        let new_state_log_odds = {
-            let new_state_feature_log_odds = self.new_state_feature_log_odds(&emissions);
-            // let new_state_mixture_log_odds = self.new_state_mixture_log_odds(ps); // PARENT XX CHILD SWITCH
-            let new_state_mixture_log_odds = self.new_state_mixture_log_odds(node_index) + self.new_state_mixture_log_odds(node_index);
-            new_state_feature_log_odds + new_state_mixture_log_odds
-        };
+        // let new_state_log_odds = {
+        //     let new_state_feature_log_odds = self.new_state_feature_log_odds(&emissions);
+        //     // let new_state_mixture_log_odds = self.new_state_mixture_log_odds(ps); // PARENT XX CHILD SWITCH
+        //     let new_state_mixture_log_odds = self.new_state_mixture_log_odds(node_index) + self.new_state_mixture_log_odds(node_index);
+        //     new_state_feature_log_odds + new_state_mixture_log_odds
+        // };
 
-        state_log_odds.push(new_state_log_odds);
+        // state_log_odds.push(new_state_log_odds);
 
         let log_max: f64 = state_log_odds.iter().fold(std::f64::NEG_INFINITY,|acc,o| f64::max(acc,*o));
         state_log_odds = state_log_odds.iter().map(|o| o - log_max).collect();
@@ -776,10 +788,16 @@ impl IHMM {
 
         let child_log_odds = (child_direct_transition_odds + child_oracle_product_matrix).mapv(|v| v.log2());
 
+        let mut pop_model = (&direct_transition_totals + &oracle_transition_totals).mapv(|v| v as f64);
+        pop_model[self.hidden_states.len()] = self.gamma.get() as f64;
+        pop_model /= (direct_transition_totals.sum() + oracle_transition_totals.sum()) as f64;
+        pop_model.mapv_inplace(|v| v.log2());
+
         self.parent_transition_log_odds = log_odds;
         self.parent_oracle_log_odds = oracle_log_odds;
         self.child_transition_log_odds = child_log_odds;
         self.child_oracle_log_odds = child_oracle_log_odds;
+        self.population_model = pop_model;
 
         eprintln!("Transitions:{:?}",self.parent_transition_log_odds);
         eprintln!("{:?}",self.child_transition_log_odds);

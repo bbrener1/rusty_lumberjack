@@ -68,7 +68,7 @@ impl MVN {
         // let prior_strength = std::cmp::max(rank_deficit,1) as u32;
         // let prior_strength = samples as u32;
         // let mut prior = MVN::identity_prior(prior_strength as u32, features as u32);
-        let (scaled,means,variances) = scale(&data);
+        let (_,means,variances) = scale(&data);
 
         eprintln!("Estimating against scaled identity");
         eprintln!("mean:{:?},var:{:?}",means,variances);
@@ -84,55 +84,12 @@ impl MVN {
         Ok(prior)
     }
 
-    pub fn uninformed_estimate_masked(&mut self,data:&ArrayView<f64,Ix2>,mask:&ArrayView<bool,Ix2>) -> Result<&mut MVN,LinalgError> {
-
-        let (samples,features) = data.dim();
-
-        let (scaled,feature_means,variances) = scale(data);
-
-        let float_mask = mask.map(|b| if *b {1.} else {0.});
-
-        let mut outer_feature_sum: Array<f64,Ix2> = Array::zeros((features,features));
-
-        for (i,sample) in scaled.axis_iter(Axis(0)).enumerate() {
-            outer_feature_sum += &outer_product(&sample, &sample);
-        }
-
-        let mut scale_factor: Array<f64,Ix2> = Array::ones((features,features));
-
-        for (i,sample) in float_mask.axis_iter(Axis(0)).enumerate() {
-            scale_factor += &outer_product(&sample, &sample);
-        }
-
-        scale_factor /= samples as f64;
-
-        let s = outer_feature_sum / scale_factor;
-
-        let mut covariance_estimate = &s / samples as f64;
-
-        let (mut precision_estimate,mut covariance_log_determinant, mut determinant_rank) = pinv_pdet(&covariance_estimate.view())?;
-
-        self.means = feature_means;
-        self.variances = variances;
-        self.covariance = covariance_estimate;
-        self.pseudo_precision = precision_estimate;
-        self.pdet = covariance_log_determinant;
-        self.rank = determinant_rank;
-        self.samples = samples;
-
-        // eprintln!("Uninformed estimate");
-        // eprintln!("{:?}",self);
-
-        Ok(self)
-
-    }
-
 
     pub fn estimate(&mut self,data:&ArrayView<f64,Ix2>) -> Result<&mut MVN,LinalgError> {
 
 
         let (samples,features) = data.dim();
-        let (scaled,sample_means,sample_variances) = scale(data);
+        let (_,sample_means,sample_variances) = scale(data);
 
         let mut posterior_covariance = Array::eye(features);
         let mut posterior_variances = Array::ones(features);
@@ -152,7 +109,7 @@ impl MVN {
 
         // eprintln!("Scaled:{:?}",scaled);
 
-        let mut s: Array<f64,Ix2> = scaled.t().dot(&scaled);
+        let mut s: Array<f64,Ix2> = data.t().dot(data);
 
         // let mut s: Array<f64,Ix2> = Array::zeros((features,features));
 
@@ -233,10 +190,9 @@ impl MVN {
         let centered_data = (data - &self.means);
 
         // let scaled_data: Array<f64,Ix1> = centered_data.iter().zip(&self.variances).map(|(cd,v)| if *v > 0. {cd/(v.sqrt())} else {0.}).collect();
-        let scaled_data: Array<f64,Ix1> = centered_data.iter().zip(&self.variances).map(|(cd,v)| if *v > 0. {cd/v} else {0.}).collect();
 
         let pd = self.pdet;
-        let f = scaled_data.dot(&self.pseudo_precision).dot(&scaled_data);
+        let f = centered_data.dot(&self.pseudo_precision).dot(&centered_data);
         let dn = self.rank * f64::log2(2.*PI);
 
         // eprintln!("D:{:?}",data);
@@ -248,6 +204,7 @@ impl MVN {
         //
 
         let log_likelihood = -0.5 * (pd + f + dn);
+        // let log_likelihood = -0.5 * f;
 
         // eprintln!("PD,F,DN:{},{},{}",pd,f,dn);
         // eprintln!("LL:{:?}",log_likelihood);
@@ -301,7 +258,7 @@ pub fn pinv_pdet(mtx:&ArrayView<f64,Ix2>) -> Result<(Array<f64,Ix2>,f64,f64),Lin
     // eprintln!("{:?}",mtx);
     if let (Some(u),sig,Some(vt)) = mtx.svd(true,true)? {
 
-        let reduction = 3;
+        let reduction = 5;
         let lower_bound = (EPSILON * 1000000.);
 
         let reduced_u = u.slice(s![..,..reduction]).to_owned();
@@ -341,7 +298,25 @@ pub fn scale(data:&ArrayView<f64,Ix2>) -> (Array<f64,Ix2>,Array<f64,Ix1>,Array<f
 }
 
 
+#[cfg(test)]
+mod tree_braider_tests {
+    use super::*;
 
+    #[test]
+    fn test_mvn_estimate() {
+        let a = array![[1.,2.,3.],[4.,5.,6.],[7.,8.,9.]];
+        let m = MVN::estimate_against_identity(&a.view(), None).unwrap();
+        eprintln!("{:?}",m);
+        let b = array![1.,1.,1.];
+        let c = array![4.,5.,6.];
+        let d = array![10.,1.,1.];
+        eprintln!("b:{:?}",m.log_likelihood(&b.view()));
+        eprintln!("c:{:?}",m.log_likelihood(&c.view()));
+        eprintln!("d:{:?}",m.log_likelihood(&d.view()));
+        panic!();
+    }
+
+}
 // pub fn array_mask_row<T: Copy + num_traits::Zero>(data:&ArrayView<T,Ix2>,mask:&ArrayView<bool,Ix1>) -> Array<T,Ix2> {
 //     let d: usize = mask.mapv(|b| if b {1_u32} else {0_u32}).into_iter().sum::<u32>() as usize;
 //     let (r,c) = data.dim();

@@ -368,28 +368,6 @@ mod tree_braider_tests {
     }
 
     #[test]
-    fn test_mvn_array_mask() {
-        let a = array![0,1,2,3,4];
-        let m = array![true,false,true,false,true];
-        assert_eq!(array_mask(&a.view(), &m.view()),array![0,2,4]);
-    }
-
-    #[test]
-    fn test_mvn_array_double_mask() {
-        let a = array![[0,1,2,3,4],[0,1,2,3,4],[0,1,2,3,4],[0,1,2,3,4],[0,1,2,3,4]];
-        let m = array![true,false,true,false,true];
-        assert_eq!(array_double_mask(&a.view(), &m.view()),array![[0,2,4],[0,2,4],[0,2,4]]);
-    }
-
-    #[test]
-    fn test_mvn_masked_properties() {
-        let nodes = iris_forest();
-        let data = MarkovNode::encode(&nodes);
-        eprintln!("{:?}",data.mean_axis(Axis(0)));
-        eprintln!("{:?}",data.var_axis(Axis(0),0.));
-    }
-
-    #[test]
     fn test_mvn_normal_blank() {
         let nodes = iris_forest();
         let data = MarkovNode::encode(&nodes);
@@ -433,6 +411,15 @@ mod tree_braider_tests {
         eprintln!("{:?}",normal.reduced_inverse_sig);
         eprintln!("{:?}",normal.reduced_pdet);
     }
+
+    #[test]
+    fn test_mvn_estimate() {
+        let a = array![[1.,2.,3.],[4.,5.,6.],[7.,8.,9.]];
+        let m = MVN::estimate_against_identity(&a.view(), None);
+        eprintln!("{:?}",m);
+        // panic!();
+    }
+
 
     #[test]
     fn test_mvn_pinv() {
