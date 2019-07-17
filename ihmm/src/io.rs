@@ -122,6 +122,7 @@ impl Parameters {
 
         }
 
+        arg_struct.node_locations.sort();
         let s_nodes: Vec<StrippedNode> = arg_struct.node_locations.iter().map(|l| StrippedNode::from_file(l).expect("Failed to read node")).collect();
         arg_struct.nodes = s_nodes;
 

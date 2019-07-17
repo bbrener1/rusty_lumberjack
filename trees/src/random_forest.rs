@@ -41,7 +41,7 @@ impl Forest {
 
         let prototype_tree = Tree::prototype_tree(&input_array,&output_array,&input_features,&output_features,&samples,None, parameters.clone() ,report_string);
 
-        prototype_tree.serialize_compact();
+        prototype_tree.serialize_clone();
 
         let tree_limit = parameters.tree_limit;
         let processor_limit = parameters.processor_limit;

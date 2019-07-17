@@ -60,14 +60,14 @@ class Node:
         self.level = level
         self.split = node_json['split']
         self.prerequisites = node_json['prerequisites']
-        self.braids = node_json['braids']
-        self.features = [f['name'] for f in node_json['features']]
-        self.samples = [s['name'] for s in node_json['samples']]
-        self.medians = node_json['medians']
-        self.dispersions = node_json['dispersions']
-        self.weights = np.ones(len(self.features),dtype=float)
-        self.local_gains = node_json['local_gains']
-        self.absolute_gains = node_json['absolute_gains']
+        if len(node_json['braids']) > 0:
+            self.braid = Braid(node_json['braids'][-1])
+        self.features = np.array([f['name'] for f in node_json['features']])
+        self.samples = np.array([s['name'] for s in node_json['samples']])
+        self.medians = np.array(node_json['medians'])
+        self.dispersions = np.array([node_json['dispersions']])
+        self.local_gains = np.array(node_json['local_gains'])
+        self.absolute_gains = np.array(node_json['absolute_gains'])
         self.children = []
         self.child_clusters = ([],[])
         if len(node_json['children']) > 0:
@@ -80,10 +80,6 @@ class Node:
         null_dictionary['split'] = None
         null_dictionary['features'] = []
         null_dictionary['samples'] = []
-        null_dictionary['medians'] = []
-        null_dictionary['dispersions'] = []
-        null_dictionary['local_gains'] = None
-        null_dictionary['absolute_gains'] = None
         null_dictionary['children'] = []
         return Node(null_dictionary,None,None)
 
@@ -93,8 +89,6 @@ class Node:
         test_node.split = split
         test_node.features.extend(features)
         test_node.samples.extend(samples)
-        test_node.medians.extend(medians)
-        test_node.dispersions.extend(dispersions)
         return test_node
 
     def nodes(self):
@@ -185,12 +179,33 @@ class Node:
         # print(child_proportions)
         return child_proportions
 
+    def feature_names(self):
+        return [self.forest.output_features[i] for i in self.features]
+
+    def sample_names(self):
+        return [self.forest.samples[i] for i in self.samples]
+
     def feature_levels(self):
         feature_levels = []
         for child in self.children:
             feature_levels.extend(child.feature_levels())
-        feature_levels.append((self.feature,self.level))
+        feature_levels.append((self.split['feature']['name'],self.level))
         return feature_levels
+
+    def prerequisite_levels(self):
+        prerequisite_levels = []
+        for child in self.children:
+            prerequisite_levels.extend(child.prerequisite_levels())
+        prerequisite_levels.append((self.prerequisites[-1],self.level))
+        return prerequisite_levels
+
+    def braid_levels(self):
+        braid_levels = []
+        for child in self.children:
+            braid_levels.extend(child.braid_levels())
+        braid_levels.append((self.braids[-1],self.level))
+        return braid_levels
+
 
     def l2_fit(self,truth_dictionary):
         l2_sum = 0.0
@@ -246,6 +261,14 @@ class Node:
     def feature_sample_mask(self,truth_dictionary=None):
         return self.sample_mask(truth_dictionary),self.feature_mask(truth_dictionary)
 
+    # def medians(self):
+    #     feature_mask = self.feature_mask()
+    #     return self.forest.medians[self.index][feature_mask]
+    #
+    # def dispersions(self):
+    #     feature_mask = self.feature_mask()
+    #     return self.forest.dispersions[self.index][feature_mask]
+
     def node_counts(self,counts=None,truth_dictionary=None):
         if counts is None:
             counts = self.forest.counts
@@ -285,7 +308,7 @@ class Node:
         return node_counts
 
     def split_feature_index(self):
-        split_feature_index = self.features.index(self.feature)
+        split_feature_index = self.features.index(self.split['feature']['name'])
 
     def singly_sorted_counts(self):
         counts = self.node_counts()
@@ -296,29 +319,29 @@ class Node:
     def split_sample_index(self):
         counts = self.singly_sorted_counts()
         return np.sum(counts[:,self.split_feature_index] > float(self.split))
-
-    def ranked_feature_gain(self):
-
-        gain_rankings = np.argsort(self.local_gains)
-        sorted_gains = np.array(self.local_gains)[gain_rankings]
-        sorted_features = np.array(self.features)[gain_rankings]
-        sorted_dispersions = np.array(self.dispersions)[gain_rankings]
-        sorted_original_dispersions = np.array(self.tree.root.dispersions)[gain_rankings]
-
-        return sorted_features,sorted_gains,sorted_dispersions,sorted_original_dispersions
-
-    def ranked_error_vs_root(self):
-        error_change = self.total_error_vs_root()
-        gain_rankings = np.argsort(error_change)
-        sorted_gains = np.array(error_change[gain_rankings])
-        sorted_features = self.forest.features[gain_rankings]
-        sorted_error_change = error_change[gain_rankings]
-        return sorted_features,sorted_gains
+    #
+    # def ranked_feature_gain(self):
+    #
+    #     gain_rankings = np.argsort(self.local_gains)
+    #     sorted_gains = np.array(self.local_gains)[gain_rankings]
+    #     sorted_features = np.array(self.features)[gain_rankings]
+    #     sorted_dispersions = np.array(self.dispersions)[gain_rankings]
+    #     sorted_original_dispersions = np.array(self.tree.root.dispersions)[gain_rankings]
+    #
+    #     return sorted_features,sorted_gains,sorted_dispersions,sorted_original_dispersions
+    #
+    # def ranked_error_vs_root(self):
+    #     error_change = self.total_error_vs_root()
+    #     gain_rankings = np.argsort(error_change)
+    #     sorted_gains = np.array(error_change[gain_rankings])
+    #     sorted_features = self.forest.features[gain_rankings]
+    #     sorted_error_change = error_change[gain_rankings]
+    #     return sorted_features,sorted_gains
 
     def aborting_sample_descent(self,sample):
-        if self.feature is not None:
-            if self.feature in sample:
-                if sample[self.feature] <= self.split:
+        if self.split is not None:
+            if self.split['feature']['name'] in sample:
+                if sample[self.split['feature']['name']] <= self.split['value']:
                     return self.children[0].aborting_sample_descent(sample)
                 else:
                     return self.children[1].aborting_sample_descent(sample)
@@ -453,46 +476,13 @@ class Node:
             child_masks[i] = child.sample_mask()
         return child_masks
 
-    # def make_fat_node(self,samples,fat_tree):
-    #
-    #     fat_node = Node.null()
-    #     fat_samples = []
-    #     for sample in samples:
-    #         si = self.forest.truth_dictionary.sample_dictionary[sample]
-    #         prerequisite_flag = True
-    #         for prerequisite in self.prerequisites:
-    #             feature = prerequisite[0]
-    #             fi = self.forest.truth_dictionary.feature_dictionary[feature]
-    #             split = float(prerequisite[1])
-    #             if prerequisite[2] == '>':
-    #                 if truth_dictionary[feature] < split:
-    #                     prerequisite_flag = False
-    #             else if prerequisite[2] == '<':
-    #                 if sample[feature] > split:
-    #                     prerequisite_flag = False
-    #         if prerequisite_flag:
-    #             fat_samples.append(sample)
-    #
-    #     fat_node.tree = fat_tree
-    #     fat_node.forest = self.forest
-    #     fat_node.lr = self.lr
-    #     fat_node.level = self.level
-    #     fat_node.feature = self.feature['feature']
-    #     fat_node.split = self.split['split']
-    #
-    #     fat_node.features = self.forest.output_features
-    #     fat_node.samples =
-    #     fat_node.medians = self.node_json['medians']
-    #     fat_node.dispersions = self.node_json['dispersions']
-    #     fat_node.weights = self.np.ones(len(self.features),dtype=float)
-    #     fat_node.local_gains = self.node_json['local_gains']
-    #     fat_node.absolute_gains = self.node_json['absolute_gains']
-    #     fat_node.children = self.[]
-    #     fat_node.child_clusters = self.([],[])
-    #     fat_node.prerequisites = self.prerequisites
-    #     if len(node_json['children']) > 0:
-    #         self.children.append(Node(node_json['children'][0],self.tree,self.forest,parent=self,lr=0,prerequisites = prerequisites + [(self.feature,self.split,'<')],level=level+1))
-    #         self.children.append(Node(node_json['children'][1],self.tree,self.forest,parent=self,lr=1,prerequisites = prerequisites + [(self.feature,self.split,'>')],level=level+1))
+class Braid:
+
+    def __init__(self,braid_json):
+        self.features = [f['name'] for f in braid_json['features']]
+        self.samples = [s['name'] for s in braid_json['samples']]
+        self.compound_values = np.array(braid_json['compound_values'])
+        self.compound_split = braid_json['compound_split']
 
 class Tree:
 
@@ -841,7 +831,7 @@ class Forest:
         ifh = np.loadtxt(location+ifh,dtype=str)
         ofh = np.loadtxt(location+ofh,dtype=str)
 
-        clusters = np.loadtxt(location+clusters)
+        clusters = np.loadtxt(location+clusters,dtype=int)
 
         first_forest = Forest([],input_features=ifh,output_features=ofh,input=input,output=output,split_labels=clusters)
 
@@ -1293,7 +1283,7 @@ class Forest:
     def interpret_splits(self,override=False,no_plot=False,*args,**kwargs):
 
         nodes = self.nodes(root=True)
-
+        print(f"DEBUGGING SPLITS {len(nodes)},{len(self.split_labels)}")
         gain_matrix = self.local_gain_matrix(nodes).T+1
 
         cluster_set = set(self.split_labels)
@@ -1302,8 +1292,8 @@ class Forest:
             split_index = np.arange(len(self.split_labels))[self.split_labels == cluster]
             clusters.append(NodeCluster(self,[nodes[i] for i in split_index],cluster))
 
-        split_order = np.argsort(self.split_labels)
-        # split_order = dendrogram(linkage(gain_matrix,metric='cos',method='average'),no_plot=True)['leaves']
+        # split_order = np.argsort(self.split_labels)
+        split_order = dendrogram(linkage(gain_matrix,metric='cos',method='average'),no_plot=True)['leaves']
         feature_order = dendrogram(linkage(gain_matrix.T+1,metric='cosine',method='average'),no_plot=True)['leaves']
 
         image = gain_matrix[split_order].T[feature_order].T
