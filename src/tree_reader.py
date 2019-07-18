@@ -697,7 +697,8 @@ class Forest:
         self.input_dim = input.shape
         self.output_dim = output.shape
 
-        self.split_labels = split_labels
+        if split_labels is not None:
+            self.split_labels = split_labels
 
         self.trees = trees
 
@@ -831,7 +832,11 @@ class Forest:
         ifh = np.loadtxt(location+ifh,dtype=str)
         ofh = np.loadtxt(location+ofh,dtype=str)
 
-        clusters = np.loadtxt(location+clusters,dtype=int)
+        clusters = None
+        try:
+            clusters = np.loadtxt(location+clusters,dtype=int)
+        except:
+            pass
 
         first_forest = Forest([],input_features=ifh,output_features=ofh,input=input,output=output,split_labels=clusters)
 
@@ -1284,6 +1289,12 @@ class Forest:
 
         nodes = self.nodes(root=True)
         gain_matrix = self.local_gain_matrix(nodes).T+1
+
+        if hasattr(self,'split_labels') and not override:
+            print("Clustering has already been done")
+            return self.split_labels
+        else:
+            self.split_labels = np.array(sdg.fit_predict(gain_matrix,*args,**kwargs))
 
         cluster_set = set(self.split_labels)
         clusters = []

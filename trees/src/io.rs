@@ -207,6 +207,7 @@ pub struct Parameters {
     pub weighing_mode: WeighingMode,
     pub dispersion_mode: DispersionMode,
     pub split_fraction_regularization: usize,
+    pub big_mem: bool,
 
     pub backups: Option<String>,
     pub backup_vec: Option<Vec<String>>,
@@ -255,10 +256,13 @@ impl Parameters {
             weighing_mode: WeighingMode::Flat,
             dispersion_mode: DispersionMode::SSME,
             split_fraction_regularization: 1,
+            big_mem: false,
 
 
             backups: None,
             backup_vec: None,
+
+
 
             epochs: 1,
             epoch_duration: 1,
@@ -404,7 +408,9 @@ impl Parameters {
                 "-es" | "-ed" | "-epoch_duration" => {
                     arg_struct.epoch_duration = args.next().expect("Error reading epoch duration").parse::<usize>().expect("-ed not a number");
                 },
-
+                "-big_mem" | "-lrg_mem" => {
+                    arg_struct.big_mem = true;
+                },
                 &_ => {
                     if continuation_flag {
                         match &continuation_argument[..] {
