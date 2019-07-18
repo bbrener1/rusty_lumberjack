@@ -1283,7 +1283,6 @@ class Forest:
     def interpret_splits(self,override=False,no_plot=False,*args,**kwargs):
 
         nodes = self.nodes(root=True)
-        print(f"DEBUGGING SPLITS {len(nodes)},{len(self.split_labels)}")
         gain_matrix = self.local_gain_matrix(nodes).T+1
 
         cluster_set = set(self.split_labels)
@@ -1292,8 +1291,8 @@ class Forest:
             split_index = np.arange(len(self.split_labels))[self.split_labels == cluster]
             clusters.append(NodeCluster(self,[nodes[i] for i in split_index],cluster))
 
-        # split_order = np.argsort(self.split_labels)
-        split_order = dendrogram(linkage(gain_matrix,metric='cos',method='average'),no_plot=True)['leaves']
+        split_order = np.argsort(self.split_labels)
+        # split_order = dendrogram(linkage(gain_matrix,metric='cos',method='average'),no_plot=True)['leaves']
         feature_order = dendrogram(linkage(gain_matrix.T+1,metric='cosine',method='average'),no_plot=True)['leaves']
 
         image = gain_matrix[split_order].T[feature_order].T
