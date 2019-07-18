@@ -832,22 +832,26 @@ class Forest:
         ifh = np.loadtxt(location+ifh,dtype=str)
         ofh = np.loadtxt(location+ofh,dtype=str)
 
-        clusters = None
+        split_labels = None
         try:
-            clusters = np.loadtxt(location+clusters,dtype=int)
+            print(f"Looking for clusters:{location+clusters}")
+            split_labels = np.loadtxt(location+clusters,dtype=int)
         except:
             pass
 
-        first_forest = Forest([],input_features=ifh,output_features=ofh,input=input,output=output,split_labels=clusters)
+        first_forest = Forest([],input_features=ifh,output_features=ofh,input=input,output=output,split_labels=split_labels)
 
         trees = []
         for tree_file in combined_tree_files:
             print(f"Loading {tree_file}")
             trees.append(Tree(json.load(open(tree_file.strip())),first_forest))
 
-        first_forest.prototype = trees.pop()
+        first_forest.prototype = Tree(json.load(open(location+prefix+".prototype")),first_forest)
 
         first_forest.trees = trees
+
+        for i,node in enumerate(first_forest.nodes()):
+            node.index = i
 
         sample_encoding = first_forest.node_sample_encoding(first_forest.leaves())
 
@@ -1292,7 +1296,7 @@ class Forest:
 
         if hasattr(self,'split_labels') and not override:
             print("Clustering has already been done")
-            return self.split_labels
+            # return self.split_labels
         else:
             self.split_labels = np.array(sdg.fit_predict(gain_matrix,*args,**kwargs))
 
@@ -1546,6 +1550,73 @@ class Forest:
             node.child_clusters = ([],[])
             if hasattr(node,'cluster'):
                 del node.cluster
+
+    def split_cluster_transition_matrix(self):
+
+        nodes = np.array(self.nodes())
+        labels = self.split_labels
+        clusters = set(self.split_labels)
+        transitions = np.zeros((len(clusters)+1,len(clusters)+1))
+
+        for cluster in clusters:
+            mask = labels == cluster
+            cluster_nodes = nodes[mask]
+            for node in cluster_nodes:
+                node_state = labels[node.index]
+                for child in node.children:
+                    child_state = labels[child.index]
+                    transitions[node_state,child_state] += 1
+                if len(node.children) == 0:
+                    transitions[node_state,-1] += 1
+                if node.parent is None:
+                    transitions[-1,node_state] += 1
+
+        self.split_cluster_transitions = transitions
+
+        return transitions
+
+    def most_likely_tree(self,cluster=None,tree=None,transitions=None):
+
+        if transitions is None:
+            transitions = self.split_cluster_transition_matrix()
+
+        clusters = list(range(transitions.shape[0]))
+
+        proto_tree = [[] for cluster in clusters]
+
+        for cluster in clusters:
+            parent = np.argmax(transitions[:,cluster])
+            proto_tree[parent].append(cluster)
+
+        print(f"Prototype:{proto_tree}")
+
+        tree = []
+
+        entry = np.argmax(transitions[-1])
+
+        def finite_tree(cluster,prototype,available):
+            print(cluster)
+            children = []
+            try:
+                available.remove(cluster)
+            except:
+                pass
+            for child in prototype[cluster]:
+                if child in available:
+                    available.remove(child)
+                    children.append(child)
+            return [cluster,[finite_tree(child,prototype,available) for child in children]]
+
+        tree = finite_tree(cluster=entry,prototype=proto_tree,available=clusters)
+
+        return tree
+
+    def split_cluster_sample_scores(self,cluster):
+
+        encoding = self.node_sample_encoding(self.nodes())
+        indices = np.arange(encoding.shape[1])[self.split_labels == cluster]
+        cluster_encoding = encoding.T[indices].T
+        return np.sum(cluster_encoding,axis=1) / cluster_encoding.shape[1]
 
     def plot_sample_feature_split(self,gradient,plot_n=20):
 

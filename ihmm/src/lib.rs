@@ -132,8 +132,8 @@ impl IHMM {
     fn new(nodes:Vec<MarkovNode>) -> IHMM {
 
         // let emissions = MarkovNode::encode(&nodes);
-        let emissions = MarkovNode::reduced_encode(&nodes);
-        // let emissions = MarkovNode::sample_encode(&nodes);
+        // let emissions = MarkovNode::reduced_encode(&nodes);
+        let emissions = MarkovNode::sample_encode(&nodes);
 
         let features = emissions.dim().1;
 
@@ -234,7 +234,7 @@ impl IHMM {
                 feature_log_odds += self.new_state_feature_log_odds(&emissions);
             }
 
-            feature_log_odds *= 0.5;
+            // feature_log_odds *= 0.5;
 
             // mixture_log_odds += self.population_model[[si]];
 
