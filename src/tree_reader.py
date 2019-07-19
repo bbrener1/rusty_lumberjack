@@ -1293,12 +1293,15 @@ class Forest:
 
         nodes = self.nodes(root=True)
         gain_matrix = self.local_gain_matrix(nodes).T+1
+        # encoding = self.node_sample_encoding(nodes)
+        # raw_features = self.raw_prediction_matrix(nodes)
 
         if hasattr(self,'split_labels') and not override:
             print("Clustering has already been done")
             # return self.split_labels
         else:
             self.split_labels = np.array(sdg.fit_predict(gain_matrix,*args,**kwargs))
+            # self.split_labels = np.array(sdg.fit_predict(raw_features,*args,**kwargs))
 
         cluster_set = set(self.split_labels)
         clusters = []
@@ -1387,9 +1390,46 @@ class Forest:
             plt.text(*coordinates,cluster,verticalalignment='center',horizontalalignment='center')
         plt.savefig("./tmp.delete.png",dpi=500)
 
-    # def cluster_distances(self):
-    #     for tree in self.trees:
-    #         pass
+
+    def plot_split_clusters(self,colorize=True):
+        if not hasattr(self,'split_clusters'):
+            print("Warning, split clusters not detected")
+            return None
+
+        tc = self.tsne(no_plot=True)
+
+        cluster_tc = np.zeros((len(self.split_clusters),2))
+
+        for i,cluster in enumerate(self.split_clusters):
+            cluster_sample_scores = self.split_cluster_sample_scores(i)
+            mean_coordinates = np.dot(cluster_sample_scores,tc) / np.sum(cluster_sample_scores)
+            cluster_tc[i] = mean_coordinates
+
+        combined_coordinates = np.zeros((self.output.shape[0]+len(self.split_clusters),2))
+
+        combined_coordinates[0:self.output.shape[0]] = tc
+
+        combined_coordinates[self.output.shape[0]:] = cluster_tc
+
+        highlight = np.ones(combined_coordinates.shape[0])
+        highlight[self.output.shape[0]:] = [len(cluster.nodes) for cluster in self.split_clusters]
+
+        combined_labels = np.zeros(self.output.shape[0]+len(self.split_clusters))
+        if colorize:
+            # combined_labels[0:len(self.sample_labels)] = self.sample_labels
+            combined_labels[self.output.shape[0]:] = [cluster.id for cluster in self.split_clusters]
+
+        # cluster_names = [cluster.id for cluster in self.sample_clusters]
+        # cluster_coordiantes = combined_coordinates[len(self.sample_labels):]
+
+        plt.figure(figsize=(5,5))
+        plt.title("TSNE-Transformed Cell Coordinates")
+        plt.scatter(combined_coordinates[:,0],combined_coordinates[:,1],s=highlight,c=combined_labels,cmap='rainbow')
+        # for cluster,coordinates in zip(cluster_names,cluster_coordiantes):
+        #     plt.text(*coordinates,cluster,verticalalignment='center',horizontalalignment='center')
+        plt.show()
+        # plt.savefig("./tmp.delete.png",dpi=500)
+
 
     def sample_cluster_coordinate_matrix(self):
         coordinates = np.zeros((len(self.sample_clusters),len(self.features)))
@@ -1457,77 +1497,6 @@ class Forest:
         ax.set_yticklabels(prereq_features[:50])
         # ax.grid(axis='y')
 
-    def node_feature_summary(self,nodes):
-
-        feature_counts = count_list_elements([n.feature['name'] for n in nodes])
-
-        feature_counts = list(feature_counts.items())
-
-        # return sorted(feature_counts)[::-1]
-        return sorted(feature_counts,key=lambda x: x[1])[::-1]
-
-    def find_node_cluster_divergence(self,c1,c2):
-        c1_index = [c.id for c in self.leaf_clusters].index(c1)
-        c1_leaves = self.leaf_clusters[c1_index].nodes
-        divergent_nodes = []
-        distances = []
-        for i,leaf in enumerate(c1_leaves):
-            divergence = leaf.find_cluster_divergence(c2)
-            divergent_nodes.append(divergence)
-            distances.append(leaf.level - divergence.level)
-        average_distance = np.mean(distances)
-        if np.is_nan(average_distance):
-            average_distance = np.mean([l.level for l in c1_leaves])
-        return average_distance,divergent_nodes,distances
-
-    def node_cluster_distance_matrix(self):
-        n = len(self.leaf_clusters)
-        distances = np.zeros((n,n))
-        for i in range(len(self.leaf_clusters)):
-            for j in range(len(self.leaf_clusters)):
-                average_distance,_,_ = self.find_node_cluster_divergence(self.leaf_clusters[i].id,self.leaf_clusters[j].id)
-                distances[i,j] += average_distance
-                distances[j,i] += average_distance
-        return distances
-
-    def node_divergence_encoding(self,nodes):
-        encoding = np.zeros((len(nodes),len(self.leaf_clusters),len(self.leaf_clusters)))
-        for i,node in enumerate(nodes):
-            encoding[i] = node.cluster_divergence_encoding()
-        return encoding
-
-    def cluster_divergence(self,**kwargs):
-        leaves = self.leaves()
-        leaf_clusters = self.leaf_clusters
-        stems = self.stems()
-        # roots = [t.root for t in self.trees]
-        # nodes = roots + stems
-        nodes = stems
-        encoding = self.node_divergence_encoding(nodes)
-        flat_encoding = np.array([ed.flatten() for ed in encoding])
-        # reduced = PCA(n_components=10).fit_transform(flat_encoding)
-        labels = np.array(sdg.fit_predict(flat_encoding,**kwargs))
-        for i,label in enumerate(labels):
-            labels[i] = label + len(leaf_clusters)
-
-        cluster_set = set(labels)
-
-        clusters = []
-
-        for cluster in cluster_set:
-            cluster_node_index = np.arange(len(labels))[labels == cluster]
-            cluster_nodes = [nodes[i] for i in cluster_node_index]
-            print(np.sum(labels == cluster))
-            print(len(cluster_nodes))
-            clusters.append(NodeCluster(self,cluster_nodes,cluster))
-
-        self.divergence_clusters = clusters
-        self.divergence_labels = labels
-
-        # for node,label in zip(nodes,labels):
-        #     node.set_cluster(label)
-
-        return nodes,labels,flat_encoding
 
     def reset_clusters(self):
         try:
@@ -1580,6 +1549,8 @@ class Forest:
         if transitions is None:
             transitions = self.split_cluster_transition_matrix()
 
+        transitions[np.identity(transitions.shape[0]).astype(dtype=bool)] = 0
+
         clusters = list(range(transitions.shape[0]))
 
         proto_tree = [[] for cluster in clusters]
@@ -1609,6 +1580,8 @@ class Forest:
 
         tree = finite_tree(cluster=entry,prototype=proto_tree,available=clusters)
 
+        self.likely_tree = tree
+
         return tree
 
     def split_cluster_sample_scores(self,cluster):
@@ -1618,38 +1591,6 @@ class Forest:
         cluster_encoding = encoding.T[indices].T
         return np.sum(cluster_encoding,axis=1) / cluster_encoding.shape[1]
 
-    def plot_sample_feature_split(self,gradient,plot_n=20):
-
-        left = gradient < .5
-        right = gradient >= .5
-
-        sample_sort = np.argsort(gradient)
-
-        left_counts = self.output[left]
-        right_counts = self.output[right]
-
-        left_mean_features = np.mean(left_counts,axis=0)
-        right_mean_features = np.mean(right_counts,axis=0)
-
-        sort_up_left = np.argsort(left_mean_features - right_mean_features)
-        sort_up_right = np.argsort(right_mean_features - left_mean_features)
-
-        features_up_left = self.output_features[sort_up_left]
-        features_up_right = self.output_features[sort_up_right]
-
-        plt.figure(figsize=(5,8))
-        plt.suptitle("Divergence of Features",fontsize=20)
-        ax1 = plt.subplot(211)
-        ax1.imshow(self.output[sample_sort].T[sort_up_right][-plot_n:],aspect='auto')
-        ax1.set_yticks(np.arange(plot_n))
-        ax1.set_yticklabels(features_up_right[-plot_n:],fontsize=14)
-        ax1.tick_params(axis='x',labelbottom=False)
-        ax2 = plt.subplot(212)
-        ax2.imshow(self.output[sample_sort].T[sort_up_left][-plot_n:],aspect='auto')
-        ax2.set_yticks(np.arange(plot_n))
-        ax2.set_yticklabels(features_up_left[-plot_n:],fontsize=14)
-        ax2.tick_params(axis='y',labelleft=False,labelright=True)
-        plt.show()
 
 
 class TruthDictionary:

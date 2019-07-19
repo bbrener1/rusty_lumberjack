@@ -132,8 +132,8 @@ impl IHMM {
     fn new(nodes:Vec<MarkovNode>) -> IHMM {
 
         // let emissions = MarkovNode::encode(&nodes);
-        // let emissions = MarkovNode::reduced_encode(&nodes);
-        let emissions = MarkovNode::sample_encode(&nodes);
+        let emissions = MarkovNode::reduced_encode(&nodes);
+        // let emissions = MarkovNode::sample_encode(&nodes);
 
         let features = emissions.dim().1;
 
@@ -199,6 +199,7 @@ impl IHMM {
         }
         eprintln!("Estimating prior");
         self.prior_emission_model = self.estimate_prior_features();
+        eprintln!("Live indices:{:?}",self.live_indices());
         for ni in self.live_indices() {
             self.nodes[ni].hidden_state = Some(thread_rng().gen_range(0,states));
             self.nodes[ni].oracle = rand::random::<f64>() < (1./(states as f64));
@@ -213,8 +214,8 @@ impl IHMM {
         let emissions = self.emissions.row(node_index);
         let node = &self.nodes[node_index];
         let ps = node.parent.map(|pi| self.nodes[pi].hidden_state).unwrap_or(None);
-        let cls = self.nodes[node.children?.0].hidden_state;// PARENT XX CHILD SWITCH
-        let crs = self.nodes[node.children?.1].hidden_state;
+        // let cls = self.nodes[node.children?.0].hidden_state;
+        // let crs = self.nodes[node.children?.1].hidden_state;
         // eprintln!("Computing feature log likelihoods");
 
         let mut state_log_odds = Vec::with_capacity(self.hidden_states.len() + 1);
@@ -234,7 +235,7 @@ impl IHMM {
                 feature_log_odds += self.new_state_feature_log_odds(&emissions);
             }
 
-            // feature_log_odds *= 0.5;
+            feature_log_odds *= 2.;
 
             // mixture_log_odds += self.population_model[[si]];
 

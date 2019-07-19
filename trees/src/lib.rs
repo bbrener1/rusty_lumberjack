@@ -175,7 +175,35 @@ impl Braid {
         // undesirable when comparing to ex [1,2,3,3,4,4,10], where conventional ranking would
         // rank 10 as 5.
 
-        let ranked_values: Vec<Vec<usize>> = rvs.iter().map(|rv| modified_competition_ranking(&rv.full_values())).collect();
+        let mut ranked_values: Vec<Vec<usize>> = rvs.iter().map(|rv| modified_competition_ranking(&rv.full_values())).collect();
+
+        // Now we would like to reverse any vectors that are opposed to the average direction of the overall vector
+
+        let midpoint = len/2;
+
+        let orientation =
+            ranked_values.iter()
+            .map(|v|
+                    ( v[..midpoint].iter()
+                        .map(|r| if *r > midpoint {1} else {0})
+                        .sum::<usize>(),
+                    v[..midpoint].iter()
+                        .map(|r| if *r > midpoint {1} else {0})
+                        .sum::<usize>()
+                    )
+                )
+            .map(|(left,right)| {
+                left > right
+            })
+            .collect::<Vec<bool>>();
+
+        for (orientation,rv) in orientation.iter().zip(ranked_values.iter_mut()) {
+            if *orientation {
+                for r in rv.iter_mut() {
+                    *r = len + 1 - *r;
+                }
+            }
+        }
 
         let mut compound_values: Vec<f64> = vec![0.;len];
 
@@ -194,6 +222,8 @@ impl Braid {
 
         let compound_vector = RankVector::<Vec<Node>>::link(&compound_values);
         let (draw_order,drop_set) = compound_vector.draw_and_drop();
+
+
 
         Braid {
             features,
