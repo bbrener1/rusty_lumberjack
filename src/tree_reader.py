@@ -718,10 +718,12 @@ class Forest:
         with open(location,mode='br') as f:
             return pickle.load(f)
 
-    def nodes(self,root=True):
+    def nodes(self,root=True,depth=None):
         nodes = []
         for tree in self.trees:
             nodes.extend(tree.nodes(root=root))
+        if depth is not None:
+            [n for n in nodes if n.level <= depth]
         return nodes
 
     def leaves(self):
@@ -730,10 +732,12 @@ class Forest:
             leaves.extend(tree.leaves())
         return leaves
 
-    def stems(self):
+    def stems(self,depth=None):
         stems = []
         for tree in self.trees:
             stems.extend(tree.stems())
+        if depth is not None:
+            stems = [s for s in stems if s.level <= depth]
         return stems
 
     def roots(self):
@@ -1289,10 +1293,17 @@ class Forest:
 
 
 
-    def interpret_splits(self,override=False,no_plot=False,*args,**kwargs):
+    def interpret_splits(self,override=False,no_plot=False,depth=3,*args,**kwargs):
 
-        nodes = self.nodes(root=True)
-        gain_matrix = self.local_gain_matrix(nodes).T+1
+
+        nodes = np.array(self.nodes(root=True,depth=depth))
+
+        stem_mask = np.array([n.level != 0 for n in nodes])
+        root_mask = np.logical_not(stem_mask)
+
+        labels = np.zeros(len(nodes))
+
+        gain_matrix = self.local_gain_matrix(stems).T+1
         # encoding = self.node_sample_encoding(nodes)
         # raw_features = self.raw_prediction_matrix(nodes)
 
@@ -1300,8 +1311,13 @@ class Forest:
             print("Clustering has already been done")
             # return self.split_labels
         else:
-            self.split_labels = np.array(sdg.fit_predict(gain_matrix,*args,**kwargs))
-            # self.split_labels = np.array(sdg.fit_predict(raw_features,*args,**kwargs))
+            stem_labels = np.array(sdg.fit_predict(gain_matrix,*args,**kwargs))
+            labels[root_mask] = len(set(stem_labels))
+            labels[stem_mask] = stem_labels
+            self.split_labels = labels
+
+        for node,label in zip(nodes,self.split_labels):
+            node.split_cluster = label
 
         cluster_set = set(self.split_labels)
         clusters = []
@@ -1401,8 +1417,8 @@ class Forest:
         cluster_tc = np.zeros((len(self.split_clusters),2))
 
         for i,cluster in enumerate(self.split_clusters):
-            cluster_sample_scores = self.split_cluster_sample_scores(i)
-            mean_coordinates = np.dot(cluster_sample_scores,tc) / np.sum(cluster_sample_scores)
+            cluster_sample_scores = cluster.cell_scores()
+            mean_coordinates = np.dot(np.power(cluster_sample_scores,2),tc) / np.sum(np.power(cluster_sample_scores,2))
             cluster_tc[i] = mean_coordinates
 
         combined_coordinates = np.zeros((self.output.shape[0]+len(self.split_clusters),2))
@@ -1519,25 +1535,30 @@ class Forest:
             node.child_clusters = ([],[])
             if hasattr(node,'cluster'):
                 del node.cluster
+            if hasattr(node,'split_cluster'):
+                del node.split_cluster
 
-    def split_cluster_transition_matrix(self):
+    def split_cluster_transition_matrix(self,depth=4):
 
-        nodes = np.array(self.nodes())
+        nodes = np.array(self.stems(depth=depth))
         labels = self.split_labels
-        clusters = set(self.split_labels)
+        clusters = set(labels)
         transitions = np.zeros((len(clusters)+1,len(clusters)+1))
 
         for cluster in clusters:
             mask = labels == cluster
             cluster_nodes = nodes[mask]
             for node in cluster_nodes:
-                node_state = labels[node.index]
+                node_state = node.split_cluster
                 for child in node.children:
-                    child_state = labels[child.index]
+                    if hasattr(child,'split_cluster'):
+                        child_state = child.split_cluster
+                    else:
+                        child_state = len(clusters)
                     transitions[node_state,child_state] += 1
                 if len(node.children) == 0:
                     transitions[node_state,-1] += 1
-                if node.parent is None:
+                if node.parent.level == 0:
                     transitions[-1,node_state] += 1
 
         self.split_cluster_transitions = transitions
@@ -1560,6 +1581,7 @@ class Forest:
             proto_tree[parent].append(cluster)
 
         print(f"Prototype:{proto_tree}")
+        print(f"Transitions:{transitions}")
 
         tree = []
 
@@ -1584,12 +1606,6 @@ class Forest:
 
         return tree
 
-    def split_cluster_sample_scores(self,cluster):
-
-        encoding = self.node_sample_encoding(self.nodes())
-        indices = np.arange(encoding.shape[1])[self.split_labels == cluster]
-        cluster_encoding = encoding.T[indices].T
-        return np.sum(cluster_encoding,axis=1) / cluster_encoding.shape[1]
 
 
 
@@ -1841,6 +1857,37 @@ class NodeCluster:
 
         plt.show()
 
+    def braid_scores(self):
+
+        braid_scores = np.zeros((len(self.nodes),len(self.forest.samples)))
+        occurrence = np.ones((len(self.nodes),len(self.forest.samples)))
+        td = self.forest.truth_dictionary
+
+        for (i,node) in enumerate(self.nodes):
+            compound_values = node.braid.compound_values
+            compound_values = compound_values - np.median(compound_values)
+            for (sample,value) in zip(node.samples,compound_values):
+                j = td.sample_dictionary[sample]
+                braid_scores[i,j] += value
+                occurrence[i,j] += 1
+
+        return np.sum(braid_scores,axis=0) / np.sum(occurrence,axis=0)
+
+
+    def braid_features(self):
+
+        counts = {}
+
+        for node in enumerate(self.nodes):
+            for feature in node.braid.features:
+                if feature not in counts:
+                    counts[feature] = 0
+                counts[feature] += 1
+
+        return counts
+
+
+
     def cell_cluster_frequency(self,plot=True):
         cell_cluster_labels = self.forest.sample_labels
         cell_counts = self.cell_counts()
@@ -1874,6 +1921,12 @@ class NodeCluster:
     def cell_frequency(self):
         encoding = self.encoding()
         return np.sum(encoding,axis=1)/np.sum(encoding.flatten())
+
+    def cell_scores(self):
+        forest_encoding = self.forest.node_sample_encoding(self.forest.nodes())
+        cluster_encoding = self.encoding()
+        return np.sum(cluster_encoding,axis=1) / np.sum(forest_encoding,axis=1)
+
 
     def prerequisites(self):
         prerequisite_dictionary = {}
