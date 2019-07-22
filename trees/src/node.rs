@@ -197,8 +197,9 @@ impl Node {
         let input_features: Vec<usize> = (0..self.input_features().len()).collect();
         let output_features: Vec<usize> = (0..self.output_features().len()).collect();
 
+        self.braids.push(braid);
         let mut new_braids = self.braids.clone();
-        new_braids.push(braid);
+
 
         let mut left_child = self.derive_specified(&left_indices, &input_features, &output_features, None, Some(new_braids.clone()), &left_child_id);
         let mut right_child = self.derive_specified(&right_indices, &input_features, &output_features, None, Some(new_braids), &right_child_id);

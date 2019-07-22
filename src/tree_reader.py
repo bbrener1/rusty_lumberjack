@@ -60,7 +60,7 @@ class Node:
         self.level = level
         self.split = node_json['split']
         self.prerequisites = node_json['prerequisites']
-        if len(node_json['braids']) > 0:
+        if len(node_json['braids']) > 0 and len(node_json['braids']) > level:
             self.braid = Braid(node_json['braids'][-1])
         self.features = np.array([f['name'] for f in node_json['features']])
         self.samples = np.array([s['name'] for s in node_json['samples']])
@@ -97,16 +97,6 @@ class Node:
             nodes.extend(child.nodes())
         for child in self.children:
             nodes.append(child)
-        return nodes
-
-    def cluster_nodes(self,cluster):
-        nodes = []
-        if cluster in self.child_clusters[0]:
-            nodes.extend(self.children[0].cluster_nodes(cluster))
-        if cluster in self.child_clusters[1]:
-            nodes.extend(self.children[1].cluster_nodes(cluster))
-        if self.cluster == cluster:
-            nodes.append(self)
         return nodes
 
     def leaves(self):
@@ -388,11 +378,6 @@ class Node:
                 distances[i,j] = distance
                 distances[j,i] = distance
         return distances
-
-    def set_cluster(self,cluster):
-        self.cluster = cluster
-        if self.parent is not None:
-            self.parent.add_child_cluster(cluster,self.lr)
 
     def add_child_cluster(self,cluster,lr):
         self.child_clusters[lr].append(cluster)
@@ -723,7 +708,7 @@ class Forest:
         for tree in self.trees:
             nodes.extend(tree.nodes(root=root))
         if depth is not None:
-            [n for n in nodes if n.level <= depth]
+            nodes = [n for n in nodes if n.level <= depth]
         return nodes
 
     def leaves(self):
@@ -1191,7 +1176,8 @@ class Forest:
 
         self.leaf_clusters = clusters
         for leaf,label in zip(leaves,self.leaf_labels):
-            leaf.set_cluster(label)
+            leaf.leaf_cluster = label
+            # leaf.set_cluster(label)
 
         return self.leaf_labels
 
@@ -1216,7 +1202,7 @@ class Forest:
 
         self.leaf_clusters = clusters
         for leaf,label in zip(leaves,self.leaf_labels):
-            leaf.set_cluster(label)
+            leaf.leaf_cluster = label
 
         return self.leaf_labels
 
@@ -1241,7 +1227,7 @@ class Forest:
 
         self.leaf_clusters = clusters
         for leaf,label in zip(leaves,self.leaf_labels):
-            leaf.set_cluster(label)
+            leaf.leaf_cluster = label
 
         return self.leaf_labels
 
@@ -1271,7 +1257,7 @@ class Forest:
 
         self.leaf_clusters = clusters
         for leaf,label in zip(leaves,self.leaf_labels):
-            leaf.set_cluster(label)
+            leaf.leaf_cluster = label
 
         return self.leaf_labels
 
@@ -1301,9 +1287,9 @@ class Forest:
         stem_mask = np.array([n.level != 0 for n in nodes])
         root_mask = np.logical_not(stem_mask)
 
-        labels = np.zeros(len(nodes))
+        labels = np.zeros(len(nodes)).astype(dtype=int)
 
-        gain_matrix = self.local_gain_matrix(stems).T+1
+        gain_matrix = self.local_gain_matrix(nodes).T
         # encoding = self.node_sample_encoding(nodes)
         # raw_features = self.raw_prediction_matrix(nodes)
 
@@ -1311,9 +1297,7 @@ class Forest:
             print("Clustering has already been done")
             # return self.split_labels
         else:
-            stem_labels = np.array(sdg.fit_predict(gain_matrix,*args,**kwargs))
-            labels[root_mask] = len(set(stem_labels))
-            labels[stem_mask] = stem_labels
+            labels[stem_mask] = 1 + np.array(sdg.fit_predict(gain_matrix[stem_mask],*args,**kwargs))
             self.split_labels = labels
 
         for node,label in zip(nodes,self.split_labels):
@@ -1325,7 +1309,7 @@ class Forest:
             split_index = np.arange(len(self.split_labels))[self.split_labels == cluster]
             clusters.append(NodeCluster(self,[nodes[i] for i in split_index],cluster))
 
-        split_order = np.argsort(self.split_labels)
+        split_order = np.argsort(self.split_labels[stem_mask])
         # split_order = dendrogram(linkage(gain_matrix,metric='cos',method='average'),no_plot=True)['leaves']
         feature_order = dendrogram(linkage(gain_matrix.T+1,metric='cosine',method='average'),no_plot=True)['leaves']
 
@@ -1533,14 +1517,14 @@ class Forest:
 
         for node in self.nodes():
             node.child_clusters = ([],[])
-            if hasattr(node,'cluster'):
-                del node.cluster
             if hasattr(node,'split_cluster'):
                 del node.split_cluster
+            if hasattr(node,'leaf_cluster'):
+                del node.leaf_cluster
 
-    def split_cluster_transition_matrix(self,depth=4):
+    def split_cluster_transition_matrix(self,depth=3):
 
-        nodes = np.array(self.stems(depth=depth))
+        nodes = np.array(self.nodes(depth=depth))
         labels = self.split_labels
         clusters = set(labels)
         transitions = np.zeros((len(clusters)+1,len(clusters)+1))
@@ -1558,17 +1542,17 @@ class Forest:
                     transitions[node_state,child_state] += 1
                 if len(node.children) == 0:
                     transitions[node_state,-1] += 1
-                if node.parent.level == 0:
+                if node.parent is None:
                     transitions[-1,node_state] += 1
 
         self.split_cluster_transitions = transitions
 
         return transitions
 
-    def most_likely_tree(self,cluster=None,tree=None,transitions=None):
+    def most_likely_tree(self,cluster=None,tree=None,depth=3,transitions=None):
 
         if transitions is None:
-            transitions = self.split_cluster_transition_matrix()
+            transitions = self.split_cluster_transition_matrix(depth=depth)
 
         transitions[np.identity(transitions.shape[0]).astype(dtype=bool)] = 0
 
@@ -1864,14 +1848,16 @@ class NodeCluster:
         td = self.forest.truth_dictionary
 
         for (i,node) in enumerate(self.nodes):
-            compound_values = node.braid.compound_values
-            compound_values = compound_values - np.median(compound_values)
-            for (sample,value) in zip(node.samples,compound_values):
-                j = td.sample_dictionary[sample]
-                braid_scores[i,j] += value
-                occurrence[i,j] += 1
+            if hasattr(node,'braid'):
+                compound_values = node.braid.compound_values
+                compound_values = compound_values - np.median(compound_values)
+                for (sample,value) in zip(node.samples,compound_values):
+                    j = td.sample_dictionary[sample]
+                    braid_scores[i,j] += value
+                    occurrence[i,j] += 1
 
-        return np.sum(braid_scores,axis=0) / np.sum(occurrence,axis=0)
+        # return np.sum(braid_scores,axis=0) / np.sum(occurrence,axis=0)
+        return np.sum(braid_scores,axis=0) / braid_scores.shape[0]
 
 
     def braid_features(self):
