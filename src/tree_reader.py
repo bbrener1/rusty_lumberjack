@@ -1309,7 +1309,7 @@ class Forest:
             split_index = np.arange(len(self.split_labels))[self.split_labels == cluster]
             clusters.append(NodeCluster(self,[nodes[i] for i in split_index],cluster))
 
-        split_order = np.argsort(self.split_labels[stem_mask])
+        split_order = np.argsort(self.split_labels)
         # split_order = dendrogram(linkage(gain_matrix,metric='cos',method='average'),no_plot=True)['leaves']
         feature_order = dendrogram(linkage(gain_matrix.T+1,metric='cosine',method='average'),no_plot=True)['leaves']
 
@@ -1401,9 +1401,7 @@ class Forest:
         cluster_tc = np.zeros((len(self.split_clusters),2))
 
         for i,cluster in enumerate(self.split_clusters):
-            cluster_sample_scores = cluster.cell_scores()
-            mean_coordinates = np.dot(np.power(cluster_sample_scores,2),tc) / np.sum(np.power(cluster_sample_scores,2))
-            cluster_tc[i] = mean_coordinates
+            cluster_tc[i] = cluster.coordinates(cocoordinates=tc)
 
         combined_coordinates = np.zeros((self.output.shape[0]+len(self.split_clusters),2))
 
@@ -1862,17 +1860,54 @@ class NodeCluster:
 
     def braid_features(self):
 
-        counts = {}
+        features = {}
 
-        for node in enumerate(self.nodes):
+        for i,node in enumerate(self.nodes):
             for feature in node.braid.features:
-                if feature not in counts:
-                    counts[feature] = 0
-                counts[feature] += 1
+                if feature not in features:
+                    features[feature] = [0,0]
+                features[feature][0] += 1
 
-        return counts
+        braid_scores = self.braid_scores()
 
+        for feature in features.keys():
+            feature_index = self.forest.truth_dictionary.feature_dictionary[feature]
+            feature_values = self.forest.output[:,feature_index]
+            features[feature][1] = np.sign(scipy.stats.spearmanr(feature_values,braid_scores)[0])
 
+        return features
+
+    def braid_vectors(self,coordinates=None):
+
+        braid_scores = self.braid_scores()
+        braid_features = self.braid_features()
+
+        sorted_features = sorted(list(braid_features.items()),key=lambda f: f[1][0])
+
+        positive_sample_mask = braid_scores > 0
+        negative_sample_mask = braid_scores < 0
+
+        if coordinates is None:
+            coordinates = self.forest.tsne(no_plot=True)
+
+        positive_vector = np.dot(np.power(braid_scores[positive_sample_mask],2),coordinates[positive_sample_mask]) / np.sum(np.power(braid_scores[positive_sample_mask],2))
+        negative_vector = np.dot(np.power(braid_scores[negative_sample_mask],2),coordinates[negative_sample_mask]) / np.sum(np.power(braid_scores[negative_sample_mask],2))
+
+        positive_features = [f for f in sorted_features if f[1][1] > 0][-5:]
+        negative_features = [f for f in sorted_features if f[1][1] < 0][-5:]
+
+        return ((positive_vector,positive_features),(negative_vector,negative_features))
+
+    def coordinates(self,coordinates=None):
+
+        if coordinates is None:
+            coordiantes = self.forest.tsne(no_plot=True)
+
+        cell_scores = self.cell_scores()
+        cell_scores = np.power(cell_scores,2)
+        mean_coordinates = np.dot(cell_scores,coordinates) / np.sum(cell_scores)
+
+        return mean_coordinates
 
     def cell_cluster_frequency(self,plot=True):
         cell_cluster_labels = self.forest.sample_labels
