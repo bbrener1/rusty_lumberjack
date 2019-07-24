@@ -1,3 +1,6 @@
+import matplotlib as mpl
+mpl.rcParams['figure.dpi'] = 300
+
 import matplotlib.pyplot as plt
 import numpy as np
 import re
@@ -1383,12 +1386,14 @@ class Forest:
         cluster_names = [cluster.id for cluster in self.sample_clusters]
         cluster_coordiantes = combined_coordinates[len(self.sample_labels):]
 
-        plt.figure(figsize=(5,5))
+        f = plt.figure(figsize=(5,5))
         plt.title("TSNE-Transformed Cell Coordinates")
         plt.scatter(combined_coordinates[:,0],combined_coordinates[:,1],s=highlight,c=combined_labels,cmap='rainbow')
         for cluster,coordinates in zip(cluster_names,cluster_coordiantes):
             plt.text(*coordinates,cluster,verticalalignment='center',horizontalalignment='center')
         plt.savefig("./tmp.delete.png",dpi=500)
+
+        return f
 
 
     def plot_split_clusters(self,colorize=True):
@@ -1401,7 +1406,7 @@ class Forest:
         cluster_tc = np.zeros((len(self.split_clusters),2))
 
         for i,cluster in enumerate(self.split_clusters):
-            cluster_tc[i] = cluster.coordinates(cocoordinates=tc)
+            cluster_tc[i] = cluster.coordinates(coordinates=tc)
 
         combined_coordinates = np.zeros((self.output.shape[0]+len(self.split_clusters),2))
 
@@ -1414,20 +1419,19 @@ class Forest:
 
         combined_labels = np.zeros(self.output.shape[0]+len(self.split_clusters))
         if colorize:
-            # combined_labels[0:len(self.sample_labels)] = self.sample_labels
             combined_labels[self.output.shape[0]:] = [cluster.id for cluster in self.split_clusters]
 
-        # cluster_names = [cluster.id for cluster in self.sample_clusters]
-        # cluster_coordiantes = combined_coordinates[len(self.sample_labels):]
+        cluster_names = [cluster.id for cluster in self.split_clusters]
+        cluster_coordiantes = combined_coordinates[-1 * len(self.split_clusters):]
 
-        plt.figure(figsize=(5,5))
+        f = plt.figure(figsize=(5,5))
         plt.title("TSNE-Transformed Cell Coordinates")
         plt.scatter(combined_coordinates[:,0],combined_coordinates[:,1],s=highlight,c=combined_labels,cmap='rainbow')
-        # for cluster,coordinates in zip(cluster_names,cluster_coordiantes):
-        #     plt.text(*coordinates,cluster,verticalalignment='center',horizontalalignment='center')
+        for cluster,coordinates in zip(cluster_names,cluster_coordiantes):
+            plt.text(*coordinates,cluster,verticalalignment='center',horizontalalignment='center')
         plt.show()
-        # plt.savefig("./tmp.delete.png",dpi=500)
 
+        return f
 
     def sample_cluster_coordinate_matrix(self):
         coordinates = np.zeros((len(self.sample_clusters),len(self.features)))
@@ -1588,8 +1592,59 @@ class Forest:
 
         return tree
 
+    def plot_manifold(self):
+
+        f = self.plot_cell_clusters()
+
+        most_likely_tree = self.most_likely_tree()
+
+        def recursive_tree_plot(parent,children,figure):
+            print("Recursion debug")
+            print(f"p:{parent}")
+            print(f"c:{children}")
+            pc = self.split_clusters[parent].coordinates()
+            vectors = []
+            for child,sub_children in children:
+                if child == len(self.split_clusters):
+                    continue
+                cc = self.split_clusters[child].coordinates()
+                print("coordinates")
+                print(f"p{parent}:{pc}")
+                print(f"c{child}:{cc}")
+                # v = pc - cc
+                v = cc - pc
+                plt.figure(figure.number)
+                plt.arrow(pc[0],pc[1],v[0],v[1],width=1,length_includes_head=True)
+                vectors.append((pc,v))
+                figure,cv = recursive_tree_plot(child,sub_children,figure)
+                vectors.extend(cv)
+            print("===============")
+            return figure,vectors
+
+        f,v = recursive_tree_plot(most_likely_tree[0],most_likely_tree[1],f)
+
+        # for pc,m in v:
+        #     print(f"Plotting {pc,pc+m,m}")
+        #     plt.figure(figsize=(10,10))
+        #     plt.arrow(pc[0],pc[1],m[0],m[1],width=1,length_includes_head=True)
+        #     plt.xlim(-40,40)
+        #     plt.ylim(-40,40)
+        #     plt.grid(which='both')
+        #     # plt.savefig("./tmp.delete.png",dpi=300)
+        #     plt.show()
+
+        # f = self.plot_cell_clusters()
+        # plt.figure(f.number)
+        # for pc,m in v:
+        #     plt.arrow(pc[0],pc[1],m[0],m[1],width=1,length_includes_head=True)
+        # plt.xlim(-40,40)
+        # plt.ylim(-40,40)
+        # plt.grid(which='both')
+        plt.savefig("./tmp.delete.png",dpi=300)
+        # plt.show()
 
 
+        return f,v
 
 class TruthDictionary:
 
@@ -1898,10 +1953,35 @@ class NodeCluster:
 
         return ((positive_vector,positive_features),(negative_vector,negative_features))
 
+    def plot_braid_vectors(self,figure=None,coordinates=None,scatter=True,show=True):
+
+        if figure is None:
+            figure = plt.figure(figsize=(10,10))
+
+        if coordinates is None:
+            coordinates = self.forest.tsne(no_plot=True)
+
+        plt.figure(figure.number)
+
+        (positive_vector,positive_features),(negative_vector,negative_features) = self.braid_vectors()
+
+        cc = self.coordinates(coordinates=coordinates)
+
+        plt.figure(figure.number)
+        if scatter:
+            braid_color = self.braid_scores()
+            plt.scatter(coordinates[:,0],coordinates[:,1],c=braid_color,s=2,cmap='bwr')
+        plt.scatter(cc[0],cc[1],s=200)
+        plt.arrow(cc[0],cc[1],(positive_vector[0]-cc[0]) * .7 ,(positive_vector[1]-cc[1]) * .7 ,width=1,color='red')
+        plt.arrow(cc[0],cc[1],(negative_vector[0]-cc[0]) * .7 ,(negative_vector[1]-cc[1]) * .7 ,width=1,color='blue')
+        if show:
+            plt.show()
+        return figure
+
     def coordinates(self,coordinates=None):
 
         if coordinates is None:
-            coordiantes = self.forest.tsne(no_plot=True)
+            coordinates = self.forest.tsne(no_plot=True)
 
         cell_scores = self.cell_scores()
         cell_scores = np.power(cell_scores,2)
@@ -1944,9 +2024,11 @@ class NodeCluster:
         return np.sum(encoding,axis=1)/np.sum(encoding.flatten())
 
     def cell_scores(self):
-        forest_encoding = self.forest.node_sample_encoding(self.forest.nodes())
+        # forest_encoding = self.forest.node_sample_encoding(self.forest.nodes())
+        # cluster_encoding = self.encoding()
+        # return np.sum(cluster_encoding,axis=1) / np.sum(forest_encoding,axis=1)
         cluster_encoding = self.encoding()
-        return np.sum(cluster_encoding,axis=1) / np.sum(forest_encoding,axis=1)
+        return np.sum(cluster_encoding,axis=1) / cluster_encoding.shape[1]
 
 
     def prerequisites(self):
@@ -2281,3 +2363,8 @@ def count_list_elements(elements):
             dict[element] = 0
         dict[element] += 1
     return dict
+
+
+if __name__ != "__main__":
+    import matplotlib as mpl
+    mpl.rcParams['figure.dpi'] = 300
