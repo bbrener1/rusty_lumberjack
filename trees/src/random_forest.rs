@@ -125,7 +125,9 @@ impl Forest {
 
     }
 
-
+    pub fn local_gain_matrix(&self) {
+        unimplemented!()
+    }
 
     // pub fn set_leaf_weights(&mut self) {
     //     let truth = self.counts.clone();

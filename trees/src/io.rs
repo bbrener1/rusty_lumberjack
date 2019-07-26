@@ -201,6 +201,8 @@ pub struct Parameters {
     pub input_features: usize,
     pub output_features: usize,
 
+    pub braid_thickness: usize,
+
     pub prediction_mode: PredictionMode,
     pub averaging_mode: AveragingMode,
     pub norm_mode: NormMode,
@@ -249,6 +251,8 @@ impl Parameters {
             sample_subsample: 1,
             input_features: 1,
             output_features: 1,
+
+            braid_thickness: 4,
 
             prediction_mode: PredictionMode::Abort,
             averaging_mode: AveragingMode::Arithmetic,

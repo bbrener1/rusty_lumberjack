@@ -543,6 +543,7 @@ dependencies = [
 name = "trees"
 version = "0.1.0"
 dependencies = [
+ "ndarray 0.12.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "num-traits 0.2.8 (registry+https://github.com/rust-lang/crates.io-index)",
  "num_cpus 1.10.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "rand 0.6.5 (registry+https://github.com/rust-lang/crates.io-index)",

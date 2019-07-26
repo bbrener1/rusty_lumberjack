@@ -141,21 +141,39 @@ impl Node {
 
         // Here we can either resample the compute node multiple times or simply take the top 4 features. I am leaning towards the latter as the approach
 
+        // This block represents complete resampling:
+
+        let mut features = Vec::with_capacity(thickness);
+
+        for i in 0..thickness {
+            let mut compact = self.subsample(samples,input_features,output_features);
+            if let Some(Split{feature,..}) = compact.rayon_best_split() {
+                features.push(feature);
+            }
+        }
+
+        // This block represents one subsampling and taking the top 4 features:
+
+        // let mut features: Vec<Feature> =
+        //     self.subsample(samples,input_features,output_features)
+        //     .rayon_best_n_split(thickness)
+        //     .into_iter()
+        //     .map(|s| s.feature)
+        //     .collect();
+
+        // This block represents resampling the input features and samples, but not the output features:
+
         // let mut features = Vec::with_capacity(thickness);
         //
-        // for i in 0..thickness {
-        //     let mut compact = self.subsample(samples,input_features,output_features);
-        //     if let Some(Split{feature,..}) = compact.rayon_best_split() {
+        // let sisters = self.subsample_n_sisters(samples,input_features,output_features,thickness);
+        //
+        // for sister in sisters {
+        //     if let Some(Split{feature,..}) = sister.rayon_best_split() {
         //         features.push(feature);
         //     }
         // }
 
-        let mut features: Vec<Feature> =
-            self.subsample(samples,input_features,output_features)
-            .rayon_best_n_split(thickness)
-            .into_iter()
-            .map(|s| s.feature)
-            .collect();
+        // One of the three above alternatives has to be picked.
 
         let samples = self.samples.clone();
 
@@ -357,6 +375,31 @@ impl Node {
         let id = format!("{}!SSS",self.id,).to_string();
         self.derive_specified(&si,&ifi,&ofi,None,None,&id)
     }
+
+    pub fn subsample_n_sisters(&self,samples:usize,input_features:usize,output_features:usize,n:usize) -> Vec<Node> {
+
+        let mut sisters: Vec<Node> = Vec::with_capacity(n);
+
+        let mut rng = rand::thread_rng();
+
+        let output_fvec = self.output_features();
+        let output_features: Vec<(usize,Feature)> = (0..output_features).map(|_| rng.gen_range(0,self.output_table.dimensions.0)).map(|i| (i,output_fvec[i].clone())).collect();
+
+        let input_fvec = self.input_features();
+
+        for sister in 0..n {
+            let input_features: Vec<(usize,Feature)> = (0..input_features).map(|_| rng.gen_range(0,self.input_table.dimensions.0)).map(|i| (i,input_fvec[i].clone())).collect();
+            let samples = self.draw_random_samples(samples);
+            let ifi: Vec<usize> = input_features.into_iter().map(|(i,f)| i).collect();
+            let ofi: Vec<usize> = output_features.iter().map(|(i,f)| *i).collect();
+            let si: Vec<usize> = samples.into_iter().map(|(i,s)| i).collect();
+            let id = format!("{}!SSS",self.id,).to_string();
+            sisters.push(self.derive_specified(&si,&ifi,&ofi,None,None,&id));
+        }
+
+        sisters
+    }
+
 
     pub fn report(&self,verbose:bool) {
         println!("Node reporting:");
