@@ -1349,7 +1349,7 @@ class Forest:
                     filtered.append(cell)
         return filtered
 
-    def plot_cell_clusters(self,colorize=True):
+    def plot_cell_clusters(self,colorize=True,label=True):
         if not hasattr(self,'leaf_clusters'):
             print("Warning, leaf clusters not detected")
             return None
@@ -1386,13 +1386,18 @@ class Forest:
         cluster_names = [cluster.id for cluster in self.sample_clusters]
         cluster_coordiantes = combined_coordinates[len(self.sample_labels):]
 
-        f = plt.figure(figsize=(5,5))
-        plt.title("TSNE-Transformed Cell Coordinates")
-        plt.scatter(combined_coordinates[:,0],combined_coordinates[:,1],s=highlight,c=combined_labels,cmap='rainbow')
-        for cluster,coordinates in zip(cluster_names,cluster_coordiantes):
-            plt.text(*coordinates,cluster,verticalalignment='center',horizontalalignment='center')
-        plt.savefig("./tmp.delete.png",dpi=500)
-
+        if label:
+            f = plt.figure(figsize=(10,10))
+            plt.title("TSNE-Transformed Cell Coordinates")
+            plt.scatter(combined_coordinates[:,0],combined_coordinates[:,1],s=highlight,c=combined_labels,cmap='rainbow')
+            for cluster,coordinates in zip(cluster_names,cluster_coordiantes):
+                plt.text(*coordinates,cluster,verticalalignment='center',horizontalalignment='center')
+            plt.savefig("./tmp.delete.png",dpi=300)
+        else:
+            f = plt.figure(figsize=(10,10))
+            plt.title("TSNE-Transformed Cell Coordinates")
+            plt.scatter(combined_coordinates[:len(self.samples),0],combined_coordinates[:len(self.samples),1],s=1,c=combined_labels[:len(self.samples)],cmap='rainbow')
+            plt.savefig("./tmp.delete.png",dpi=300)
         return f
 
 
@@ -1551,7 +1556,7 @@ class Forest:
 
         return transitions
 
-    def most_likely_tree(self,cluster=None,tree=None,depth=3,transitions=None):
+    def most_likely_tree(self,depth=3,transitions=None):
 
         if transitions is None:
             transitions = self.split_cluster_transition_matrix(depth=depth)
@@ -1592,11 +1597,39 @@ class Forest:
 
         return tree
 
-    def plot_manifold(self):
+    def maximum_spanning_tree(self,depth=3,transitions=None):
+
+        transitions = self.split_cluster_transition_matrix(depth=depth)
+        transitions[:,-1] = 0
+        mst = scipy.sparse.csgraph.minimum_spanning_tree(-1*transitions).todense()*-1
+        mst
+        clusters = set(range(transitions[:-1].shape[0]))
+
+        def finite_tree(cluster,available):
+            print(cluster)
+            children = []
+            try:
+                available.remove(cluster)
+            except:
+                pass
+            for child in np.arange(transitions.shape[0])[transitions[cluster] > 0]:
+                if child in available:
+                    available.remove(child)
+                    children.append(child)
+            return [cluster,[finite_tree(child,available) for child in children]]
+
+        tree = finite_tree(0,clusters)
+
+        self.maximum_tree = tree
+
+        return tree
+
+    def plot_manifold(self,depth=3):
 
         f = self.plot_cell_clusters()
 
-        most_likely_tree = self.most_likely_tree()
+        # most_likely_tree = self.most_likely_tree(depth=depth)
+        most_likely_tree = self.maximum_spanning_tree(depth=depth)
 
         def recursive_tree_plot(parent,children,figure):
             print("Recursion debug")
@@ -1623,28 +1656,20 @@ class Forest:
 
         f,v = recursive_tree_plot(most_likely_tree[0],most_likely_tree[1],f)
 
-        # for pc,m in v:
-        #     print(f"Plotting {pc,pc+m,m}")
-        #     plt.figure(figsize=(10,10))
-        #     plt.arrow(pc[0],pc[1],m[0],m[1],width=1,length_includes_head=True)
-        #     plt.xlim(-40,40)
-        #     plt.ylim(-40,40)
-        #     plt.grid(which='both')
-        #     # plt.savefig("./tmp.delete.png",dpi=300)
-        #     plt.show()
-
-        # f = self.plot_cell_clusters()
-        # plt.figure(f.number)
-        # for pc,m in v:
-        #     plt.arrow(pc[0],pc[1],m[0],m[1],width=1,length_includes_head=True)
-        # plt.xlim(-40,40)
-        # plt.ylim(-40,40)
-        # plt.grid(which='both')
         plt.savefig("./tmp.delete.png",dpi=300)
-        # plt.show()
-
 
         return f,v
+
+    def plot_braid_vectors(self):
+
+        f = self.plot_cell_clusters(label=False)
+
+        for cluster in self.split_clusters:
+            f = cluster.plot_braid_vectors(figure=f,scatter=False,show=False)
+
+        plt.savefig("./tmp.delete.png",dpi=300)
+
+        return f
 
 class TruthDictionary:
 
@@ -1971,9 +1996,9 @@ class NodeCluster:
         if scatter:
             braid_color = self.braid_scores()
             plt.scatter(coordinates[:,0],coordinates[:,1],c=braid_color,s=2,cmap='bwr')
-        plt.scatter(cc[0],cc[1],s=200)
-        plt.arrow(cc[0],cc[1],(positive_vector[0]-cc[0]) * .7 ,(positive_vector[1]-cc[1]) * .7 ,width=1,color='red')
-        plt.arrow(cc[0],cc[1],(negative_vector[0]-cc[0]) * .7 ,(negative_vector[1]-cc[1]) * .7 ,width=1,color='blue')
+        # plt.scatter(cc[0],cc[1],s=200)
+        plt.arrow(cc[0],cc[1],(positive_vector[0]-cc[0]) * 1. ,(positive_vector[1]-cc[1]) * 1. ,width=1,color='red')
+        plt.arrow(cc[0],cc[1],(negative_vector[0]-cc[0]) * 1. ,(negative_vector[1]-cc[1]) * 1. ,width=1,color='blue')
         if show:
             plt.show()
         return figure

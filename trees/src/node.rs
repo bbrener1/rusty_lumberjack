@@ -138,13 +138,24 @@ impl Node {
         if !self.prototype { panic!("Attempted to take a braid off an incomplete node") };
 
         let thickness = 4;
-        let mut features = Vec::with_capacity(thickness);
-        for i in 0..thickness {
-            let mut compact = self.subsample(samples,input_features,output_features);
-            if let Some(Split{feature,..}) = compact.rayon_best_split() {
-                features.push(feature);
-            }
-        }
+
+        // Here we can either resample the compute node multiple times or simply take the top 4 features. I am leaning towards the latter as the approach
+
+        // let mut features = Vec::with_capacity(thickness);
+        //
+        // for i in 0..thickness {
+        //     let mut compact = self.subsample(samples,input_features,output_features);
+        //     if let Some(Split{feature,..}) = compact.rayon_best_split() {
+        //         features.push(feature);
+        //     }
+        // }
+
+        let mut features: Vec<Feature> =
+            self.subsample(samples,input_features,output_features)
+            .rayon_best_n_split(thickness)
+            .into_iter()
+            .map(|s| s.feature)
+            .collect();
 
         let samples = self.samples.clone();
 
@@ -168,6 +179,20 @@ impl Node {
             .collect();
         let dispersions: Vec<f64> = splits.iter().map(|s| s.dispersion).collect();
         Some(splits[argmin(&dispersions)?.0].clone())
+
+    }
+
+    pub fn rayon_best_n_split(&self,n:usize) -> Vec<Split> {
+
+        let splits: Vec<Split> =
+            (0..self.input_features().len())
+            .into_par_iter()
+            .flat_map(|i| self.feature_index_split(i))
+            .collect();
+        let mut n_dispersions: Vec<(usize,f64)> = splits.iter().map(|s| s.dispersion).enumerate().collect();
+        n_dispersions.sort_by(|a,b| a.1.partial_cmp(&b.1).expect("Nan dispersion"));
+        let top_n = n_dispersions.iter().take(n).map(|(i,d)| splits[*i].clone()).collect();
+        top_n
 
     }
 
