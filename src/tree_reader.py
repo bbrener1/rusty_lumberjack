@@ -1350,9 +1350,9 @@ class Forest:
         return filtered
 
     def plot_cell_clusters(self,colorize=True,label=True):
-        if not hasattr(self,'leaf_clusters'):
-            print("Warning, leaf clusters not detected")
-            return None
+        # if not hasattr(self,'leaf_clusters'):
+        #     print("Warning, leaf clusters not detected")
+        #     return None
         if not hasattr(self,'sample_clusters'):
             print("Warning, cell clusters not detected")
             return None
@@ -1591,9 +1591,23 @@ class Forest:
                     children.append(child)
             return [cluster,[finite_tree(child,prototype,available) for child in children]]
 
+        def reverse_tree(tree):
+            root = tree[0]
+            sub_trees = tree[1]
+            child_entries = {}
+            for sub_tree in sub_trees:
+                for child,path in reverse_tree(sub_tree).items():
+                    path.append(root)
+                    child_entries[child] = path
+            child_entries[root] = []
+            return child_entries
+
+
         tree = finite_tree(cluster=entry,prototype=proto_tree,available=clusters)
+        rtree = reverse_tree(tree)
 
         self.likely_tree = tree
+        self.reverse_likely_tree = rtree
 
         return tree
 
@@ -1618,9 +1632,22 @@ class Forest:
                     children.append(child)
             return [cluster,[finite_tree(child,available) for child in children]]
 
+        def reverse_tree(tree):
+            root = tree[0]
+            sub_trees = tree[1]
+            child_entries = {}
+            for sub_tree in sub_trees:
+                for child,path in reverse_tree(sub_tree).items():
+                    path.append(root)
+                    child_entries[child] = path
+            child_entries[root] = []
+            return child_entries
+
         tree = finite_tree(0,clusters)
+        rtree = reverse_tree(tree)
 
         self.maximum_tree = tree
+        self.reverse_maximum_tree = rtree
 
         return tree
 
@@ -1628,8 +1655,8 @@ class Forest:
 
         f = self.plot_cell_clusters()
 
-        # most_likely_tree = self.most_likely_tree(depth=depth)
-        most_likely_tree = self.maximum_spanning_tree(depth=depth)
+        most_likely_tree = self.most_likely_tree(depth=depth)
+        # most_likely_tree = self.maximum_spanning_tree(depth=depth)
 
         def recursive_tree_plot(parent,children,figure):
             print("Recursion debug")
@@ -1997,8 +2024,9 @@ class NodeCluster:
             braid_color = self.braid_scores()
             plt.scatter(coordinates[:,0],coordinates[:,1],c=braid_color,s=2,cmap='bwr')
         # plt.scatter(cc[0],cc[1],s=200)
-        plt.arrow(cc[0],cc[1],(positive_vector[0]-cc[0]) * 1. ,(positive_vector[1]-cc[1]) * 1. ,width=1,color='red')
-        plt.arrow(cc[0],cc[1],(negative_vector[0]-cc[0]) * 1. ,(negative_vector[1]-cc[1]) * 1. ,width=1,color='blue')
+        fraction = .3
+        plt.arrow(cc[0],cc[1],(positive_vector[0]-cc[0]) * fraction ,(positive_vector[1]-cc[1]) * fraction ,width=1,color='red')
+        plt.arrow(cc[0],cc[1],(negative_vector[0]-cc[0]) * fraction ,(negative_vector[1]-cc[1]) * fraction ,width=1,color='blue')
         if show:
             plt.show()
         return figure
