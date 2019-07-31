@@ -553,7 +553,7 @@ impl Node {
     }
 
     pub fn sample_names(&self) -> Vec<String> {
-        self.samples().iter().map(|s| s.name().clone()).collect()
+        self.samples().iter().map(|s| s.name().to_owned()).collect()
     }
 
     pub fn input_features(&self) -> &[Feature] {
@@ -561,7 +561,7 @@ impl Node {
     }
 
     pub fn input_feature_names(&self) -> Vec<String> {
-        self.input_features().iter().map(|f| f.name().clone()).collect()
+        self.input_features().iter().map(|f| f.name().to_owned()).collect()
     }
 
     pub fn output_features(&self) -> &[Feature] {
@@ -569,7 +569,7 @@ impl Node {
     }
 
     pub fn output_feature_names(&self) -> Vec<String> {
-        self.output_features().iter().map(|f| f.name().clone()).collect()
+        self.output_features().iter().map(|f| f.name().to_owned()).collect()
     }
 
     // In this function we iterate through prerequisites and select only ones that either were dropped in a given feature
@@ -742,7 +742,7 @@ impl StrippedNode {
     }
 
     pub fn feature_names(&self) -> Vec<String> {
-        self.features().iter().map(|f| f.name().clone()).collect()
+        self.features().iter().map(|f| f.name().to_owned()).collect()
     }
 
     pub fn dimensions(&self) -> (usize,usize) {
@@ -839,56 +839,56 @@ impl StrippedNode {
             child.compute_absolute_gains(&self.dispersions);
         }
     }
+    //
+    // pub fn predict_leaves(&self,vector: &Vec<f64>, header: &HashMap<String,usize>,drop_mode: &DropMode, prediction_mode:&PredictionMode) -> Vec<&StrippedNode> {
+    //
+    //     let mut leaves = vec![];
+    //
+    //     if let Some(Split{feature,value:split, ..}) = self.split() {
+    //         if *vector.get(*header.get(feature.name()).unwrap_or(&(vector.len()+1))).unwrap_or(&drop_mode.cmp()) != drop_mode.cmp() {
+    //             if vector[header[feature.name()]] > *split {
+    //                 leaves.extend(self.children[1].predict_leaves(vector, header, drop_mode, prediction_mode));
+    //             }
+    //             else {
+    //                 leaves.extend(self.children[0].predict_leaves(vector, header, drop_mode, prediction_mode));
+    //             }
+    //         }
+    //         else {
+    //             match prediction_mode {
+    //                 &PredictionMode::Branch => {
+    //                     // println!("Mode is branching");
+    //                     leaves.extend(self.children[1].predict_leaves(vector, header, drop_mode, prediction_mode));
+    //                     leaves.extend(self.children[0].predict_leaves(vector, header, drop_mode, prediction_mode));
+    //                     // println!("{}", leaves.len());
+    //                 },
+    //                 &PredictionMode::Truncate => {
+    //                     leaves.push(&self)
+    //                 },
+    //                 &PredictionMode::Abort => {},
+    //                 &PredictionMode::Auto => {
+    //                     leaves.extend(self.predict_leaves(vector, header, drop_mode, prediction_mode));
+    //                 }
+    //             }
+    //         }
+    //     }
+    //     else {
+    //         // println!("Found a leaf");
+    //         leaves.push(&self);
+    //     }
+    //
+    //     leaves
+    //
+    // }
 
-    pub fn predict_leaves(&self,vector: &Vec<f64>, header: &HashMap<String,usize>,drop_mode: &DropMode, prediction_mode:&PredictionMode) -> Vec<&StrippedNode> {
-
-        let mut leaves = vec![];
-
-        if let Some(Split{feature,value:split, ..}) = self.split() {
-            if *vector.get(*header.get(feature.name()).unwrap_or(&(vector.len()+1))).unwrap_or(&drop_mode.cmp()) != drop_mode.cmp() {
-                if vector[header[feature.name()]] > *split {
-                    leaves.extend(self.children[1].predict_leaves(vector, header, drop_mode, prediction_mode));
-                }
-                else {
-                    leaves.extend(self.children[0].predict_leaves(vector, header, drop_mode, prediction_mode));
-                }
-            }
-            else {
-                match prediction_mode {
-                    &PredictionMode::Branch => {
-                        // println!("Mode is branching");
-                        leaves.extend(self.children[1].predict_leaves(vector, header, drop_mode, prediction_mode));
-                        leaves.extend(self.children[0].predict_leaves(vector, header, drop_mode, prediction_mode));
-                        // println!("{}", leaves.len());
-                    },
-                    &PredictionMode::Truncate => {
-                        leaves.push(&self)
-                    },
-                    &PredictionMode::Abort => {},
-                    &PredictionMode::Auto => {
-                        leaves.extend(self.predict_leaves(vector, header, drop_mode, prediction_mode));
-                    }
-                }
-            }
-        }
-        else {
-            // println!("Found a leaf");
-            leaves.push(&self);
-        }
-
-        leaves
-
-    }
-
-    pub fn node_sample_encoding(&self,header: &HashMap<String,usize>) -> Vec<bool> {
-        let mut encoding = vec![false; header.len()];
-        for sample in self.samples() {
-            if let Some(sample_index) = header.get(sample.name()) {
-                encoding[*sample_index] = true;
-            }
-        }
-        encoding
-    }
+    // pub fn node_sample_encoding(&self,header: &HashMap<String,usize>) -> Vec<bool> {
+    //     let mut encoding = vec![false; header.len()];
+    //     for sample in self.samples() {
+    //         if let Some(sample_index) = header.get(&sample.name()) {
+    //             encoding[*sample_index] = true;
+    //         }
+    //     }
+    //     encoding
+    // }
 
     pub fn from_json(input:&str) -> Result<StrippedNode,serde_json::Error> {
         // eprintln!("{:?}", input);

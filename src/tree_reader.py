@@ -464,6 +464,7 @@ class Node:
             child_masks[i] = child.sample_mask()
         return child_masks
 
+
 class Braid:
 
     def __init__(self,braid_json):
@@ -1096,7 +1097,7 @@ class Forest:
         sample = {feature:value for feature,value in zip(features,vector)}
         return self.abort_sample_leaves(sample)
 
-    def cluster_samples_simple(self,override=False,*args,**kwargs):
+    def cluster_samples_simple(self,override=False,pca=False,*args,**kwargs):
 
         counts = self.output
 
@@ -1104,7 +1105,10 @@ class Forest:
             print("Clustering has already been done")
             return self.sample_labels
         else:
-            self.sample_labels = np.array(sdg.fit_predict(counts,*args,**kwargs))
+            if pca:
+                self.sample_labels = np.array(sdg.fit_predict(PCA(n_components=10).fit_transform(counts),*args,**kwargs))
+            else:
+                self.sample_labels = np.array(sdg.fit_predict(counts,*args,**kwargs))
 
         cluster_set = set(self.sample_labels)
         clusters = []
@@ -1444,9 +1448,12 @@ class Forest:
             coordinates[i] = sample_cluster.median_feature_values()
         return coordinates
 
-    def tsne(self,no_plot=False,override=False,**kwargs):
+    def tsne(self,no_plot=False,pca=False,override=False,**kwargs):
         if not hasattr(self,'tsne_coordinates') or override:
-            self.tsne_coordinates = TSNE().fit_transform(self.output)
+            if pca:
+                self.tsne_coordinates = TSNE().fit_transform(PCA(n_components=10).fit_transform(self.output))
+            else:
+                self.tsne_coordinates = TSNE().fit_transform(self.output)
 
         if not no_plot:
             plt.figure()

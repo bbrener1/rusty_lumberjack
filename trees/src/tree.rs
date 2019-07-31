@@ -194,9 +194,9 @@ impl<'a> Tree {
         Ok(())
     }
 
-    pub fn predict_leaves(&self,vector:&Vec<f64>, header: &HashMap<String,usize>, prediction_mode:&PredictionMode, drop_mode: &DropMode) -> Vec<&StrippedNode> {
-        self.root.predict_leaves(vector,header,drop_mode,prediction_mode)
-    }
+    // pub fn predict_leaves(&self,vector:&Vec<f64>, header: &HashMap<String,usize>, prediction_mode:&PredictionMode, drop_mode: &DropMode) -> Vec<&StrippedNode> {
+    //     self.root.predict_leaves(vector,header,drop_mode,prediction_mode)
+    // }
 
 
 

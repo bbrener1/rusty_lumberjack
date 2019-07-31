@@ -45,7 +45,7 @@ use rank_vector::{RankVector,Node};
 
 #[derive(Debug,Clone,Serialize,Deserialize,PartialEq,Eq,Hash)]
 pub struct Feature {
-    name: String,
+    name: Option<String>,
     index: usize,
 }
 
@@ -60,15 +60,15 @@ impl Feature {
     }
 
     pub fn q(index:&usize) -> Feature {
-        Feature {name: index.to_string(),index:*index}
+        Feature {name: None,index:*index}
     }
 
     pub fn new(name:&str,index:&usize) -> Feature {
-        Feature {name: name.to_owned(),index:*index}
+        Feature {name: Some(name.to_owned()),index:*index}
     }
 
-    pub fn name(&self) -> &String {
-        &self.name
+    pub fn name(&self) -> String {
+        self.name.clone().unwrap_or(self.index.to_string())
     }
 
     pub fn index(&self) -> &usize {
@@ -78,7 +78,7 @@ impl Feature {
 
 #[derive(Debug,Clone,Serialize,Deserialize,PartialEq,Eq,Hash)]
 pub struct Sample {
-    name: String,
+    name: Option<String>,
     index: usize,
 }
 
@@ -93,15 +93,15 @@ impl Sample {
     }
 
     pub fn q(index:&usize) -> Sample {
-        Sample {name: index.to_string(),index:*index}
+        Sample {name: None,index:*index}
     }
 
     pub fn new(name:&str,index:&usize) -> Sample {
-        Sample {name: name.to_owned(),index:*index}
+        Sample {name: Some(name.to_owned()),index:*index}
     }
 
-    pub fn name(&self) -> &String {
-        &self.name
+    pub fn name(&self) -> String {
+        self.name.clone().unwrap_or(self.index.to_string())
     }
 
     pub fn index(&self) -> &usize {
