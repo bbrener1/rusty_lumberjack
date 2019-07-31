@@ -1662,8 +1662,8 @@ class Forest:
 
         f = self.plot_cell_clusters()
 
-        most_likely_tree = self.most_likely_tree(depth=depth)
-        # most_likely_tree = self.maximum_spanning_tree(depth=depth)
+        # most_likely_tree = self.most_likely_tree(depth=depth)
+        most_likely_tree = self.maximum_spanning_tree(depth=depth)
 
         def recursive_tree_plot(parent,children,figure):
             print("Recursion debug")

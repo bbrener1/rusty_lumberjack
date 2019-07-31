@@ -1,4 +1,5 @@
 use rand::{Rng,ThreadRng,thread_rng};
+use ndarray::prelude::*;
 use std::cmp::Ordering;
 use std::f64;
 use std::mem::swap;
@@ -64,9 +65,10 @@ pub fn weighted_sampling_with_replacement(draws: usize,weights: &Vec<f64>) -> Ve
 
 
 
-pub fn weighted_sampling_with_increasing_similarity(draws:usize,weights:Option<&Vec<f64>>,similarity:&Vec<Vec<f64>>) -> Vec<usize> {
-    let mut local_odds = vec![1.;similarity.len()];
-    let mut local_log_odds: Vec<f64> = weights.unwrap_or(&vec![1.;similarity.len()]).iter().map(|x| x.ln()).collect();
+pub fn weighted_sampling_with_increasing_similarity(draws:usize,weights:Option<&Vec<f64>>,similarity:&Array<f64,Ix2>) -> Vec<usize> {
+    let n = similarity.shape().0
+    let mut log_odds = Array::zeros(n);
+    log_odds += &weights.unwrap_or(vec![1.;n]).iter().map(|v| v.ln()).collect();
     let mut selected_indecies = Vec::with_capacity(draws);
     let mut rng = thread_rng();
 
@@ -89,27 +91,12 @@ pub fn weighted_sampling_with_increasing_similarity(draws:usize,weights:Option<&
     selected_indecies
 }
 
-pub fn weighted_sampling_with_decreasing_similarity(draws:usize,weights:Option<&Vec<f64>>,similarity:&Vec<Vec<f64>>) -> Vec<usize> {
-    let mut local_odds = vec![1.;similarity.len()];
-    let mut local_log_odds: Vec<f64> = weights.unwrap_or(&vec![1.;similarity.len()]).iter().map(|x| x.ln()).collect();
-    let mut selected_indecies = Vec::with_capacity(draws);
-    let mut rng = thread_rng();
+#[cfg(test)]
+pub mod randutil_test {
 
-    for _ in 0..draws {
+    use super::*;
 
-        local_odds = local_log_odds.iter().map(|x| x.exp()).collect();
+    #[test]
+    fn test_argmin() {
 
-        let selection = weighted_choice(&local_odds, &mut rng);
-
-        let selection_similarity = &similarity[selection];
-
-        for (sim,log_odds) in selection_similarity.iter().zip(local_log_odds.iter_mut()) {
-            *log_odds -= sim.ln();
-        }
-        local_log_odds[selection] = f64::NEG_INFINITY;
-
-        selected_indecies.push(selection);
     }
-
-    selected_indecies
-}
