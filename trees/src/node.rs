@@ -137,20 +137,20 @@ impl Node {
 
         if !self.prototype { panic!("Attempted to take a braid off an incomplete node") };
 
-        let thickness = 4;
+        let thickness = 1;
 
         // Here we can either resample the compute node multiple times or simply take the top 4 features. I am leaning towards the latter as the approach
 
         // This block represents complete resampling:
-        //
-        // let mut features = Vec::with_capacity(thickness);
-        //
-        // for i in 0..thickness {
-        //     let mut compact = self.subsample(samples,input_features,output_features);
-        //     if let Some(Split{feature,..}) = compact.rayon_best_split() {
-        //         features.push(feature);
-        //     }
-        // }
+
+        let mut features = Vec::with_capacity(thickness);
+
+        for i in 0..thickness {
+            let mut compact = self.subsample(samples,input_features,output_features);
+            if let Some(Split{feature,..}) = compact.rayon_best_split() {
+                features.push(feature);
+            }
+        }
         //
         // This block represents one subsampling and taking the top 4 features:
 
@@ -163,15 +163,15 @@ impl Node {
 
         // This block represents resampling the input features and samples, but not the output features:
 
-        let mut features = Vec::with_capacity(thickness);
-
-        let sisters = self.subsample_n_sisters(samples,input_features,output_features,thickness);
-
-        for sister in sisters {
-            if let Some(Split{feature,..}) = sister.rayon_best_split() {
-                features.push(feature);
-            }
-        }
+        // let mut features = Vec::with_capacity(thickness);
+        //
+        // let sisters = self.subsample_n_sisters(samples,input_features,output_features,thickness);
+        //
+        // for sister in sisters {
+        //     if let Some(Split{feature,..}) = sister.rayon_best_split() {
+        //         features.push(feature);
+        //     }
+        // }
 
         // One of the three above alternatives has to be picked.
 
