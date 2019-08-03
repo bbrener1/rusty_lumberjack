@@ -163,7 +163,7 @@ impl<'a> Tree {
     pub fn serialize_compact(&self) -> Result<(),Error> {
         println!("Serializing to:");
         println!("{}",self.report_address);
-        let mut tree_dump = OpenOptions::new().create(true).append(true).open(self.report_address)?;
+        let mut tree_dump = OpenOptions::new().create(true).append(true).open(&self.report_address)?;
         tree_dump.write(self.root.clone().to_string().as_bytes())?;
         tree_dump.write(b"\n")?;
         Ok(())
@@ -172,7 +172,7 @@ impl<'a> Tree {
     pub fn serialize_ultra_compact(&self) -> Result<(),Error> {
         println!("Serializing to:");
         println!("{}",self.report_address);
-        let mut tree_dump = OpenOptions::new().create(true).append(true).open(self.report_address)?;
+        let mut tree_dump = OpenOptions::new().create(true).append(true).open(&self.report_address)?;
         tree_dump.write(self.root.clone().compact().to_string().as_bytes())?;
         tree_dump.write(b"\n")?;
         Ok(())
@@ -182,7 +182,7 @@ impl<'a> Tree {
     pub fn serialize_compact_consume(self) -> Result<(),Error> {
         println!("Serializing to:");
         println!("{}",self.report_address);
-        let mut tree_dump = OpenOptions::new().create(true).append(true).open(self.report_address)?;
+        let mut tree_dump = OpenOptions::new().create(true).append(true).open(&self.report_address)?;
         tree_dump.write(self.root.to_string().as_bytes())?;
         tree_dump.write(b"\n")?;
         Ok(())
