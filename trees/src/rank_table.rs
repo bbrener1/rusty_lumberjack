@@ -167,6 +167,10 @@ impl RankTable {
         values
     }
 
+    pub fn full_feature_values(&self,index:usize) -> Vec<f64> {
+        self.meta_vector[index].full_values()
+    }
+
     pub fn full_ordered_values(&self) -> Vec<Vec<f64>> {
         self.meta_vector.iter().map(|x| x.ordered_values()).collect()
     }

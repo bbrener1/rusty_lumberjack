@@ -24,6 +24,8 @@ use crate::io::PredictionMode;
 use crate::io::Parameters;
 use crate::io::DispersionMode;
 use crate::argmin;
+use crate::argsort;
+use crate::jaccard;
 
 use std::fs::File;
 use std::io::Write;
@@ -137,20 +139,20 @@ impl Node {
 
         if !self.prototype { panic!("Attempted to take a braid off an incomplete node") };
 
-        let thickness = 1;
+        let thickness = 4;
 
         // Here we can either resample the compute node multiple times or simply take the top 4 features. I am leaning towards the latter as the approach
 
         // This block represents complete resampling:
 
-        let mut features = Vec::with_capacity(thickness);
-
-        for i in 0..thickness {
-            let mut compact = self.subsample(samples,input_features,output_features);
-            if let Some(Split{feature,..}) = compact.rayon_best_split() {
-                features.push(feature);
-            }
-        }
+        // let mut features = Vec::with_capacity(thickness);
+        //
+        // for i in 0..thickness {
+        //     let mut compact = self.subsample(samples,input_features,output_features);
+        //     if let Some(Split{feature,..}) = compact.rayon_best_split() {
+        //         features.push(feature);
+        //     }
+        // }
         //
         // This block represents one subsampling and taking the top 4 features:
 
@@ -160,6 +162,15 @@ impl Node {
         //     .into_iter()
         //     .map(|s| s.feature)
         //     .collect();
+
+        // This block represents one subsampling and taking the top feature, and n of its most correlated features:
+
+        let mut features: Vec<Feature> =
+            self.subsample(samples,input_features,output_features)
+            .rayon_best_plus_n_splits(thickness)
+            .into_iter()
+            .map(|s| s.feature)
+            .collect();
 
         // This block represents resampling the input features and samples, but not the output features:
 
@@ -211,6 +222,26 @@ impl Node {
         n_dispersions.sort_by(|a,b| a.1.partial_cmp(&b.1).expect("Nan dispersion"));
         let top_n = n_dispersions.iter().take(n).map(|(i,d)| splits[*i].clone()).collect();
         top_n
+
+    }
+
+    pub fn rayon_best_plus_n_splits(&self,n:usize) -> Vec<Split> {
+
+        let splits: Vec<Split> =
+            (0..self.input_features().len())
+            .into_par_iter()
+            .flat_map(|i| self.feature_index_split(i))
+            .collect();
+
+        let dispersions: Vec<f64> = splits.iter().map(|s| s.dispersion).collect();
+        let best_split_index = argmin(&dispersions).unwrap().0;
+
+        let split_encodings: Vec<Vec<bool>> = splits.par_iter().map(|s| self.split_encoding(s)).collect();
+        let best_encoding = &split_encodings[best_split_index];
+        let similarities = split_encodings.par_iter().map(|e| jaccard(best_encoding,e)).collect();
+        let ranked_similarties = argsort(&similarities);
+        let n_most_similar_indices: Vec<usize> = ranked_similarties.into_iter().enumerate().filter(|(index,(rank,value))| rank < &n).map(|(i,_)| i).collect();
+        n_most_similar_indices.into_iter().map(|i| splits[i].clone()).collect()
 
     }
 
@@ -492,6 +523,8 @@ impl Node {
             prerequisites: self.prerequisites,
             braids: self.braids,
 
+            depth: self.depth,
+
             medians: self.medians,
             dispersions: self.dispersions,
             weights: self.feature_weights,
@@ -521,6 +554,8 @@ impl Node {
 
             prerequisites: self.prerequisites.clone(),
             braids: self.braids.clone(),
+
+            depth: self.depth,
 
             medians: self.medians.clone(),
             dispersions: self.dispersions.clone(),
@@ -686,6 +721,67 @@ impl Node {
         output
     }
 
+    pub fn split_encoding(&self,split:&Split) -> Vec<bool> {
+        let Split{ref feature, ref value,..} = split;
+        let feature_index = self.input_features.iter().position(|e| e == feature).unwrap();
+        let feature_values = self.input_table.full_feature_values(feature_index);
+        feature_values.iter().map(|fv| if fv > value {true} else {false}).collect()
+    }
+
+    pub fn sample_encoding(&self,max_sample_option:Option<usize>) -> Vec<bool> {
+
+        let max_sample =
+            if self.prototype {self.samples.iter().map(|s| s.index).max().unwrap_or(0)}
+            else {max_sample_option.unwrap_or(0)};
+
+        let mut sample_encoding = vec![false; max_sample+1];
+        for sample in self.samples() {
+            sample_encoding[sample.index] = true;
+        }
+        return sample_encoding
+    }
+
+    pub fn feature_encoding(&self,max_feature_option:Option<usize>) -> Vec<bool> {
+
+        let max_feature =
+            if self.prototype {self.output_features().iter().map(|f| f.index).max().unwrap_or(0)}
+            else {max_feature_option.unwrap_or(0)};
+
+        let mut feature_encoding = vec![false; max_feature+1];
+        for feature in self.output_features() {
+            feature_encoding[feature.index] = true;
+        }
+        return feature_encoding
+    }
+
+    pub fn compact(self) -> UltraCompact {
+
+        let feature_encoding = self.feature_encoding(None).into_iter().map(|b| if b {1} else {0}).collect();
+        let sample_encoding = self.sample_encoding(None).into_iter().map(|b| if b {1} else {0}).collect();
+        let children = self.children.into_iter().map(|c| c.compact()).collect();
+        let mut braid = if self.braids.len() == (self.depth+1) {self.braids.last().map(|b| b.clone())} else {None};
+        if braid.is_some() {
+            braid.as_mut().unwrap().samples = vec![];
+        }
+
+        UltraCompact {
+            children: children,
+
+            split: self.split,
+
+            prerequisites: self.prerequisites,
+            braid: braid,
+
+            features: feature_encoding,
+            samples: sample_encoding,
+            medians: self.medians,
+            dispersions: self.dispersions,
+
+            local_gains: self.local_gains,
+            absolute_gains: self.absolute_gains,
+        }
+    }
+
     // pub fn assert_integrity(&self) {
     //
     //     // Here we check assumptions that must remain true of each node: that each sample in the node fulfills the requirements
@@ -719,6 +815,8 @@ pub struct StrippedNode {
 
     prerequisites: Vec<Prerequisite>,
     braids: Vec<Braid>,
+
+    depth: usize,
 
     features: Vec<Feature>,
     samples: Vec<Sample>,
@@ -880,50 +978,8 @@ impl StrippedNode {
     //
     // }
 
-    // pub fn node_sample_encoding(&self,header: &HashMap<String,usize>) -> Vec<bool> {
-    //     let mut encoding = vec![false; header.len()];
-    //     for sample in self.samples() {
-    //         if let Some(sample_index) = header.get(&sample.name()) {
-    //             encoding[*sample_index] = true;
-    //         }
-    //     }
-    //     encoding
-    // }
 
     pub fn from_json(input:&str) -> Result<StrippedNode,serde_json::Error> {
-        // eprintln!("{:?}", input);
-        // let v = serde_json::from_str(input)?;
-        //
-        // let dropout = v["dropout"];
-        // let children = v["children"];
-        // let feature = v["feature"];
-        // let split = v["split"];
-        // let features = v["features"];
-        // let samples = v["samples"];
-        // let prerequisites = v["prerequisites"];
-        // let medians = v["medians"];
-        // let dispersions = v["dispersions"];
-        // let weights = v["weights"];
-        // let local_gains = v["local_gains"];
-        // let absolute_gains = v["absolute_gains"];
-        //
-        // let sn = StrippedNode {
-        //     dropout,
-        //     children,
-        //     feature,
-        //     split,
-        //     features,
-        //     samples,
-        //     prerequisites,
-        //     medians,
-        //     dispersions,
-        //     weights,
-        //     local_gains,
-        //     absolute_gains,
-        // };
-        // eprintln!("{:?}",v);
-        // Ok(sn)
-
         serde_json::from_str(input)
     }
 
@@ -958,6 +1014,85 @@ impl StrippedNode {
         Ok(StrippedNode::from_json(&json_string)?)
     }
 
+    pub fn sample_encoding(&self,max_sample_option:Option<usize>) -> Vec<bool> {
+
+        let max_sample =
+            if let Some(max) = max_sample_option {max}
+            else {self.samples.iter().map(|s| s.index).max().unwrap_or(0)};
+
+        let mut sample_encoding = vec![false; max_sample+1];
+        for sample in self.samples() {
+            sample_encoding[sample.index] = true;
+        }
+        return sample_encoding
+    }
+
+    pub fn feature_encoding(&self,max_feature_option:Option<usize>) -> Vec<bool> {
+
+        let max_feature =
+            if let Some(max) = max_feature_option {max}
+            else {self.features.iter().map(|s| s.index).max().unwrap_or(0)};
+
+        let mut feature_encoding = vec![false; max_feature+1];
+        for feature in self.features.iter() {
+            feature_encoding[feature.index] = true;
+        }
+        return feature_encoding
+    }
+
+    pub fn compact(self) -> UltraCompact {
+
+        let feature_encoding = self.feature_encoding(None).into_iter().map(|b| if b {1} else {0}).collect();
+        let sample_encoding = self.sample_encoding(None).into_iter().map(|b| if b {1} else {0}).collect();
+        let children = self.children.into_iter().map(|c| c.compact()).collect();
+        let mut braid = if self.braids.len() == (self.depth+1) {self.braids.last().map(|b| b.clone())} else {None};
+        if braid.is_some() {
+            braid.as_mut().unwrap().samples = vec![];
+        }
+
+        UltraCompact {
+            children: children,
+
+            split: self.split,
+
+            prerequisites: self.prerequisites,
+            braid: braid,
+
+            features: feature_encoding,
+            samples: sample_encoding,
+            medians: self.medians,
+            dispersions: self.dispersions,
+
+            local_gains: self.local_gains,
+            absolute_gains: self.absolute_gains,
+        }
+    }
+
+}
+
+#[derive(Serialize,Deserialize,Clone,Debug)]
+pub struct UltraCompact {
+
+    pub children: Vec<UltraCompact>,
+
+    split: Option<Split>,
+
+    prerequisites: Vec<Prerequisite>,
+    braid: Option<Braid>,
+
+    features: Vec<i8>,
+    samples: Vec<i8>,
+    medians: Vec<f64>,
+    dispersions: Vec<f64>,
+
+    pub local_gains: Option<Vec<f64>>,
+    pub absolute_gains: Option<Vec<f64>>,
+}
+
+impl UltraCompact {
+    pub fn to_string(self) -> String {
+        serde_json::to_string(&self).unwrap()
+    }
 }
 
 #[cfg(test)]
@@ -987,6 +1122,8 @@ mod node_testing {
 
             prerequisites: vec![],
             braids: vec![],
+
+            depth: 0,
 
             medians: vec![],
             dispersions: vec![],

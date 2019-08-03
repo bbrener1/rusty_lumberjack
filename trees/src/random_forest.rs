@@ -40,7 +40,8 @@ impl Forest {
 
         let prototype_tree = Tree::prototype_tree(&input_array,&output_array,&input_features,&output_features,&samples,None, parameters.clone() ,report_string);
 
-        prototype_tree.serialize_clone();
+        // prototype_tree.serialize_clone();
+        prototype_tree.serialize_ultra_compact().unwrap();
 
         let tree_limit = parameters.tree_limit;
         let processor_limit = parameters.processor_limit;
@@ -76,7 +77,8 @@ impl Forest {
                         .into_par_iter()
                         .map(|mut new_tree| {
                             new_tree.grow_branches(parameters.clone());
-                            new_tree.serialize_clone();
+                            // new_tree.serialize_clone();
+                            new_tree.serialize_ultra_compact();
                             new_tree
                         })
                         .collect::<Vec<Tree>>();
@@ -94,24 +96,27 @@ impl Forest {
                     new_tree.report_address = format!("{}.{}.compact",parameters.report_address, tree).to_string();
                     new_tree.grow_branches(parameters.clone());
                     if remember {
-                        new_tree.serialize_clone()?;
+                        // new_tree.serialize_clone()?;
+                        new_tree.serialize_ultra_compact()?;
                         self.trees.push(new_tree);
                     }
-                    else { new_tree.serialize()?; };
+                    // else { new_tree.serialize()?; };
+                    else {new_tree.serialize_ultra_compact()?;};
                 }
 
-                eprintln!("Dumping headers:");
-                eprintln!("{:?}",["./",&self.parameters.report_address.clone(),".ifh"].join(""));
-                eprintln!("{:?}",["./",&self.parameters.report_address.clone(),".ofh"].join(""));
+            };
 
-                let mut output_header_dump = OpenOptions::new().create(true).append(true).open([&self.parameters.report_address.clone(),".ifh"].join(""))?;
-                output_header_dump.write(self.prototype_tree.as_ref().unwrap().input_feature_names().join("\n").as_bytes())?;
-                output_header_dump.write(b"\n")?;
+            eprintln!("Dumping headers:");
+            eprintln!("{:?}",["./",&self.parameters.report_address.clone(),".ifh"].join(""));
+            eprintln!("{:?}",["./",&self.parameters.report_address.clone(),".ofh"].join(""));
 
-                let mut output_header_dump = OpenOptions::new().create(true).append(true).open([&self.parameters.report_address.clone(),".ofh"].join(""))?;
-                output_header_dump.write(self.prototype_tree.as_ref().unwrap().output_feature_names().join("\n").as_bytes())?;
-                output_header_dump.write(b"\n")?;
-            }
+            let mut output_header_dump = OpenOptions::new().create(true).append(true).open([&self.parameters.report_address.clone(),".ifh"].join(""))?;
+            output_header_dump.write(self.prototype_tree.as_ref().unwrap().input_feature_names().join("\n").as_bytes())?;
+            output_header_dump.write(b"\n")?;
+
+            let mut output_header_dump = OpenOptions::new().create(true).append(true).open([&self.parameters.report_address.clone(),".ofh"].join(""))?;
+            output_header_dump.write(self.prototype_tree.as_ref().unwrap().output_feature_names().join("\n").as_bytes())?;
+            output_header_dump.write(b"\n")?;
 
             Ok(())
 

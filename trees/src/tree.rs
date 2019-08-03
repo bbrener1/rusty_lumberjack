@@ -52,22 +52,6 @@ impl<'a> Tree {
         }
     }
 
-    pub fn serialize(self) -> Result<(),Error> {
-
-        println!("Serializing to:");
-        println!("{}",self.report_address);
-
-        let mut tree_dump = OpenOptions::new().create(true).append(true).open(self.report_address)?;
-        tree_dump.write(self.root.to_string().as_bytes())?;
-        tree_dump.write(b"\n")?;
-
-        Ok(())
-    }
-
-    pub fn serialize_clone(&self) -> Result<(),Error> {
-        self.clone().serialize()
-    }
-
     pub fn reload(location: &str, size_limit: usize, depth_limit: usize ) -> Result<Tree,Error> {
 
         println!("Reloading!");
@@ -178,20 +162,46 @@ impl<'a> Tree {
 
     pub fn serialize_compact(&self) -> Result<(),Error> {
         println!("Serializing to:");
-        println!("{}.compact",self.report_address);
-        let mut tree_dump = OpenOptions::new().create(true).append(true).open([&self.report_address,".compact"].join(""))?;
+        println!("{}",self.report_address);
+        let mut tree_dump = OpenOptions::new().create(true).append(true).open(self.report_address)?;
         tree_dump.write(self.root.clone().to_string().as_bytes())?;
         tree_dump.write(b"\n")?;
         Ok(())
     }
 
+    pub fn serialize_ultra_compact(&self) -> Result<(),Error> {
+        println!("Serializing to:");
+        println!("{}",self.report_address);
+        let mut tree_dump = OpenOptions::new().create(true).append(true).open(self.report_address)?;
+        tree_dump.write(self.root.clone().compact().to_string().as_bytes())?;
+        tree_dump.write(b"\n")?;
+        Ok(())
+    }
+
+
     pub fn serialize_compact_consume(self) -> Result<(),Error> {
         println!("Serializing to:");
-        println!("{}.compact",self.report_address);
-        let mut tree_dump = OpenOptions::new().create(true).append(true).open([&self.report_address,".compact"].join(""))?;
+        println!("{}",self.report_address);
+        let mut tree_dump = OpenOptions::new().create(true).append(true).open(self.report_address)?;
         tree_dump.write(self.root.to_string().as_bytes())?;
         tree_dump.write(b"\n")?;
         Ok(())
+    }
+
+    pub fn serialize(self) -> Result<(),Error> {
+
+        println!("Serializing to:");
+        println!("{}",self.report_address);
+
+        let mut tree_dump = OpenOptions::new().create(true).append(true).open(self.report_address)?;
+        tree_dump.write(self.root.to_string().as_bytes())?;
+        tree_dump.write(b"\n")?;
+
+        Ok(())
+    }
+
+    pub fn serialize_clone(&self) -> Result<(),Error> {
+        self.clone().serialize()
     }
 
     // pub fn predict_leaves(&self,vector:&Vec<f64>, header: &HashMap<String,usize>, prediction_mode:&PredictionMode, drop_mode: &DropMode) -> Vec<&StrippedNode> {
@@ -205,7 +215,7 @@ impl<'a> Tree {
 
 pub fn grow_branches(mut target:Node, parameters: Arc<Parameters>,level:usize) -> StrippedNode {
     if target.samples().len() > parameters.leaf_size_cutoff && level < parameters.depth_cutoff {
-        // if target.sub_split_node(parameters.sample_subsample,parameters.input_features,parameters.output_features).is_some() {
+        // if let Some(mut cs) = target.sub_split_node(parameters.sample_subsample,parameters.input_features,parameters.output_features) {
         if let Some(mut cs) = target.braid_split_node(parameters.sample_subsample,parameters.input_features,parameters.output_features) {
             let mut stripped = target.strip_consume();
             let c1o = cs.pop();

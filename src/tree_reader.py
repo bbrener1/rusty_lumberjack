@@ -63,10 +63,18 @@ class Node:
         self.level = level
         self.split = node_json['split']
         self.prerequisites = node_json['prerequisites']
-        if len(node_json['braids']) > 0 and len(node_json['braids']) > level:
-            self.braid = Braid(node_json['braids'][-1])
-        self.features = np.array([f['name'] for f in node_json['features']])
-        self.samples = np.array([s['name'] for s in node_json['samples']])
+        try:
+            self.features = np.array([f['name'] for f in node_json['features']])
+            self.samples = np.array([s['name'] for s in node_json['samples']])
+        except:
+            self.features = np.array([self.forest.output_features[t[0]] for t in enumerate(node_json['features']) if t[1] == 1])
+            self.samples = np.array([self.forest.samples[t[0]] for t in enumerate(node_json['samples']) if t[1] == 1])
+        try:
+            if len(node_json['braids']) > 0 and len(node_json['braids']) > level:
+                self.braid = Braid(node_json['braids'][-1],self)
+        except:
+            if node_json['braid'] is not None:
+                self.braid = Braid(node_json['braid'],self)
         self.medians = np.array(node_json['medians'])
         self.dispersions = np.array([node_json['dispersions']])
         self.local_gains = np.array(node_json['local_gains'])
@@ -467,9 +475,11 @@ class Node:
 
 class Braid:
 
-    def __init__(self,braid_json):
-        self.features = [f['name'] for f in braid_json['features']]
-        self.samples = [s['name'] for s in braid_json['samples']]
+    def __init__(self,braid_json,node):
+        self.node = node
+        self.features = np.array([f['name'] for f in braid_json['features']])
+        # self.samples = np.array([s['name'] for s in node_json['samples']])
+        self.samples = self.node.samples
         self.compound_values = np.array(braid_json['compound_values'])
         self.compound_split = braid_json['compound_split']
 

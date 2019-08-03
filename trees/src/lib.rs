@@ -500,6 +500,14 @@ pub fn l2_sum(mtx_in:&Vec<Vec<f64>>, weights: &[f64]) -> Vec<f64> {
     sample_sums
 }
 
+pub fn jaccard(a:&[bool],b:&[bool]) -> f64 {
+    assert!(a.len() == b.len());
+    assert!(a.len() != 0);
+    let i = a.iter().zip(b.iter()).filter(|(a,b)| **a && **b).count() as f64;
+    let u = a.iter().zip(b.iter()).filter(|(a,b)| **a || **b).count() as f64;
+    return 1. - (i/u)
+}
+
 #[cfg(test)]
 pub mod tree_lib_tests {
 
@@ -564,6 +572,16 @@ pub mod tree_lib_tests {
 
         assert_eq!(b,c);
         assert_eq!(e,modified_competition_ranking(&d));
+
+    }
+
+    #[test]
+    fn test_jaccard() {
+
+        let a = vec![true,true,false,false,true];
+        let b = vec![false,true,false,true,true];
+
+        assert_eq!(jaccard(&a, &b),0.5);
 
     }
 
