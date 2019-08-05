@@ -257,13 +257,15 @@ impl Node {
     }
 
 
-    pub fn derive_complete_by_braid(&mut self,braid:Braid) -> Option<Vec<Node>> {
+    pub fn derive_complete_by_braid(&mut self,mut braid:Braid) -> Option<Vec<Node>> {
         let (draw_order,drop_set) = braid.draw_order();
         let dispersions = self.output_table.order_dispersions(&draw_order,&drop_set,&self.feature_weights)?;
         let (split_index,minimum_dispersion) = argmin(&dispersions[1..])?;
 
         let left_indices:Vec<usize> = draw_order[..split_index].to_owned();
         let right_indices:Vec<usize> = draw_order[split_index..].to_owned();
+
+        braid.compound_split = Some(braid.compound_values[split_index].clone());
 
         let mut left_child_id = self.id.clone();
         let mut right_child_id = self.id.clone();

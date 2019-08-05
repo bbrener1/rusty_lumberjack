@@ -1964,7 +1964,7 @@ class NodeCluster:
         plt.show()
 
     def braids(self):
-        return [node.parent.braid for node in self.nodes if hasattr(node,'braid')]
+        return [node.parent.braid for node in self.nodes if node.parent is not None if hasattr(node.parent,'braid')]
 
     def braid_scores(self):
 
@@ -1976,14 +1976,15 @@ class NodeCluster:
 
         for (i,braid) in enumerate(braids):
             compound_values = braid.compound_values
-            compound_values = compound_values - braid.compound_split
+            # compound_values = compound_values - braid.compound_split
+            compound_values = compound_values - np.median(compound_values)
             for (sample,value) in zip(braid.samples,compound_values):
                 j = td.sample_dictionary[sample]
                 braid_scores[i,j] += value
                 occurrence[i,j] += 1
 
-        # return np.sum(braid_scores,axis=0) / np.sum(occurrence,axis=0)
-        return np.sum(braid_scores,axis=0) / braid_scores.shape[0]
+        return np.sum(braid_scores,axis=0) / (np.sum(occurrence,axis=0) + 1)
+        # return np.sum(braid_scores,axis=0) / braid_scores.shape[0]
 
 
     def braid_features(self):
