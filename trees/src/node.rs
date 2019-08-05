@@ -263,7 +263,7 @@ impl Node {
         let left_indices:Vec<usize> = draw_order[..split_index].to_owned();
         let right_indices:Vec<usize> = draw_order[split_index..].to_owned();
 
-        braid.compound_split = Some(braid.compound_values[split_index].clone());
+        braid.compound_split = Some(braid.compound_values[draw_order[split_index]]);
 
         self.braids.push(braid.clone());
 

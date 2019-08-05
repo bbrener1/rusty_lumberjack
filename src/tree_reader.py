@@ -1968,6 +1968,8 @@ class NodeCluster:
 
     def braid_scores(self):
 
+        from scipy.stats import pearsonr
+
         braids = self.braids()
 
         braid_scores = np.zeros((len(braids),len(self.forest.samples)))
@@ -1975,16 +1977,27 @@ class NodeCluster:
         td = self.forest.truth_dictionary
 
         for (i,braid) in enumerate(braids):
-            compound_values = braid.compound_values
-            # compound_values = compound_values - braid.compound_split
-            compound_values = compound_values - np.median(compound_values)
+            # compound_values = braid.compound_values
+            compound_values = braid.compound_values - braid.compound_split
+            # compound_values = compound_values - np.median(compound_values)
             for (sample,value) in zip(braid.samples,compound_values):
                 j = td.sample_dictionary[sample]
                 braid_scores[i,j] += value
                 occurrence[i,j] += 1
 
-        return np.sum(braid_scores,axis=0) / (np.sum(occurrence,axis=0) + 1)
-        # return np.sum(braid_scores,axis=0) / braid_scores.shape[0]
+        mean_scores = np.sum(braid_scores,axis=0) / (np.sum(occurrence,axis=0) + 1)
+        # mean_scores = np.sum(braid_scores,axis=0) / (braid_scores.shape[0] + 1)
+
+        correlations = [pearsonr(f,mean_scores)[0] for f in braid_scores]
+
+        for i,cc in enumerate(correlations):
+            if cc < 0:
+                braid_scores[i] = braid_scores[i] * -1
+
+        mean_scores = np.sum(braid_scores,axis=0) / (np.sum(occurrence,axis=0) + 1)
+        # mean_scores = np.sum(braid_scores,axis=0) / (braid_scores.shape[0] + 1)
+
+        return mean_scores
 
 
     def braid_features(self):
