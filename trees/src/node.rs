@@ -192,8 +192,6 @@ impl Node {
 
         let braid = Braid::from_rvs(features, samples, &rvs);
 
-        self.braids.push(braid.clone());
-
         // eprintln!("Braid split:{:?}",braid);
 
         self.derive_complete_by_braid(braid)
@@ -266,6 +264,8 @@ impl Node {
         let right_indices:Vec<usize> = draw_order[split_index..].to_owned();
 
         braid.compound_split = Some(braid.compound_values[split_index].clone());
+
+        self.braids.push(braid.clone());
 
         let mut left_child_id = self.id.clone();
         let mut right_child_id = self.id.clone();
