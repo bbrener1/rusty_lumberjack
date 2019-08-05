@@ -1963,20 +1963,24 @@ class NodeCluster:
 
         plt.show()
 
+    def braids(self):
+        return [node.parent.braid for node in self.nodes if hasattr(node,'braid')]
+
     def braid_scores(self):
 
-        braid_scores = np.zeros((len(self.nodes),len(self.forest.samples)))
+        braids = self.braids()
+
+        braid_scores = np.zeros((len(braids),len(self.forest.samples)))
         occurrence = np.ones((len(self.nodes),len(self.forest.samples)))
         td = self.forest.truth_dictionary
 
-        for (i,node) in enumerate(self.nodes):
-            if hasattr(node,'braid'):
-                compound_values = node.braid.compound_values
-                compound_values = compound_values - np.median(compound_values)
-                for (sample,value) in zip(node.samples,compound_values):
-                    j = td.sample_dictionary[sample]
-                    braid_scores[i,j] += value
-                    occurrence[i,j] += 1
+        for (i,braid) in enumerate(braids):
+            compound_values = braid.compound_values
+            compound_values = compound_values - braid.compound_split
+            for (sample,value) in zip(braid.samples,compound_values):
+                j = td.sample_dictionary[sample]
+                braid_scores[i,j] += value
+                occurrence[i,j] += 1
 
         # return np.sum(braid_scores,axis=0) / np.sum(occurrence,axis=0)
         return np.sum(braid_scores,axis=0) / braid_scores.shape[0]
@@ -1986,8 +1990,8 @@ class NodeCluster:
 
         features = {}
 
-        for i,node in enumerate(self.nodes):
-            for feature in node.braid.features:
+        for braid in self.braids():
+            for feature in braid.features:
                 if feature not in features:
                     features[feature] = [0,0]
                 features[feature][0] += 1
