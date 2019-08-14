@@ -73,8 +73,7 @@ class Node:
             if len(node_json['braids']) > 0 and len(node_json['braids']) > level:
                 self.braid = Braid(node_json['braids'][-1],self)
         except:
-            if node_json['braid'] is not None:
-                self.braid = Braid(node_json['braid'],self)
+            self.braid = Braid(node_json['braid'],self)
         self.medians = np.array(node_json['medians'])
         self.dispersions = np.array([node_json['dispersions']])
         self.local_gains = np.array(node_json['local_gains'])
@@ -482,6 +481,17 @@ class Braid:
         self.samples = self.node.samples
         self.compound_values = np.array(braid_json['compound_values'])
         self.compound_split = braid_json['compound_split']
+
+    def braid_matrix(mtx):
+
+        from scipy.stats import rankdata
+
+        ranked = mtx.copy()
+
+        for i in range(mtx.shape[1]):
+            ranked[:,i] = rankdata(ranked[:,i],method='min')
+
+        return np.exp(np.mean(np.log(ranked),axis=1))
 
 class Tree:
 
@@ -1964,40 +1974,95 @@ class NodeCluster:
         plt.show()
 
     def braids(self):
-        return [node.parent.braid for node in self.nodes if node.parent is not None if hasattr(node.parent,'braid')]
+        return [node.braid for node in self.nodes if node.braid is not None]
+
+    def parent_braids(self):
+        return [node.parent.braid for node in self.nodes if node.parent is not None if node.parent.braid is not None]
+
+    def parent_cluster(self):
+        try:
+            return self.forest.split_clusters[self.forest.reverse_likely_tree[self.id][0]]
+        except:
+            return self
 
     def braid_scores(self):
 
         from scipy.stats import pearsonr
 
-        braids = self.braids()
+        braids = self.parent_braids()
 
-        braid_scores = np.zeros((len(braids),len(self.forest.samples)))
-        occurrence = np.ones((len(self.nodes),len(self.forest.samples)))
-        td = self.forest.truth_dictionary
+        fd = self.forest.truth_dictionary.feature_dictionary
 
-        for (i,braid) in enumerate(braids):
-            # compound_values = braid.compound_values
-            compound_values = braid.compound_values - braid.compound_split
-            # compound_values = compound_values - np.median(compound_values)
-            for (sample,value) in zip(braid.samples,compound_values):
-                j = td.sample_dictionary[sample]
-                braid_scores[i,j] += value
-                occurrence[i,j] += 1
+        braid_matrix_dimension = [len(self.forest.samples),0]
 
-        mean_scores = np.sum(braid_scores,axis=0) / (np.sum(occurrence,axis=0) + 1)
+        braid_splits = []
+
+        for braid in braids:
+            braid_matrix_dimension[1] += len(braid.features)
+
+        braid_matrix = np.zeros((braid_matrix_dimension[0],braid_matrix_dimension[1]))
+        i = 0
+
+        for braid in braids:
+            braid_splits.append(braid.compound_split)
+            for feature in braid.features:
+                fi = fd[feature]
+                braid_matrix[:,i] = self.forest.output[:,fi]
+                i += 1
+
+        braided_scores = Braid.braid_matrix(braid_matrix)
+
+        braided_scores -= np.mean(braid_splits)
+
+        return braided_scores
+
+        ###################
+        ###################
+        ###################
+        #
+        # braids = self.braids()
+        # braid_scores = np.zeros((len(braids),len(self.forest.samples)))
+        # occurrence = np.ones((len(self.nodes),len(self.forest.samples)))
+        # td = self.forest.truth_dictionary
+        #
+        # for (i,braid) in enumerate(braids):
+        #     compound_values = np.zeros(braid.compound_values.shape)
+        #     compound_values[braid.compound_values > braid.compound_split] = 1
+        #     compound_values[braid.compound_values <= braid.compound_split] = -1
+        #     # compound_values = braid.compound_values
+        #     compound_values = np.log(compound_values)
+        #     # compound_values = compound_values - np.log(braid.compound_split)
+        #     # compound_values = braid.compound_values - braid.compound_split
+        #     # compound_values = compound_values - np.median(compound_values)
+        #     for (sample,value) in zip(braid.samples,compound_values):
+        #         j = td.sample_dictionary[sample]
+        #         braid_scores[i,j] += value
+        #         occurrence[i,j] += 1
+
+        # plt.figure()
+        # plt.hist(braid_scores.flatten(),bins=30)
+        # plt.show()
+        #
+        # plt.figure()
+        # plt.hist([c for i,b in enumerate(braid_scores) for j,c in enumerate(b) if occurrence[i,j] > 0],bins=30)
+        # plt.show()
+
+        # mean_scores = np.sum(braid_scores,axis=0) / (np.sum(occurrence,axis=0) + 1)
         # mean_scores = np.sum(braid_scores,axis=0) / (braid_scores.shape[0] + 1)
 
-        correlations = [pearsonr(f,mean_scores)[0] for f in braid_scores]
+        # correlations = [pearsonr(f,mean_scores)[0] for f in braid_scores]
+        #
+        # for i,cc in enumerate(correlations):
+        #     if cc < 0:
+        #         braid_scores[i] = braid_scores[i] * -1
 
-        for i,cc in enumerate(correlations):
-            if cc < 0:
-                braid_scores[i] = braid_scores[i] * -1
-
-        mean_scores = np.sum(braid_scores,axis=0) / (np.sum(occurrence,axis=0) + 1)
+        # mean_scores = np.sum(braid_scores,axis=0) / (np.sum(occurrence,axis=0) + 1)
+        # mean_scores = (np.sum(braid_scores,axis=0) / (np.sum(occurrence,axis=0) + 1)) * self.cell_scores()
         # mean_scores = np.sum(braid_scores,axis=0) / (braid_scores.shape[0] + 1)
-
-        return mean_scores
+        #
+        # mean_scores = np.exp(mean_scores)
+        #
+        # return mean_scores
 
 
     def braid_features(self):
@@ -2007,15 +2072,15 @@ class NodeCluster:
         for braid in self.braids():
             for feature in braid.features:
                 if feature not in features:
-                    features[feature] = [0,0]
-                features[feature][0] += 1
+                    features[feature] = 0
+                features[feature] += 1
 
         braid_scores = self.braid_scores()
 
         for feature in features.keys():
             feature_index = self.forest.truth_dictionary.feature_dictionary[feature]
             feature_values = self.forest.output[:,feature_index]
-            features[feature][1] = np.sign(scipy.stats.spearmanr(feature_values,braid_scores)[0])
+            features[feature] *= np.sign(scipy.stats.spearmanr(feature_values,braid_scores)[0])
 
         return features
 
@@ -2107,10 +2172,6 @@ class NodeCluster:
         plt.colorbar()
         plt.show()
 
-    def cell_frequency(self):
-        encoding = self.encoding()
-        return np.sum(encoding,axis=1)/np.sum(encoding.flatten())
-
     def cell_scores(self):
         # forest_encoding = self.forest.node_sample_encoding(self.forest.nodes())
         # cluster_encoding = self.encoding()
@@ -2118,6 +2179,19 @@ class NodeCluster:
         cluster_encoding = self.encoding()
         return np.sum(cluster_encoding,axis=1) / cluster_encoding.shape[1]
 
+    def sister_scores(self):
+
+        own = self.nodes
+        sisters = [sister for n in own for sister in [n.sister(),] if sister is not None]
+
+        print(f"Sister debug:{len(sisters)}")
+
+        own_encoding = self.forest.node_sample_encoding(own).astype(dtype=int)
+        sister_encoding = self.forest.node_sample_encoding(sisters).astype(dtype=int)
+
+        scores = (np.sum(own_encoding,axis=1) + (-1 * np.sum(sister_encoding,axis=1))) / own_encoding.shape[1]
+
+        return scores
 
     def prerequisites(self):
         prerequisite_dictionary = {}
@@ -2182,7 +2256,7 @@ class NodeCluster:
     def weighted_feature_predictions(self):
         return self.forest.weighted_node_vector_prediction(self.nodes)
 
-    def increased_features(self,n=50,plot=True):
+    def changed_features(self,n=50,plot=True):
         initial_medians = self.forest.weighted_node_vector_prediction([self.forest.prototype.root])
         leaf_medians = self.weighted_feature_predictions()
         difference = leaf_medians - initial_medians
@@ -2200,19 +2274,8 @@ class NodeCluster:
             plt.xticks(np.arange(n),ordered_features[-n:],rotation='vertical')
             plt.show()
 
-        return ordered_features,ordered_difference
-
-    def decreased_features(self,n=50,plot=True):
-        initial_medians = self.forest.weighted_node_vector_prediction([self.forest.prototype.root])
-        leaf_medians = self.weighted_feature_predictions()
-        difference = leaf_medians - initial_medians
-        feature_order = np.argsort(difference)
-        ordered_features = np.array(self.forest.features)[feature_order]
-        ordered_difference = difference[feature_order]
-
-        if plot:
             plt.figure(figsize=(10,2))
-            plt.title("Upregulated Genes")
+            plt.title("Downregulated Genes")
             plt.scatter(np.arange(n),ordered_difference[:n])
             plt.xlim(0,n)
             plt.xlabel("Gene Symbol")
@@ -2221,6 +2284,7 @@ class NodeCluster:
             plt.show()
 
         return ordered_features,ordered_difference
+
 
 
 ################################
