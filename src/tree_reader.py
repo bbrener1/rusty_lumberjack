@@ -2291,14 +2291,14 @@ class NodeCluster:
 
     def up_down_panel(self,ax,n):
 
-        text_rectangle(ax,f"Cluster {self.id}",[.3,.85,.3,.1],no_warp)
+        text_rectangle(ax,f"Cluster {self.id}",[.3,.85,.3,.1],no_warp=True)
         # ax.set_title(f"Cluster {self.id}")
 
         ordered_features,ordered_difference = self.changed_features(plot=False)
         ordered_features = ordered_features[::-1]
         ordered_difference = ordered_difference[::-1]
 
-        up_table = ax.table(cellText=np.array([ordered_features[:n],ordered_difference[:n]]).T,cellLoc="center",colLabels=["Symbol","Fold Change"],bbox=[0,.4,1,.4],edges="open")
+        up_table = ax.table(cellText=np.array([ordered_features[:n],ordered_difference[:n]]).T,cellLoc="center",colLabels=["Up","Fold Change"],bbox=[0,.4,1,.4],edges="open")
         up_table.set_fontsize(100)
         up_table.auto_set_font_size()
         for i in range(n):
@@ -2311,7 +2311,7 @@ class NodeCluster:
             if float(up_table[i+1,1].get_text().get_text()) > 0:
                 up_table[i+1,1].set_text_props(color='g')
 
-        down_table = ax.table(cellText=np.array([ordered_features[-n:],ordered_difference[-n:]]).T,cellLoc="center",colLabels=["Symbol","Fold Change"],bbox=[0,0,1,.4],edges="open")
+        down_table = ax.table(cellText=np.array([ordered_features[-n:],ordered_difference[-n:]]).T,cellLoc="center",colLabels=["Down","Fold Change"],bbox=[0,0,1,.4],edges="open")
         down_table.set_fontsize(100)
         down_table.auto_set_font_size()
         for i in range(n):
@@ -2553,7 +2553,7 @@ def count_list_elements(elements):
         dict[element] += 1
     return dict
 
-def text_rectangle(ax,text,rect):
+def text_rectangle(ax,text,rect,no_warp=True):
 
     from matplotlib.text import TextPath
     import matplotlib.patches as mpatches
@@ -2574,11 +2574,16 @@ def text_rectangle(ax,text,rect):
         a_w,a_h = ax.transAxes.transform([1,1])
         ax_aspect = a_w/a_h
         patch_aspect = t_w/t_h
+        rect_aspect = w/h
 
         if ax_aspect > patch_aspect:
-            sx = sx * (patch_aspect/ax_aspect)
+            sx = sx * (patch_aspect/(rect_aspect*ax_aspect))
         else:
-            sy = sy * (ax_aspect/patch_aspect)
+            sy = sy * ((rect_aspect*ax_aspect)/patch_aspect)
+
+        print(f"Axes Aspect:{ax_aspect}")
+        print(f"Patch Aspect:{patch_aspect}")
+
 
     text_path = trns.Affine2D().scale(sx=sx,sy=sy).translate(x,y).transform_path(text_path)
 
