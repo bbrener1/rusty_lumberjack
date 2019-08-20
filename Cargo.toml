@@ -15,15 +15,8 @@ num_cpus = "1"
 smallvec = "0.6"
 
 
-ndarray = "0.12"
-ndarray-linalg = { version = "0.11" }
-blas-src = { version = "0.2", features = ["intel-mkl"]}
-# openblas-src = { version = "0.7.0", feature=['static']}
-
-# ndarray-linalg = { version = "0.11", feature=["intel_mkl"] }
-# intel-mkl-src = {version = "0.4"}
+ndarray = "0.11"
 
 num-traits = "0.2"
 
-ihmm = {path = "./ihmm"}
 trees = {path = "./trees"}

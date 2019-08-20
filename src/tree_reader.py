@@ -73,11 +73,13 @@ class Node:
             if len(node_json['braids']) > 0 and len(node_json['braids']) > level:
                 self.braid = Braid(node_json['braids'][-1],self)
         except:
-            self.braid = Braid(node_json['braid'],self)
+            if node_json['braid'] is not None:
+                self.braid = Braid(node_json['braid'],self)
         self.medians = np.array(node_json['medians'])
         self.dispersions = np.array([node_json['dispersions']])
         self.local_gains = np.array(node_json['local_gains'])
         self.absolute_gains = np.array(node_json['absolute_gains'])
+        self.weights = np.ones(self.features.shape)
         self.children = []
         self.child_clusters = ([],[])
         if len(node_json['children']) > 0:
@@ -694,6 +696,7 @@ class Forest:
             output_features = [str(i) for i in range(output.shape[1])]
         if samples is None:
             samples = [str(i) for i in range(input.shape[0])]
+
         self.truth_dictionary = TruthDictionary(output,output_features,samples)
 
         self.input = input
@@ -788,6 +791,7 @@ class Forest:
 
         fd = self.truth_dictionary.feature_dictionary
         encoding = np.zeros((len(nodes),len(fd)),dtype=bool)
+
         for i,node in enumerate(nodes):
             for feature in node.features:
                 encoding[i,fd[feature]] = True
@@ -960,7 +964,7 @@ class Forest:
 
     def set_feature_weights(self,nodes,weights,feature):
         for node,weight in zip(nodes,weights):
-            feature_index = node.features.index(feature)
+            feature_index = np.where(node.features == feature)[0]
             node.weights[feature_index] = weight
 
     def set_feature_weights_assisted(self,nodes,weight_indecies,weights):
@@ -989,7 +993,8 @@ class Forest:
         # constant_repeater = map(lambda x: (x[0],x[1],forest_leaves,leaf_sample_encoding,leaf_feature_encoding,raw_prediction_matrix,leaf_feature_index_table,negative_weights), enumerate(self.features))
         #
         #
-        for feature in self.features:
+        for feature in self.output_features:
+            print(f"Calculating weights for {feature}")
             feature_index = self.truth_dictionary.feature_dictionary[feature]
             # leaf_feature_index = leaf_feature_encoding
             feature_leaf_indecies = np.arange(len(forest_leaves))[leaf_feature_encoding[:,feature_index]]
@@ -1988,6 +1993,7 @@ class NodeCluster:
     def braid_scores(self):
 
         from scipy.stats import pearsonr
+        from scipy.stats.mstats import gmean
 
         braids = self.parent_braids()
 
@@ -2012,7 +2018,7 @@ class NodeCluster:
 
         braided_scores = Braid.braid_matrix(braid_matrix)
 
-        braided_scores -= np.mean(braid_splits)
+        braided_scores -= gmean(braid_splits)
 
         return braided_scores
 
@@ -2184,8 +2190,6 @@ class NodeCluster:
         own = self.nodes
         sisters = [sister for n in own for sister in [n.sister(),] if sister is not None]
 
-        print(f"Sister debug:{len(sisters)}")
-
         own_encoding = self.forest.node_sample_encoding(own).astype(dtype=int)
         sister_encoding = self.forest.node_sample_encoding(sisters).astype(dtype=int)
 
@@ -2261,7 +2265,7 @@ class NodeCluster:
         leaf_medians = self.weighted_feature_predictions()
         difference = leaf_medians - initial_medians
         feature_order = np.argsort(difference)
-        ordered_features = np.array(self.forest.features)[feature_order]
+        ordered_features = np.array(self.forest.output_features)[feature_order]
         ordered_difference = difference[feature_order]
 
         if plot:
@@ -2284,6 +2288,16 @@ class NodeCluster:
             plt.show()
 
         return ordered_features,ordered_difference
+
+    def up_down_panel(self,ax,n):
+
+        text_rectangle(ax,f"Cluster {self.id}",[.25,.9,.5,.1])
+        ordered_features,ordered_difference = self.changed_features(plot=False)
+        up_table = ax.table(cellText=np.array([ordered_features[-n:],ordered_difference[-n:]]).T,colLabels=["Symbol","Fold Change"],bbox=[0,.45,1,.45],edges="open")
+        for j in range(n):
+            up_table.get_celld()[j,0].edgecolor="R"
+        up_table.get_celld()[0,0].edgecolor="TR"
+        up_table.get_celld()[0,1].edgecolor="T"
 
 
 
@@ -2515,6 +2529,26 @@ def count_list_elements(elements):
             dict[element] = 0
         dict[element] += 1
     return dict
+
+def text_rectangle(ax,text,rect):
+
+    from matplotlib.text import TextPath
+    import matplotlib.patches as mpatches
+    import matplotlib.transforms as trns
+
+    [x,y,w,h,] = rect
+
+    text_path = TextPath((0,0),s=text)
+    patch = mpatches.PathPatch(text_path)
+
+    _,_,t_w,t_h = patch.get_extents().bounds
+
+    text_path = trns.Affine2D().scale(sx=1/t_w,sy=1/t_h).translate(x,y).transform_path(text_path)
+
+    ax_transform = ax.transAxes
+    patch = mpatches.PathPatch(text_path,transform=ax_transform)
+
+    ax.add_artist(patch)
 
 
 if __name__ != "__main__":

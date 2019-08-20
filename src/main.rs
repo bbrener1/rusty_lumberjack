@@ -5,12 +5,10 @@
 
 #[macro_use]
 extern crate ndarray;
-extern crate ndarray_linalg;
 // extern crate intel_mkl_src;
 // extern crate openblas_src;
 // extern crate blas_src;
 extern crate trees;
-extern crate ihmm;
 
 use std::env;
 
@@ -30,9 +28,9 @@ fn main() {
         "construct" | "generate" | "predict" | "combined" => {
             trees::io::interpret(&command_top,&mut arg_iter);
         },
-        "analyze" => {
-            ihmm::io::interpret(&mut arg_iter);
-        },
+        // "analyze" => {
+        //     ihmm::io::interpret(&mut arg_iter);
+        // },
         _ => {
             panic!("Invalid top level command {}, please use 'construct','predict','combined', or 'analyze'", command_top);
         },

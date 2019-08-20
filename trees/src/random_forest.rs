@@ -110,11 +110,11 @@ impl Forest {
             eprintln!("{:?}",["./",&self.parameters.report_address.clone(),".ifh"].join(""));
             eprintln!("{:?}",["./",&self.parameters.report_address.clone(),".ofh"].join(""));
 
-            let mut output_header_dump = OpenOptions::new().create(true).append(true).open([&self.parameters.report_address.clone(),".ifh"].join(""))?;
+            let mut output_header_dump = OpenOptions::new().write(true).create(true).truncate(true).open([&self.parameters.report_address.clone(),".ifh"].join(""))?;
             output_header_dump.write(self.prototype_tree.as_ref().unwrap().input_feature_names().join("\n").as_bytes())?;
             output_header_dump.write(b"\n")?;
 
-            let mut output_header_dump = OpenOptions::new().create(true).append(true).open([&self.parameters.report_address.clone(),".ofh"].join(""))?;
+            let mut output_header_dump = OpenOptions::new().write(true).create(true).truncate(true).open([&self.parameters.report_address.clone(),".ofh"].join(""))?;
             output_header_dump.write(self.prototype_tree.as_ref().unwrap().output_feature_names().join("\n").as_bytes())?;
             output_header_dump.write(b"\n")?;
 
