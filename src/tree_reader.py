@@ -955,7 +955,7 @@ class Forest:
 
     def node_predict_assisted(self,nodes,feature_indecies):
         if -1 in weight_indecies:
-            print("Tried predict a feature a node doesn't have!")
+            print("Tried to predict a feature a node doesn't have!")
             raise ValueError
         predictions = np.zeros(len(nodes))
         for node_index,node,feature_index in zip(range(len(nodes)),nodes,feature_indecies):
@@ -2261,9 +2261,10 @@ class NodeCluster:
         return self.forest.weighted_node_vector_prediction(self.nodes)
 
     def changed_features(self,n=50,plot=True):
-        initial_medians = self.forest.weighted_node_vector_prediction([self.forest.prototype.root])
-        leaf_medians = self.weighted_feature_predictions()
-        difference = leaf_medians - initial_medians
+        parents = [n.parent for n in self.nodes if n.parent is not None]
+        parent_medians = self.forest.weighted_node_vector_prediction(parents)
+        own_medians = self.weighted_feature_predictions()
+        difference = own_medians - parent_medians
         feature_order = np.argsort(difference)
         ordered_features = np.array(self.forest.output_features)[feature_order]
         ordered_difference = difference[feature_order]
@@ -2580,9 +2581,6 @@ def text_rectangle(ax,text,rect,no_warp=True):
             sx = sx * (patch_aspect/(rect_aspect*ax_aspect))
         else:
             sy = sy * ((rect_aspect*ax_aspect)/patch_aspect)
-
-        print(f"Axes Aspect:{ax_aspect}")
-        print(f"Patch Aspect:{patch_aspect}")
 
 
     text_path = trns.Affine2D().scale(sx=sx,sy=sy).translate(x,y).transform_path(text_path)
