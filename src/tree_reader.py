@@ -2291,15 +2291,38 @@ class NodeCluster:
 
     def up_down_panel(self,ax,n):
 
-        text_rectangle(ax,f"Cluster {self.id}",[.25,.9,.5,.1])
+        text_rectangle(ax,f"Cluster {self.id}",[.3,.85,.3,.1],no_warp)
+        # ax.set_title(f"Cluster {self.id}")
+
         ordered_features,ordered_difference = self.changed_features(plot=False)
-        up_table = ax.table(cellText=np.array([ordered_features[-n:],ordered_difference[-n:]]).T,colLabels=["Symbol","Fold Change"],bbox=[0,.45,1,.45],edges="open")
-        for j in range(n):
-            up_table.get_celld()[j,0].edgecolor="R"
-        up_table.get_celld()[0,0].edgecolor="TR"
-        up_table.get_celld()[0,1].edgecolor="T"
+        ordered_features = ordered_features[::-1]
+        ordered_difference = ordered_difference[::-1]
 
+        up_table = ax.table(cellText=np.array([ordered_features[:n],ordered_difference[:n]]).T,cellLoc="center",colLabels=["Symbol","Fold Change"],bbox=[0,.4,1,.4],edges="open")
+        up_table.set_fontsize(100)
+        up_table.auto_set_font_size()
+        for i in range(n):
+            up_table[i+1,0].visible_edges = "R"
+        up_table[0,0].visible_edges = "B"
+        up_table[0,1].visible_edges = "B"
+        for i in range(n):
+            if float(up_table[i+1,1].get_text().get_text()) < 0:
+                up_table[i+1,1].set_text_props(color='r')
+            if float(up_table[i+1,1].get_text().get_text()) > 0:
+                up_table[i+1,1].set_text_props(color='g')
 
+        down_table = ax.table(cellText=np.array([ordered_features[-n:],ordered_difference[-n:]]).T,cellLoc="center",colLabels=["Symbol","Fold Change"],bbox=[0,0,1,.4],edges="open")
+        down_table.set_fontsize(100)
+        down_table.auto_set_font_size()
+        for i in range(n):
+            down_table[i+1,0].visible_edges = "R"
+        down_table[0,0].visible_edges = "B"
+        down_table[0,1].visible_edges = "B"
+        for i in range(n):
+            if float(down_table[i+1,1].get_text().get_text()) < 0:
+                down_table[i+1,1].set_text_props(color='r')
+            if float(down_table[i+1,1].get_text().get_text()) > 0:
+                down_table[i+1,1].set_text_props(color='g')
 
 ################################
 ################################
@@ -2543,7 +2566,21 @@ def text_rectangle(ax,text,rect):
 
     _,_,t_w,t_h = patch.get_extents().bounds
 
-    text_path = trns.Affine2D().scale(sx=1/t_w,sy=1/t_h).translate(x,y).transform_path(text_path)
+    sx = w/t_w
+    sy = h/t_h
+
+    if no_warp:
+
+        a_w,a_h = ax.transAxes.transform([1,1])
+        ax_aspect = a_w/a_h
+        patch_aspect = t_w/t_h
+
+        if ax_aspect > patch_aspect:
+            sx = sx * (patch_aspect/ax_aspect)
+        else:
+            sy = sy * (ax_aspect/patch_aspect)
+
+    text_path = trns.Affine2D().scale(sx=sx,sy=sy).translate(x,y).transform_path(text_path)
 
     ax_transform = ax.transAxes
     patch = mpatches.PathPatch(text_path,transform=ax_transform)
