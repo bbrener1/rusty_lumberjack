@@ -1730,6 +1730,67 @@ class Forest:
 
         return f
 
+    def plot_tree_summary(self,n=3):
+
+        def leaves(tree):
+            l = []
+            for child in tree[1]:
+                l.extend(leaves(child))
+            if len(l) < 1:
+                l.append(tree[0])
+            return l
+
+        width = 1/len(leaves(self.likely_tree))
+
+        def levels(tree,level=0):
+            l = []
+            for child in tree[1]:
+                l.extend(levels(child,level=level+1))
+            l.append(level)
+            return l
+
+        height = 1/(max(levels(self.likely_tree)) + 1)
+
+        fig = plt.figure(figsize=(30,30))
+
+        print(f"RECURSIVE TREE DEBUG H:{height},W:{width}")
+
+        def recursive_axes(tree,limits=[1,1]):
+            axes = [None,[]]
+            print(f"Recursive tree debug:{tree}")
+            [x,y] = limits
+            child_width = 0
+            for child in tree[1]:
+                [ax,cw] = recursive_axes(child,[x-child_width,y-height])
+                child_width += cw
+                axes[1].append(ax)
+            if len(tree[1]) < 1:
+                child_width += width
+            padding = (child_width - width) / 2
+            print(f"Recursive tree debug pos:{[x-padding + (width * .05),y + (height * .05),width*.9,height*.9]}")
+            ax = fig.add_axes([x-padding + (width * .05),y + (height * .05),width*.9,height*.9])
+            # ax.axis('off')
+            ax.tick_params(bottom="off", left="off")
+            ax.set_yticklabels([])
+            ax.set_xticklabels([])
+            axes[0] = ax
+            print(f"Recursive tree debug axes:{axes}")
+            print(child_width)
+            return [axes,child_width]
+
+        def recursive_panels(cluster_tree,axis_tree,n=3):
+            for cluster_child,axis_child in zip(cluster_tree[1],axis_tree[1]):
+                recursive_panels(cluster_child,axis_child)
+            if cluster_tree[0] < len(self.split_clusters) and cluster_tree[0] !=0:
+                self.split_clusters[cluster_tree[0]].up_down_panel(axis_tree[0],n)
+            if cluster_tree[0] == 0:
+                text_rectangle(axis_tree[0],"Origin",[.25,.5,.5,.5],no_warp=True)
+
+        axes,_ = recursive_axes(self.likely_tree)
+        recursive_panels(self.likely_tree,axes,n=n)
+
+        return fig
+
 class TruthDictionary:
 
     def __init__(self,counts,header,samples=None):
@@ -2022,53 +2083,7 @@ class NodeCluster:
 
         return braided_scores
 
-        ###################
-        ###################
-        ###################
-        #
-        # braids = self.braids()
-        # braid_scores = np.zeros((len(braids),len(self.forest.samples)))
-        # occurrence = np.ones((len(self.nodes),len(self.forest.samples)))
-        # td = self.forest.truth_dictionary
-        #
-        # for (i,braid) in enumerate(braids):
-        #     compound_values = np.zeros(braid.compound_values.shape)
-        #     compound_values[braid.compound_values > braid.compound_split] = 1
-        #     compound_values[braid.compound_values <= braid.compound_split] = -1
-        #     # compound_values = braid.compound_values
-        #     compound_values = np.log(compound_values)
-        #     # compound_values = compound_values - np.log(braid.compound_split)
-        #     # compound_values = braid.compound_values - braid.compound_split
-        #     # compound_values = compound_values - np.median(compound_values)
-        #     for (sample,value) in zip(braid.samples,compound_values):
-        #         j = td.sample_dictionary[sample]
-        #         braid_scores[i,j] += value
-        #         occurrence[i,j] += 1
 
-        # plt.figure()
-        # plt.hist(braid_scores.flatten(),bins=30)
-        # plt.show()
-        #
-        # plt.figure()
-        # plt.hist([c for i,b in enumerate(braid_scores) for j,c in enumerate(b) if occurrence[i,j] > 0],bins=30)
-        # plt.show()
-
-        # mean_scores = np.sum(braid_scores,axis=0) / (np.sum(occurrence,axis=0) + 1)
-        # mean_scores = np.sum(braid_scores,axis=0) / (braid_scores.shape[0] + 1)
-
-        # correlations = [pearsonr(f,mean_scores)[0] for f in braid_scores]
-        #
-        # for i,cc in enumerate(correlations):
-        #     if cc < 0:
-        #         braid_scores[i] = braid_scores[i] * -1
-
-        # mean_scores = np.sum(braid_scores,axis=0) / (np.sum(occurrence,axis=0) + 1)
-        # mean_scores = (np.sum(braid_scores,axis=0) / (np.sum(occurrence,axis=0) + 1)) * self.cell_scores()
-        # mean_scores = np.sum(braid_scores,axis=0) / (braid_scores.shape[0] + 1)
-        #
-        # mean_scores = np.exp(mean_scores)
-        #
-        # return mean_scores
 
 
     def braid_features(self):
@@ -2265,9 +2280,13 @@ class NodeCluster:
         parent_medians = self.forest.weighted_node_vector_prediction(parents)
         own_medians = self.weighted_feature_predictions()
         difference = own_medians - parent_medians
-        feature_order = np.argsort(difference)
+        log_fold_change = np.log2(own_medians/parent_medians)
+
+        # feature_order = np.argsort(difference)
+        feature_order = np.argsort(log_fold_change)
         ordered_features = np.array(self.forest.output_features)[feature_order]
-        ordered_difference = difference[feature_order]
+        ordered_log_fold_change = log_fold_change[feature_order]
+        # ordered_difference = difference[feature_order]
 
         if plot:
             plt.figure(figsize=(10,2))
@@ -2275,7 +2294,7 @@ class NodeCluster:
             plt.scatter(np.arange(n),ordered_difference[-n:])
             plt.xlim(0,n)
             plt.xlabel("Gene Symbol")
-            plt.ylabel("Frequency")
+            plt.ylabel("Change")
             plt.xticks(np.arange(n),ordered_features[-n:],rotation='vertical')
             plt.show()
 
@@ -2284,22 +2303,24 @@ class NodeCluster:
             plt.scatter(np.arange(n),ordered_difference[:n])
             plt.xlim(0,n)
             plt.xlabel("Gene Symbol")
-            plt.ylabel("Frequency")
+            plt.ylabel("Change")
             plt.xticks(np.arange(n),ordered_features[:n],rotation='vertical')
             plt.show()
 
-        return ordered_features,ordered_difference
+        return ordered_features,ordered_log_fold_change
 
     def up_down_panel(self,ax,n):
 
-        text_rectangle(ax,f"Cluster {self.id}",[.3,.85,.3,.1],no_warp=True)
+        text_rectangle(ax,f"Cluster {self.id}",[.3,.85,.4,.08],no_warp=True)
         # ax.set_title(f"Cluster {self.id}")
 
         ordered_features,ordered_difference = self.changed_features(plot=False)
         ordered_features = ordered_features[::-1]
         ordered_difference = ordered_difference[::-1]
+        ordered_difference = [np.around(x,decimals=3) for x in ordered_difference]
 
         up_table = ax.table(cellText=np.array([ordered_features[:n],ordered_difference[:n]]).T,cellLoc="center",colLabels=["Up","Fold Change"],bbox=[0,.4,1,.4],edges="open")
+        up_table.PAD=.01
         up_table.set_fontsize(100)
         up_table.auto_set_font_size()
         for i in range(n):
@@ -2313,6 +2334,7 @@ class NodeCluster:
                 up_table[i+1,1].set_text_props(color='g')
 
         down_table = ax.table(cellText=np.array([ordered_features[-n:],ordered_difference[-n:]]).T,cellLoc="center",colLabels=["Down","Fold Change"],bbox=[0,0,1,.4],edges="open")
+        down_table.PAD=.01
         down_table.set_fontsize(100)
         down_table.auto_set_font_size()
         for i in range(n):
@@ -2572,10 +2594,17 @@ def text_rectangle(ax,text,rect,no_warp=True):
 
     if no_warp:
 
-        a_w,a_h = ax.transAxes.transform([1,1])
+        # a_w,a_h = ax.transAxes.transform([1,1])
+        [_,_,a_w,a_h] = ax.get_position().bounds
         ax_aspect = a_w/a_h
         patch_aspect = t_w/t_h
         rect_aspect = w/h
+
+        print("Aspect debug:")
+        print(f"patch aspect:{patch_aspect}")
+        print(f"rect_aspect:{rect_aspect}")
+        print(f"ax_aspect:{ax_aspect}")
+        print(f"ax_dimension:{ax.get_position()}")
 
         if ax_aspect > patch_aspect:
             sx = sx * (patch_aspect/(rect_aspect*ax_aspect))
