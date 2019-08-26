@@ -42,6 +42,9 @@ use std::sync::Arc;
 use io::DispersionMode;
 use rank_vector::{RankVector,Node};
 
+// Prefer braid thickness to to be odd to make consensus braids work well
+const BRAID_THICKNESS: usize = 5;
+
 
 #[derive(Debug,Clone,Serialize,Deserialize,PartialEq,Eq,Hash)]
 pub struct Feature {
@@ -249,6 +252,15 @@ impl Braid {
         let value = self.compound_values[split];
         self.compound_split = Some(value);
     }
+
+}
+
+#[derive(Clone,Serialize,Deserialize,Debug)]
+struct ConsensusBraid {
+    prerequisites: Vec<Prerequisite>
+}
+
+impl ConsensusBraid {
 
 }
 

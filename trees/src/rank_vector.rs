@@ -139,23 +139,9 @@ impl<T: Borrow<[Node]> + BorrowMut<[Node]> + Index<usize,Output=Node> + IndexMut
             right: right,
         };
 
-        // println!("Linking");
-        //
-        // println!("{:?}", in_vec);
-        //
-        // println!("{:?}", prototype);
-        //
-        // println!("Median");
-
         prototype.establish_median();
 
-        // println!("{:?}", prototype);
-        //
-        // println!("Zones");
-
         prototype.establish_zones();
-
-        // println!("{:?}", prototype);
 
         prototype
 
@@ -175,15 +161,9 @@ impl<T: Borrow<[Node]> + BorrowMut<[Node]> + Index<usize,Output=Node> + IndexMut
     #[inline]
     pub fn pop(&mut self, target: usize) -> f64 {
 
-        // println!("{:?}", self);
-
         let target_zone = self.nodes[target].zone;
 
-        // println!("Popping {}", target);
-
         if target_zone != 0 {
-
-            // println!("Popping internal");
 
             self.unlink(target);
 
@@ -193,67 +173,18 @@ impl<T: Borrow<[Node]> + BorrowMut<[Node]> + Index<usize,Output=Node> + IndexMut
 
             self.check_boundaries(target);
 
-            // println!("Balancing");
-            // println!("{:?}", self.zones);
-            // println!("{:?}", self.median);
-
             self.balance_zones(target);
 
-            // println!("{:?}", self.zones);
-            // println!("{:?}", self.median);
-            //
-            // println!("Recentering");
-            // println!("{:?}", self.median);
             let (old_median,new_median) = self.recenter_median(target);
-            // println!("{:?}", self.median);
-            // println!("{:?}", (old_median,new_median));
-            //
-            //
-            // println!("Shifting zones");
-            //
+
             self.shift_zones(old_median, new_median);
 
         }
 
-        // if (self.median() - slow_median(self.ordered_values())).abs() > 0.00001 {
-        //     println!("{:?}", self);
-        //     println!("{:?}", self.ordered_values());
-        //     println!("{:?}", slow_median(self.ordered_values()));
-        //     panic!("Failed to adjust median!");
-        // };
-        //
-        // if (self.mad() - slow_mad(self.ordered_values())).abs() > 0.00001 {
-        //     println!("{:?}", self);
-        //     println!("{:?}", self.ordered_values());
-        //     println!("{:?}", self.mad());
-        //     println!("{:?}", slow_mad(self.ordered_values()));
-        //     panic!("Failed to adjust mad");
-        // };
-
-        // println!("{:?}", self);
 
         self.nodes[target].data
 
     }
-
-    // This method acts directly on the internal linked list, bypassing the node at a given index.
-
-    // #[inline]
-    // fn pop_internal(&mut self, target: usize) -> &Node {
-    //
-    //     let left = self.nodes[target].previous;
-    //     let right = self.nodes[target].next;
-    //
-    //     self.nodes[left].next = self.nodes[target].next;
-    //     self.nodes[right].previous = self.nodes[target].previous;
-    //
-    //     self.zones[self.nodes[target].zone].length -= 1;
-    //     self.zones[0].length += 1;
-    //
-    //     self.nodes[target].zone = 0;
-    //
-    //     &self.nodes[target]
-    // }
 
     #[inline]
     fn mpop(&mut self, target: usize) -> (f64,f64) {
@@ -314,36 +245,14 @@ impl<T: Borrow<[Node]> + BorrowMut<[Node]> + Index<usize,Output=Node> + IndexMut
             _ => unreachable!(),
         }
 
-        // if (self.median() - slow_median(self.ordered_values())) > 0.00001 {
-        //     println!("{:?}", self);
-        //     println!("{:?}", self.ordered_values());
-        //     println!("{:?}", slow_median(self.ordered_values()));
-        //     panic!("Failed to establish median!");
-        // }
     }
 
     #[inline]
     pub fn establish_zones(&mut self) {
 
-        // println!("{:?}", self);
-
-        // for _ in 0..((self.len() - self.len()%2)/2) {
         for _ in 0..(((self.len())/2).max(1) - (1 - self.len()%2)) {
-        // while  self.zones[1] + self.zones[3] >= self.zones[2] {
-            // println!("+++++++++++++++++++++");
-            // println!("{:?}", self.zones);
             self.contract_1();
         };
-
-        // println!("{:?}", self);
-
-        // if (self.mad() - slow_mad(self.ordered_values())) > 0.00001 {
-        //     println!("{:?}", self);
-        //     println!("{:?}", self.ordered_values());
-        //     println!("{:?}", self.mad());
-        //     println!("{:?}", slow_mad(self.ordered_values()));
-        //     panic!("Failed to establish mad");
-        // };
 
     }
 
@@ -460,26 +369,16 @@ impl<T: Borrow<[Node]> + BorrowMut<[Node]> + Index<usize,Output=Node> + IndexMut
         let left = self.nodes[self.left].data;
         let right = self.nodes[self.right].data;
 
-        // println!("{:?}", self);
-        //
-        // println!("{},{},{}", left, median, right);
-        //
-        // println!("Comparison {},{}", left-median, right-median);
-
         if (right - median).abs() > (left - median).abs() {
-            // println!("Right");
             self.contract_right();
         }
         else {
-            // println!("Left");
             self.contract_left();
         }
     }
 
     #[inline]
     pub fn balance_zones(&mut self,target:usize) {
-
-        // println!("Balancing");
 
         if self.len() > 0 {
 
@@ -539,10 +438,6 @@ impl<T: Borrow<[Node]> + BorrowMut<[Node]> + Index<usize,Output=Node> + IndexMut
     #[inline]
     pub fn recenter_median(&mut self, target:usize) -> (f64,f64) {
 
-        // println!("Recentering");
-        // println!("{:?}", self.nodes[self.median.0]);
-        // println!("{:?}", self.nodes[self.median.1]);
-
         let old_median = self.median();
 
         let target_rank = self.nodes[target].rank;
@@ -561,12 +456,6 @@ impl<T: Borrow<[Node]> + BorrowMut<[Node]> + Index<usize,Output=Node> + IndexMut
         }
 
         let new_median = self.median();
-
-        // println!("Done recentering");
-        // println!("{:?}", self.nodes[self.median.0]);
-        // println!("{:?}", self.nodes[self.median.1]);
-        // println!("{:?}", self.median());
-        // println!("{:?}", (old_median,new_median));
 
         (old_median, new_median)
 
@@ -724,15 +613,12 @@ impl<T: Borrow<[Node]> + BorrowMut<[Node]> + Index<usize,Output=Node> + IndexMut
 
     #[inline]
     pub fn ordered_values(&self) -> Vec<f64> {
-        // println!("Ordered values");
-        // println!("{:?}", self.left_to_right());
         self.left_to_right().iter().map(|x| self.nodes[*x].data).collect()
     }
 
     #[inline]
     pub fn full_values(&self) -> Vec<f64> {
         (0..self.raw_len()).map(|x| self.nodes[x].data).collect()
-        // self.nodes[0..self.raw_len()].map(|x| x.data).collect()
     }
 
     #[inline]
@@ -822,13 +708,8 @@ impl<T: Borrow<[Node]> + BorrowMut<[Node]> + Index<usize,Output=Node> + IndexMut
         for (i,draw) in draw_order.iter().enumerate() {
             let new_ssme = running_square_sum - (running_double_sum * running_median) + (total_values * running_median.powi(2));
             ssmes.push(new_ssme);
-            // println!("RSS:{:?}",running_square_sum);
-            // println!("RDS:{:?}",running_double_sum);
-            // println!("NM:{:?}",running_median);
-            // println!("NSS:{:?}",new_ssme);
             let (new_median,value) = self.mpop(*draw);
             running_median = new_median;
-            // println!("V:{:?}",value);
             running_square_sum -= value.powi(2);
             running_double_sum -= value * 2.;
             total_values -= 1.;
@@ -854,13 +735,8 @@ impl<T: Borrow<[Node]> + BorrowMut<[Node]> + Index<usize,Output=Node> + IndexMut
         for (i,draw) in draw_order.iter().enumerate() {
             let new_sme = running_sum - (total_values * running_median);
             smes.push(new_sme);
-            // println!("RSS:{:?}",running_square_sum);
-            // println!("RDS:{:?}",running_double_sum);
-            // println!("NM:{:?}",running_median);
-            // println!("NSS:{:?}",new_ssme);
             let (new_median,value) = self.mpop(*draw);
             running_median = new_median;
-            // println!("V:{:?}",value);
             running_sum -= value;
             total_values -= 1.;
         };
@@ -880,13 +756,6 @@ impl<T: Borrow<[Node]> + BorrowMut<[Node]> + Index<usize,Output=Node> + IndexMut
         for draw in draw_order {
             self.pop(*draw);
             mads.push(self.mad());
-            // if (self.mad() - slow_mad(self.ordered_values())).abs() > 0.00001 {
-            //     println!("{:?}", self);
-            //     println!("{:?}", self.ordered_values());
-            //     println!("{:?}", self.mad());
-            //     println!("{:?}", slow_mad(self.ordered_values()));
-            //     panic!("Mad mismatch");
-            // }
         }
 
         mads
@@ -910,15 +779,12 @@ impl<T: Borrow<[Node]> + BorrowMut<[Node]> + Index<usize,Output=Node> + IndexMut
             covs.push(cov);
         }
 
-        // println!("innermost pre-filter: {:?}", covs);
 
         for element in covs.iter_mut() {
             if !element.is_normal() {
                 *element = 0.;
             }
         }
-
-        // println!("innermost: {:?}", covs);
 
         covs
     }
@@ -1001,7 +867,20 @@ impl<T: Borrow<[Node]> + BorrowMut<[Node]> + Index<usize,Output=Node> + IndexMut
         let cmp = drop_mode.cmp();
         self.drop_f(cmp);
         self.drop = drop_mode;
-        // println!("Dropped: {:?}", self);
+    }
+
+    pub fn check_integrity(&self) {
+
+
+
+        if (self.mad() - slow_mad(self.ordered_values())).abs() > 0.00001 {
+            println!("{:?}", self.nodes);
+            println!("{:?}", self.ordered_values());
+            println!("{:?}", self.mad());
+            println!("{:?}", slow_mad(self.ordered_values()));
+            panic!("Mad mismatch");
+        }
+
     }
 
 }
@@ -1113,31 +992,10 @@ impl RankVector<Vec<Node>> {
 
         };
 
-        // println!("Deriving");
-        // println!("{:?}", new_vector);
-
         new_vector.establish_median();
         new_vector.establish_zones();
 
-        // if (new_vector.mad() - slow_mad(new_vector.ordered_values())).abs() > 0.00001 {
-        //     println!("{:?}", new_vector);
-        //     println!("{:?}", new_vector.ordered_values());
-        //     println!("{:?}", new_vector.mad());
-        //     println!("{:?}", slow_mad(new_vector.ordered_values()));
-        //     panic!("Mad mismatch");
-        // }
-
         new_vector.drop_using_mode(self.drop);
-
-        // if (new_vector.mad() - slow_mad(new_vector.ordered_values())).abs() > 0.00001 {
-        //     println!("{:?}", new_vector);
-        //     println!("{:?}", new_vector.ordered_values());
-        //     println!("{:?}", new_vector.mad());
-        //     println!("{:?}", slow_mad(new_vector.ordered_values()));
-        //     panic!("Mad mismatch");
-        // }
-
-        // println!("{:?}", new_vector);
 
         new_vector
 
@@ -1146,9 +1004,6 @@ impl RankVector<Vec<Node>> {
     #[inline]
     pub fn clone_to_container(&self, mut local_node_vector: SmallVec<[Node;1024]>) -> RankVector<SmallVec<[Node;1024]>> {
 
-        // println!("Cloning to container");
-        // println!("{:?}", self);
-
         local_node_vector.clear();
 
         local_node_vector.reserve(self.nodes.len());
@@ -1156,8 +1011,6 @@ impl RankVector<Vec<Node>> {
         for node in &self.nodes {
             local_node_vector.push(*node);
         }
-
-        // println!("{:?}", local_node_vector);
 
         let new_vector = RankVector {
             nodes: local_node_vector,
@@ -1171,14 +1024,6 @@ impl RankVector<Vec<Node>> {
             left: self.left,
             right: self.right,
         };
-
-        // if (new_vector.mad() - slow_mad(new_vector.ordered_values())).abs() > 0.00001 {
-        //     println!("{:?}", new_vector);
-        //     println!("{:?}", new_vector.ordered_values());
-        //     println!("{:?}", new_vector.mad());
-        //     println!("{:?}", slow_mad(new_vector.ordered_values()));
-        //     panic!("Mad mismatch after clone to container");
-        // }
 
         new_vector
 
@@ -1216,16 +1061,11 @@ impl RankVector<SmallVec<[Node;1024]>> {
     #[inline]
     pub fn clone_from_prototype(&mut self, prototype: &RankVector<Vec<Node>>) {
 
-        // println!("Cloning to container");
-        // println!("{:?}", self);
-
         self.nodes.clear();
 
         for node in &prototype.nodes {
             self.nodes.push(node.clone());
         }
-
-        // println!("{:?}", local_node_vector);
 
         self.drop = prototype.drop;
         self.zones = prototype.zones.clone();
@@ -1234,13 +1074,6 @@ impl RankVector<SmallVec<[Node;1024]>> {
         self.left = prototype.left;
         self.right = prototype.right;
 
-        // if (self.mad() - slow_mad(self.ordered_values())).abs() > 0.00001 {
-        //     println!("{:?}", self);
-        //     println!("{:?}", self.ordered_values());
-        //     println!("{:?}", self.mad());
-        //     println!("{:?}", slow_mad(self.ordered_values()));
-        //     panic!("Mad mismatch after clone to container");
-        // }
 
     }
 

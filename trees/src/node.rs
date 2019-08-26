@@ -19,6 +19,7 @@ use crate::Sample;
 use crate::Prerequisite;
 use crate::Split;
 use crate::Braid;
+use crate::ConsensusBraid;
 use crate::io::DropMode;
 use crate::io::PredictionMode;
 use crate::io::Parameters;
@@ -41,7 +42,7 @@ use rayon::prelude::*;
 
 
 #[derive(Clone,Serialize,Deserialize,Debug)]
-pub struct Node {
+pub struct Node<K:Braid> {
 
     pub prototype: bool,
 
@@ -61,7 +62,7 @@ pub struct Node {
     split: Option<Split>,
 
     prerequisites: Vec<Prerequisite>,
-    braids: Vec<Braid>,
+    braids: Vec<K>,
 
     pub medians: Vec<f64>,
     pub feature_weights: Vec<f64>,
@@ -72,7 +73,7 @@ pub struct Node {
 }
 
 
-impl Node {
+impl Node<K: Braid> {
 
     pub fn prototype<'a>(input_counts:&Vec<Vec<f64>>,output_counts:&Vec<Vec<f64>>,input_features:&'a[Feature],output_features:&'a[Feature],samples:&'a[Sample], parameters: Arc<Parameters> , feature_weight_option: Option<Vec<f64>>) -> Node {
 
