@@ -8,6 +8,7 @@ use std::ops::IndexMut;
 use std::fmt::Debug;
 use std::clone::Clone;
 use std::borrow::{Borrow,BorrowMut};
+use std::iter::Map;
 use crate::io::DropMode;
 
 #[derive(Clone,Serialize,Deserialize)]
@@ -617,13 +618,13 @@ impl<T: Borrow<[Node]> + BorrowMut<[Node]> + Index<usize,Output=Node> + IndexMut
     }
 
     #[inline]
-    pub fn full_values(&self) -> Vec<f64> {
-        (0..self.raw_len()).map(|x| self.nodes[x].data).collect()
+    pub fn full_values<'a>(&'a self) -> impl Iterator<Item=&'a f64> {
+        (0..self.raw_len()).map(|x| &self.nodes[x].data)
     }
 
     #[inline]
-    pub fn full_values_with_state(&self) -> Vec<(bool,f64)> {
-        (0..self.raw_len()).map(|x| (self.nodes[x].zone != 0, self.nodes[x].data)).collect()
+    pub fn full_values_with_state<'a>(&'a self) -> impl Iterator<Item=(bool,&'a f64)> {
+        (0..self.raw_len()).map(|x| (self.nodes[x].zone != 0, &self.nodes[x].data))
     }
 
     pub fn ordered_meds_mads(&mut self,draw_order: &[usize],drop_set: HashSet<usize>) -> Vec<(f64,f64)> {
@@ -801,25 +802,26 @@ impl<T: Borrow<[Node]> + BorrowMut<[Node]> + Index<usize,Output=Node> + IndexMut
         (draw_order,drop_set)
     }
 
-    #[inline]
-    pub fn split_indices(&self, split:&f64) -> (Vec<usize>,Vec<usize>) {
-
-        let (mut left,mut right) = (Vec::with_capacity(self.len()),Vec::with_capacity(self.len()));
-
-        for (i,sample) in self.ordered_values().iter().enumerate() {
-            if sample <= &split {
-                left.push(i);
-            }
-            else {
-                right.push(i);
-            }
-        }
-
-        left.shrink_to_fit();
-        right.shrink_to_fit();
-
-        (vec![],vec![])
-    }
+    // NEED TO CHECK IF THIS ACTUALLY WORKS CORRECTLY
+    // #[inline]
+    // pub fn split_indices(&self, split:&f64) -> (Vec<usize>,Vec<usize>) {
+    //
+    //     let (mut left,mut right) = (Vec::with_capacity(self.len()),Vec::with_capacity(self.len()));
+    //
+    //     for (i,sample) in self.full_values().iter().enumerate() {
+    //         if sample <= &split {
+    //             left.push(i);
+    //         }
+    //         else {
+    //             right.push(i);
+    //         }
+    //     }
+    //
+    //     left.shrink_to_fit();
+    //     right.shrink_to_fit();
+    //
+    //     (vec![],vec![])
+    // }
 
     pub fn ordered_cov_gains(&mut self,draw_order: &Vec<usize>,drop_set: &HashSet<usize>) -> Vec<f64> {
 
@@ -1033,7 +1035,7 @@ impl RankVector<Vec<Node>> {
 
 impl Debug for RankVector<Vec<Node>> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "RankVec {:?},{:?}", self.full_values(),self.rank_order)
+        write!(f, "RankVec {:?},{:?}", self.full_values().cloned().collect::<Vec<f64>>(),self.rank_order)
     }
 }
 

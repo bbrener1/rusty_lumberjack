@@ -18,7 +18,6 @@ use crate::Feature;
 use crate::Sample;
 use crate::Prerequisite;
 use crate::Split;
-use crate::Braid;
 use crate::ConsensusBraid;
 use crate::io::DropMode;
 use crate::io::PredictionMode;
@@ -42,7 +41,7 @@ use rayon::prelude::*;
 
 
 #[derive(Clone,Serialize,Deserialize,Debug)]
-pub struct Node<K:Braid> {
+pub struct Node {
 
     pub prototype: bool,
 
@@ -61,9 +60,6 @@ pub struct Node<K:Braid> {
 
     split: Option<Split>,
 
-    prerequisites: Vec<Prerequisite>,
-    braids: Vec<K>,
-
     pub medians: Vec<f64>,
     pub feature_weights: Vec<f64>,
     pub dispersions: Vec<f64>,
@@ -73,7 +69,7 @@ pub struct Node<K:Braid> {
 }
 
 
-impl Node<K: Braid> {
+impl Node {
 
     pub fn prototype<'a>(input_counts:&Vec<Vec<f64>>,output_counts:&Vec<Vec<f64>>,input_features:&'a[Feature],output_features:&'a[Feature],samples:&'a[Sample], parameters: Arc<Parameters> , feature_weight_option: Option<Vec<f64>>) -> Node {
 
@@ -103,9 +99,6 @@ impl Node<K: Braid> {
 
             split: None,
 
-            prerequisites: vec![],
-            braids: vec![],
-
             medians: medians,
             feature_weights: feature_weights,
             dispersions: dispersions,
@@ -121,7 +114,7 @@ impl Node<K: Braid> {
         if let Some(split) = self.rayon_best_split() {
             self.split = Some(split);
             // eprintln!("Deriving split:{:?}",self.split);
-            Some(self.derive_complete_by_split(self.split.as_ref().unwrap(), None))
+            self.derive_complete_by_split(None)
         }
         else { None }
     }
@@ -131,7 +124,7 @@ impl Node<K: Braid> {
         if let Some(split) = compact.rayon_best_split() {
             self.split = Some(split);
             // eprintln!("Deriving split:{:?}",self.split);
-            Some(self.derive_complete_by_split(self.split.as_ref().unwrap(), None))
+            self.derive_complete_by_split(None)
         }
         else { None }
     }
@@ -170,7 +163,8 @@ impl Node<K: Braid> {
             self.subsample(samples,input_features,output_features)
             .rayon_best_plus_n_splits(thickness)
             .into_iter()
-            .map(|s| s.feature)
+            .map(|s| s.feature())
+            .cloned()
             .collect();
 
         // This block represents resampling the input features and samples, but not the output features:
@@ -191,11 +185,11 @@ impl Node<K: Braid> {
 
         let rvs: Vec<_> = features.iter().map(|f| self.input_table.rv_fetch(f.index).clone()).collect();
 
-        let braid = Braid::from_rvs(features, samples, &rvs);
+        let split = Split::from_rvs(&features, &samples, &rvs);
 
         // eprintln!("Braid split:{:?}",braid);
 
-        self.derive_complete_by_braid(braid)
+        self.derive_complete_by_split(split)
     }
 
     pub fn rayon_best_split(&self) -> Option<Split> {
@@ -205,7 +199,7 @@ impl Node<K: Braid> {
             .into_par_iter()
             .flat_map(|i| self.feature_index_split(i))
             .collect();
-        let dispersions: Vec<f64> = splits.iter().map(|s| s.dispersion).collect();
+        let dispersions: Vec<f64> = splits.iter().map(|s| s.dispersion()).collect();
         Some(splits[argmin(&dispersions)?.0].clone())
 
     }
@@ -217,7 +211,7 @@ impl Node<K: Braid> {
             .into_par_iter()
             .flat_map(|i| self.feature_index_split(i))
             .collect();
-        let mut n_dispersions: Vec<(usize,f64)> = splits.iter().map(|s| s.dispersion).enumerate().collect();
+        let mut n_dispersions: Vec<(usize,f64)> = splits.iter().map(|s| s.dispersion()).enumerate().collect();
         n_dispersions.sort_by(|a,b| a.1.partial_cmp(&b.1).expect("Nan dispersion"));
         let top_n = n_dispersions.iter().take(n).map(|(i,d)| splits[*i].clone()).collect();
         top_n
@@ -232,7 +226,7 @@ impl Node<K: Braid> {
             .flat_map(|i| self.feature_index_split(i))
             .collect();
 
-        let dispersions: Vec<f64> = splits.iter().map(|s| s.dispersion).collect();
+        let dispersions: Vec<f64> = splits.iter().map(|s| s.dispersion()).collect();
         let best_split_index = argmin(&dispersions).unwrap().0;
 
         let split_encodings: Vec<Vec<bool>> = splits.par_iter().map(|s| self.split_encoding(s)).collect();
@@ -251,71 +245,38 @@ impl Node<K: Braid> {
         let (split_index,minimum_dispersion) = argmin(&dispersions[1..])?;
         let split_sample_index = draw_order[split_index];
         let split_value = self.input_table.feature_fetch(feature_index,split_sample_index);
-        Some(Split::new(feature,split_value,minimum_dispersion))
+        Some(Split::from_single(feature,split_value,minimum_dispersion))
 
     }
 
+    pub fn derive_complete_by_split(&self, prototype:Option<&Node>) -> Option<Vec<Node>> {
 
-    pub fn derive_complete_by_braid(&mut self,mut braid:Braid) -> Option<Vec<Node>> {
-        let (draw_order,drop_set) = braid.draw_order();
-        let dispersions = self.output_table.order_dispersions(&draw_order,&drop_set,&self.feature_weights)?;
-        let (split_index,minimum_dispersion) = argmin(&dispersions[1..])?;
+        if !self.prototype {
+            return None
+        }
 
-        let left_indices:Vec<usize> = draw_order[..split_index].to_owned();
-        let right_indices:Vec<usize> = draw_order[split_index..].to_owned();
+        let split = self.split?;
 
-        braid.compound_split = Some(braid.compound_values[draw_order[split_index]]);
-
-        self.braids.push(braid.clone());
-
-        let mut left_child_id = self.id.clone();
-        let mut right_child_id = self.id.clone();
-        left_child_id.push_str(&format!("!F{:?}:L",braid.features));
-        right_child_id.push_str(&format!("!F{:?}:R",braid.features));
-
-        let input_features: Vec<usize> = (0..self.input_features().len()).collect();
-        let output_features: Vec<usize> = (0..self.output_features().len()).collect();
-
-        let mut new_braids = self.braids.clone();
-
-        let mut left_child = self.derive_specified(&left_indices, &input_features, &output_features, None, Some(new_braids.clone()), &left_child_id);
-        let mut right_child = self.derive_specified(&right_indices, &input_features, &output_features, None, Some(new_braids), &right_child_id);
-
-        left_child.prototype = true;
-        right_child.prototype = true;
-
-        Some(vec![left_child,right_child])
-    }
-
-    pub fn derive_complete_by_split(&self,split:&Split,prototype:Option<&Node>) -> Vec<Node> {
-
-        let mut left_prerequisites = self.prerequisites.clone();
-        let mut right_prerequisites = self.prerequisites.clone();
-        left_prerequisites.push(split.left());
-        right_prerequisites.push(split.right());
         let mut left_child_id = self.id.clone();
         let mut right_child_id = self.id.clone();
         left_child_id.push_str(&format!("!F{:?}:S{:?}L",split.feature,split.value));
         right_child_id.push_str(&format!("!F{:?}:S{:?}R",split.feature,split.value));
-        vec![prototype.unwrap_or(self).derive_complete_by_prerequisites(&left_prerequisites,&left_child_id),prototype.unwrap_or(self).derive_complete_by_prerequisites(&right_prerequisites,&right_child_id)]
-    }
-
-
-    pub fn derive_complete_by_prerequisites(&self, prerequisites: &[Prerequisite], new_id:&str) -> Node {
 
         let input_features: Vec<usize> = (0..self.input_features().len()).collect();
         let output_features: Vec<usize> = (0..self.output_features().len()).collect();
 
-        let samples: Vec<usize> = self.indices_given_prerequisites(&prerequisites);
+        let (left_samples,right_samples) = split.left_right();
 
-        let mut child = self.derive_specified(&samples,&input_features,&output_features, Some(prerequisites.to_owned()),None,new_id);
+        let mut left_child = self.derive_specified(&left_samples,&input_features,&output_features,left_child_id);
+        let mut right_child = self.derive_specified(&right_samples,&input_features,&output_features,right_child_id);
 
-        child.prototype = true;
+        left_child.prototype = true;
+        right_child.prototype = true;
 
-        child
+        return Some(vec![left_child,right_child]);
     }
 
-    pub fn derive_specified(&self, samples: &[usize], input_features: &[usize], output_features: &[usize], prerequisite_opt: Option<Vec<Prerequisite>>, braid_opt: Option<Vec<Braid>>, new_id: &str) -> Node {
+    pub fn derive_specified(&self, samples: &[usize], input_features: &[usize], output_features: &[usize], new_id: &str) -> Node {
 
         // This is the base derivation of a node from self.
         // Other derivations produce a node specification, then call this method
@@ -335,14 +296,6 @@ impl Node<K: Braid> {
         let new_input_features = input_features.iter().map(|i| self.input_features[*i].clone()).collect();
         let new_output_features = output_features.iter().map(|i| self.output_features[*i].clone()).collect();
         let new_samples: Vec<Sample> = samples.iter().map(|i| self.samples[*i].clone()).collect();
-
-        let mut new_prerequisites =
-            if let Some(prerequisites) = prerequisite_opt {
-                prerequisites.to_owned()
-            }
-            else {self.prerequisites.clone()};
-
-        let mut new_braids = braid_opt.unwrap_or(self.braids.clone());
 
         let medians = new_output_table.medians();
         let dispersions = new_output_table.dispersions();
@@ -368,9 +321,6 @@ impl Node<K: Braid> {
             children: Vec::new(),
 
             split: None,
-
-            prerequisites: new_prerequisites,
-            braids: new_braids,
 
             medians: medians,
             feature_weights: feature_weights,
@@ -772,9 +722,6 @@ impl Node<K: Braid> {
 
             split: self.split,
 
-            prerequisites: self.prerequisites,
-            braid: braid,
-
             features: feature_encoding,
             samples: sample_encoding,
             medians: self.medians,
@@ -815,9 +762,6 @@ pub struct StrippedNode {
     pub children: Vec<StrippedNode>,
 
     split: Option<Split>,
-
-    prerequisites: Vec<Prerequisite>,
-    braids: Vec<Braid>,
 
     depth: usize,
 
@@ -1048,18 +992,11 @@ impl StrippedNode {
         let feature_encoding = self.feature_encoding(None).into_iter().map(|b| if b {1} else {0}).collect();
         let sample_encoding = self.sample_encoding(None).into_iter().map(|b| if b {1} else {0}).collect();
         let children = self.children.into_iter().map(|c| c.compact()).collect();
-        let mut braid = if self.braids.len() == (self.depth+1) {self.braids.last().map(|b| b.clone())} else {None};
-        if braid.is_some() {
-            braid.as_mut().unwrap().samples = vec![];
-        }
 
         UltraCompact {
             children: children,
 
             split: self.split,
-
-            prerequisites: self.prerequisites,
-            braid: braid,
 
             features: feature_encoding,
             samples: sample_encoding,
@@ -1079,9 +1016,6 @@ pub struct UltraCompact {
     pub children: Vec<UltraCompact>,
 
     split: Option<Split>,
-
-    prerequisites: Vec<Prerequisite>,
-    braid: Option<Braid>,
 
     features: Vec<i8>,
     samples: Vec<i8>,
@@ -1122,9 +1056,6 @@ mod node_testing {
 
             features: vec![],
             samples: vec![],
-
-            prerequisites: vec![],
-            braids: vec![],
 
             depth: 0,
 
@@ -1230,8 +1161,8 @@ mod node_testing {
 
         println!("{:?}",split);
 
-        assert_eq!(split.dispersion,2822.265625);
-        assert_eq!(split.value, 5.);
+        assert_eq!(split.dispersion(),2822.265625);
+        assert_eq!(split.value(), 5.);
     }
 
     #[test]

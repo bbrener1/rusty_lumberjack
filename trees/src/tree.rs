@@ -88,7 +88,7 @@ impl<'a> Tree {
 
     pub fn derive_specified(&self,samples:&Vec<usize>,input_features:&Vec<usize>,output_features:&Vec<usize>,iteration: usize) -> Tree {
 
-        let mut new_prototype = self.prototype.as_ref().expect("Tree without prototype").derive_specified(samples,input_features,output_features,None,None,"RT");
+        let mut new_prototype = self.prototype.as_ref().expect("Tree without prototype").derive_specified(samples,input_features,output_features,"RT");
 
         new_prototype.prototype = true;
 

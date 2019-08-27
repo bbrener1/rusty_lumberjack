@@ -112,15 +112,15 @@ impl RankTable {
         // and if it does not fulfil the prerequisite.
 
         if orientation {
-            for (i,(d,v)) in self.meta_vector[feature].full_values_with_state().iter().enumerate() {
-                if v <= &value && *d {
+            for (i,(d,v)) in self.meta_vector[feature].full_values_with_state().enumerate() {
+                if v <= &value && d {
                     mask[i] = false;
                 }
             }
         }
         else {
-            for (i,(d,v)) in self.meta_vector[feature].full_values_with_state().iter().enumerate() {
-                if (v > &value) && *d {
+            for (i,(d,v)) in self.meta_vector[feature].full_values_with_state().enumerate() {
+                if (v > &value) && d {
                     mask[i] = false;
                 }
             }
@@ -162,13 +162,13 @@ impl RankTable {
     pub fn full_values(&self) -> Vec<Vec<f64>> {
         let mut values = Vec::new();
         for feature in &self.meta_vector {
-            values.push(feature.full_values());
+            values.push(feature.full_values().cloned().collect());
         }
         values
     }
 
     pub fn full_feature_values(&self,index:usize) -> Vec<f64> {
-        self.meta_vector[index].full_values()
+        self.meta_vector[index].full_values().cloned().collect()
     }
 
     pub fn full_ordered_values(&self) -> Vec<Vec<f64>> {

@@ -127,43 +127,71 @@ impl Prerequisite {
 }
 
 #[derive(Debug,Clone,Serialize,Deserialize)]
-pub struct Split {
-    feature: Feature,
-    value: f64,
-    dispersion: f64,
-}
+pub enum Split {
+        Consensus {braid:ConsensusBraid},
+        Geometric {braid:GeometricBraid},
+        Single {feature:Feature,split:f64,dispersion:f64},
+    }
 
 impl Split {
-    pub fn new(feature: Feature,value:f64,dispersion:f64) -> Split {
-        Split {
+
+    pub fn left_right(&self) -> Option<(&[usize],&[usize])>{
+        match self {
+            Split::Consensus{braid} => {braid.left_right()},
+            Split::Geometric{braid} => {braid.left_right()},
+            Split::Single{dispersion,..} => {None},
+        }
+    }
+
+    // pub fn from_rvs(features:&[Feature],samples:&[Sample],rvs:&[RankVector<Node>]) -> Split {
+    //
+    // }
+
+    pub fn from_single(feature:Feature,split:f64,dispersion:f64) -> Split {
+        Split::Single{
             feature,
-            value,
+            split,
             dispersion,
         }
     }
 
-    pub fn left(&self) -> Prerequisite {
-        Prerequisite::new(self.feature.clone(), self.value, false)
+    pub fn dispersion(&self) -> f64 {
+        match self {
+            Split::Consensus{braid} => {braid.compound_split.as_ref().unwrap().2},
+            Split::Geometric{braid} => {braid.compound_split.as_ref().unwrap().2},
+            Split::Single{dispersion,..} => {*dispersion},
+        }
     }
 
-    pub fn right(&self) -> Prerequisite {
-        Prerequisite::new(self.feature.clone(), self.value, true)
+    pub fn value(&self) -> f64 {
+        match self {
+            Split::Consensus{braid} => {braid.compound_split.as_ref().unwrap().1},
+            Split::Geometric{braid} => {braid.compound_split.as_ref().unwrap().1},
+            Split::Single{dispersion,..} => {*dispersion},
+        }
     }
 
+    pub fn feature(&self) -> &Feature {
+        match self {
+            Split::Consensus{braid} => {panic!("Braids are not single-feature splits")},
+            Split::Geometric{braid} => {panic!("Braids are not single-feature splits")},
+            Split::Single{feature,..} => {feature},
+        }
+    }
 }
 
 #[derive(Clone,Serialize,Deserialize,Debug)]
-pub struct Braid {
+pub struct GeometricBraid {
     features: Vec<Feature>,
     samples: Vec<Sample>,
     compound_values: Vec<f64>,
     draw_order: Vec<usize>,
     drop_set: HashSet<usize>,
-    compound_split: Option<f64>,
+    compound_split: Option<(usize,f64,f64)>,
 }
 
-impl Braid {
-    fn from_rvs(features: Vec<Feature>,samples:Vec<Sample>,rvs: &[RankVector<Vec<Node>>]) -> Braid {
+impl GeometricBraid {
+    fn from_rvs(features: Vec<Feature>,samples:Vec<Sample>,rvs: &[RankVector<Vec<Node>>]) -> GeometricBraid {
 
         let len = rvs.get(0).unwrap_or(&RankVector::<Vec<Node>>::empty()).raw_len();
 
@@ -179,7 +207,7 @@ impl Braid {
         // undesirable when comparing to ex [1,2,3,3,4,4,10], where conventional ranking would
         // rank 10 as 5.
 
-        let mut ranked_values: Vec<Vec<usize>> = rvs.iter().map(|rv| modified_competition_ranking(&rv.full_values())).collect();
+        let mut ranked_values: Vec<Vec<usize>> = rvs.iter().map(|rv| modified_competition_ranking(&rv.full_values().cloned().collect::<Vec<f64>>())).collect();
 
         // Now we would like to reverse any vectors that are opposed to the average direction of the overall vector
 
@@ -229,7 +257,8 @@ impl Braid {
 
 
 
-        Braid {
+
+        GeometricBraid {
             features,
             samples,
             // compound_vector,
@@ -244,24 +273,161 @@ impl Braid {
         (&self.draw_order,&self.drop_set)
     }
 
-    fn set_split(&mut self, split:f64) {
-        self.compound_split = Some(split)
+    fn set_split(&mut self, split:f64,dispersion:f64) {
+        let split_index = self.draw_order.iter().map(|&i| self.compound_values[i]).filter(|&v| v <= split).count();
+        self.compound_split = Some((split_index,split,dispersion))
     }
 
-    fn set_split_by_index(&mut self, split:usize) {
-        let value = self.compound_values[split];
-        self.compound_split = Some(value);
+    fn left_right(&self) -> Option<(&[usize],&[usize])> {
+        let (draw_order,_) = self.draw_order();
+        let (split_index,..) = self.compound_split?;
+        let left: &[usize] = &draw_order[..split_index];
+        let right: &[usize] = &draw_order[split_index..];
+        Some((left,right))
+
     }
 
 }
 
 #[derive(Clone,Serialize,Deserialize,Debug)]
 struct ConsensusBraid {
-    prerequisites: Vec<Prerequisite>
+    features: Vec<Feature>,
+    samples: Vec<Sample>,
+    compound_values: Vec<f64>,
+    draw_order: Vec<usize>,
+    drop_set: HashSet<usize>,
+    compound_split: Option<(usize,f64,f64)>,
 }
 
 impl ConsensusBraid {
+    fn from_rvs(features: Vec<Feature>,samples:Vec<Sample>,rvs: &[RankVector<Vec<Node>>]) -> ConsensusBraid {
 
+        let len = rvs.get(0).unwrap_or(&RankVector::<Vec<Node>>::empty()).raw_len();
+
+        // Let's make sure all our RVs match in length at least. (We can't really do much if they're not
+        // synched but let's hope for the best)
+
+        assert!(!rvs.iter().any(|rv| rv.raw_len() != len));
+
+        // For a consensus braid we are still generating compound values, however they are now based on
+        // votes from individual features instead of a geometric average.
+        let compound_values = vec![0;len];
+
+        for rv in rvs {
+
+            for (i,v) in rv.full_values().enumerate() {
+                compound_values[i] +=
+            }
+        }
+
+        let midpoint = len/2;
+
+        let orientation =
+            ranked_values.iter()
+            .map(|v|
+                    ( v[..midpoint].iter()
+                        .map(|r| if *r > midpoint {1} else {0})
+                        .sum::<usize>(),
+                    v[..midpoint].iter()
+                        .map(|r| if *r > midpoint {1} else {0})
+                        .sum::<usize>()
+                    )
+                )
+            .map(|(left,right)| {
+                left > right
+            })
+            .collect::<Vec<bool>>();
+
+        for (orientation,rv) in orientation.iter().zip(ranked_values.iter_mut()) {
+            if *orientation {
+                for r in rv.iter_mut() {
+                    *r = len + 1 - *r;
+                }
+            }
+        }
+
+        let mut compound_values: Vec<f64> = vec![0.;len];
+
+        for i in 0..len {
+            for vec in ranked_values.iter() {
+
+                // Here we can guarantee that all values are above 0 because we are using
+                // 1-indexed ranking instead of raw values for geometric averaging.
+                // Therefore we can safely take a ln.
+
+                compound_values[i] += (vec[i] as f64).ln();
+            }
+            compound_values[i] /= ranked_values.len() as f64;
+            compound_values[i] = compound_values[i].exp();
+        }
+
+        let compound_vector = RankVector::<Vec<Node>>::link(&compound_values);
+        let (draw_order,drop_set) = compound_vector.draw_and_drop();
+
+
+
+        ConsensusBraid {
+            features,
+            samples,
+            compound_values,
+            draw_order,
+            drop_set,
+            compound_split: None,
+        }
+    }
+
+    fn draw_order(&self) -> (&[usize],&HashSet<usize>) {
+        (&self.draw_order,&self.drop_set)
+    }
+
+    fn set_split(&mut self, split:f64,dispersion:f64) {
+        let split_index = self.draw_order.iter().map(|&i| self.compound_values[i]).filter(|&v| v <= split).count();
+        self.compound_split = Some((split_index,split,dispersion))
+    }
+
+
+    fn left_right(&self) -> Option<(&[usize],&[usize])> {
+        let (draw_order,_) = self.draw_order();
+        let (split_index,..) = self.compound_split?;
+        let left: &[usize] = &draw_order[..split_index];
+        let right: &[usize] = &draw_order[split_index..];
+        Some((left,right))
+
+    }
+
+}
+
+struct Spec<'a> {
+    map: HashMap<(&'a Feature,&'a Sample),f64>,
+}
+
+impl<'a> Spec<'a> {
+    fn new(features:&'a [&'a Feature],samples:&'a [&'a Sample],table:Vec<Vec<f64>>) -> Spec<'a> {
+        let mut child_spec: HashMap<(&Feature,&Sample),f64> = HashMap::with_capacity(features.len() * samples.len());
+        for (i,f) in features.iter().enumerate() {
+            for (j,s) in samples.iter().enumerate() {
+                child_spec.insert((f,s),table[i][j]);
+            }
+        }
+
+        Spec {
+            map: child_spec,
+        }
+
+    }
+
+    fn blank() -> Spec<'a> {
+        Spec {
+            map: HashMap::new(),
+        }
+    }
+}
+
+impl<'a> std::ops::Index<(&'a Feature,&'a Sample)> for Spec<'a> {
+    type Output = f64;
+    fn index(&self,fs:(&'a Feature,&'a Sample)) -> &Self::Output {
+        &self.map[&fs]
+    }
 }
 
 fn read_header(location: &str) -> Vec<String> {
@@ -293,6 +459,7 @@ fn read_header(location: &str) -> Vec<String> {
 
     header_vector
 }
+
 
 fn read_sample_names(location: &str) -> Vec<String> {
 
