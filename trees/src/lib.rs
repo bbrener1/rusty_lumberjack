@@ -240,6 +240,75 @@ impl Braid {
         }
     }
 
+    fn from_splits(features: Vec<Feature>,samples:Vec<Sample>,rvs: &[RankVector<Vec<Node>>],splits:&[Split]) -> Braid {
+
+        let len = rvs.get(0).unwrap_or(&RankVector::<Vec<Node>>::empty()).raw_len();
+
+        assert!(!rvs.iter().any(|rv| rv.raw_len() != len));
+
+        // This method uses consensus voting between different features to specify the sample identity.
+
+        let mut ranked_values: Vec<Vec<usize>> = rvs.iter().map(|rv| modified_competition_ranking(&rv.full_values())).collect();
+
+        // Now we would like to reverse any vectors that are opposed to the average direction of the overall vector
+
+        let midpoint = len/2;
+
+        let orientation =
+            ranked_values.iter()
+            .map(|v|
+                    ( v[..midpoint].iter()
+                        .map(|r| if *r > midpoint {1} else {0})
+                        .sum::<usize>(),
+                    v[..midpoint].iter()
+                        .map(|r| if *r > midpoint {1} else {0})
+                        .sum::<usize>()
+                    )
+                )
+            .map(|(left,right)| {
+                left > right
+            })
+            .collect::<Vec<bool>>();
+
+        for (orientation,rv) in orientation.iter().zip(ranked_values.iter_mut()) {
+            if *orientation {
+                for r in rv.iter_mut() {
+                    *r = len + 1 - *r;
+                }
+            }
+        }
+
+        let mut compound_values: Vec<f64> = vec![0.;len];
+
+        for i in 0..len {
+            for vec in ranked_values.iter() {
+
+                // Here we can guarantee that all values are above 0 because we are using
+                // 1-indexed ranking instead of raw values for geometric averaging.
+                // Therefore we can safely take a ln.
+
+                compound_values[i] += (vec[i] as f64).ln();
+            }
+            compound_values[i] /= ranked_values.len() as f64;
+            compound_values[i] = compound_values[i].exp();
+        }
+
+        let compound_vector = RankVector::<Vec<Node>>::link(&compound_values);
+        let (draw_order,drop_set) = compound_vector.draw_and_drop();
+
+
+
+        Braid {
+            features,
+            samples,
+            // compound_vector,
+            compound_values,
+            draw_order,
+            drop_set,
+            compound_split: None,
+        }
+    }
+
     fn draw_order(&self) -> (&[usize],&HashSet<usize>) {
         (&self.draw_order,&self.drop_set)
     }
@@ -255,14 +324,6 @@ impl Braid {
 
 }
 
-#[derive(Clone,Serialize,Deserialize,Debug)]
-struct ConsensusBraid {
-    prerequisites: Vec<Prerequisite>
-}
-
-impl ConsensusBraid {
-
-}
 
 fn read_header(location: &str) -> Vec<String> {
 
