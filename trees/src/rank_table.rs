@@ -104,29 +104,13 @@ impl RankTable {
     //
     pub fn feature_value_mask(&self,feature:usize,value:f64,orientation:bool) -> Vec<bool> {
 
-        // We create a default-true mask
-
-        let mut mask = vec![true;self.dimensions.1];
-
-        // If we have the prerequisite feature available, for each sample, we mask that sample if it is not dropped
-        // and if it does not fulfil the prerequisite.
-
         if orientation {
-            for (i,(d,v)) in self.meta_vector[feature].full_values_with_state().iter().enumerate() {
-                if v <= &value && *d {
-                    mask[i] = false;
-                }
-            }
+            self.meta_vector.get(feature).map(|f| f.split_mask(value)).unwrap_or_else(|| vec![true;self.dimensions.1])
         }
         else {
-            for (i,(d,v)) in self.meta_vector[feature].full_values_with_state().iter().enumerate() {
-                if (v > &value) && *d {
-                    mask[i] = false;
-                }
-            }
+            self.meta_vector.get(feature).map(|f| f.split_mask(value).into_iter().map(|b| !b).collect()).unwrap_or_else(|| vec![true;self.dimensions.1])                        
         }
 
-        mask
     }
 
 
@@ -162,13 +146,13 @@ impl RankTable {
     pub fn full_values(&self) -> Vec<Vec<f64>> {
         let mut values = Vec::new();
         for feature in &self.meta_vector {
-            values.push(feature.full_values());
+            values.push(feature.full_values().cloned().collect::<Vec<f64>>());
         }
         values
     }
 
     pub fn full_feature_values(&self,index:usize) -> Vec<f64> {
-        self.meta_vector[index].full_values()
+        self.meta_vector[index].full_values().cloned().collect::<Vec<f64>>()
     }
 
     pub fn full_ordered_values(&self) -> Vec<Vec<f64>> {

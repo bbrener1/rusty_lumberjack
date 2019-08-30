@@ -42,8 +42,6 @@ use std::sync::Arc;
 use io::DispersionMode;
 use rank_vector::{RankVector,Node};
 
-// Prefer braid thickness to to be odd to make consensus braids work well
-const BRAID_THICKNESS: usize = 5;
 
 
 #[derive(Debug,Clone,Serialize,Deserialize,PartialEq,Eq,Hash)]
@@ -179,7 +177,7 @@ impl Braid {
         // undesirable when comparing to ex [1,2,3,3,4,4,10], where conventional ranking would
         // rank 10 as 5.
 
-        let mut ranked_values: Vec<Vec<usize>> = rvs.iter().map(|rv| modified_competition_ranking(&rv.full_values())).collect();
+        let mut ranked_values: Vec<Vec<usize>> = rvs.iter().map(|rv| modified_competition_ranking(&rv.full_values().cloned().collect::<Vec<f64>>())).collect();
 
         // Now we would like to reverse any vectors that are opposed to the average direction of the overall vector
 
@@ -191,7 +189,7 @@ impl Braid {
                     ( v[..midpoint].iter()
                         .map(|r| if *r > midpoint {1} else {0})
                         .sum::<usize>(),
-                    v[..midpoint].iter()
+                    v[midpoint..].iter()
                         .map(|r| if *r > midpoint {1} else {0})
                         .sum::<usize>()
                     )
@@ -247,22 +245,26 @@ impl Braid {
         assert!(!rvs.iter().any(|rv| rv.raw_len() != len));
 
         // This method uses consensus voting between different features to specify the sample identity.
+        // First we will need to collect votes based on each split and the rank vector belonging to that split
 
-        let mut ranked_values: Vec<Vec<usize>> = rvs.iter().map(|rv| modified_competition_ranking(&rv.full_values())).collect();
+        let mut split_values: Vec<Vec<bool>> = rvs.iter().zip(splits.iter()).map( |(rv,split)| {
+            let Split{value,..} = split;
+            rv.split_mask(*value)
+        }).collect();
 
         // Now we would like to reverse any vectors that are opposed to the average direction of the overall vector
 
         let midpoint = len/2;
 
         let orientation =
-            ranked_values.iter()
+            split_values.iter()
             .map(|v|
                     ( v[..midpoint].iter()
-                        .map(|r| if *r > midpoint {1} else {0})
-                        .sum::<usize>(),
-                    v[..midpoint].iter()
-                        .map(|r| if *r > midpoint {1} else {0})
-                        .sum::<usize>()
+                        .filter(|&b| *b)
+                        .count(),
+                    v[midpoint..].iter()
+                        .filter(|&b| *b)
+                        .count(),
                     )
                 )
             .map(|(left,right)| {
@@ -270,28 +272,24 @@ impl Braid {
             })
             .collect::<Vec<bool>>();
 
-        for (orientation,rv) in orientation.iter().zip(ranked_values.iter_mut()) {
+        for (orientation,v) in orientation.iter().zip(split_values.iter_mut()) {
             if *orientation {
-                for r in rv.iter_mut() {
-                    *r = len + 1 - *r;
+                for b in v.iter_mut() {
+                    *b = !*b;
                 }
             }
         }
 
         let mut compound_values: Vec<f64> = vec![0.;len];
 
-        for i in 0..len {
-            for vec in ranked_values.iter() {
-
-                // Here we can guarantee that all values are above 0 because we are using
-                // 1-indexed ranking instead of raw values for geometric averaging.
-                // Therefore we can safely take a ln.
-
-                compound_values[i] += (vec[i] as f64).ln();
+        for sv in split_values {
+            for (j,b) in sv.iter().enumerate() {
+                if *b {
+                    compound_values[j] += 1.;
+                }
             }
-            compound_values[i] /= ranked_values.len() as f64;
-            compound_values[i] = compound_values[i].exp();
         }
+
 
         let compound_vector = RankVector::<Vec<Node>>::link(&compound_values);
         let (draw_order,drop_set) = compound_vector.draw_and_drop();
@@ -308,6 +306,10 @@ impl Braid {
             compound_split: None,
         }
     }
+
+    // fn braid_sample(&self,sample:HashMap<Feature,f64>) {
+    //     let sf = self.features.iter().flat_map(|f| sample.get(f))
+    // }
 
     fn draw_order(&self) -> (&[usize],&HashSet<usize>) {
         (&self.draw_order,&self.drop_set)

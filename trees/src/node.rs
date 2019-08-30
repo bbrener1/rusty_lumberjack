@@ -39,6 +39,8 @@ use std::env;
 
 use rayon::prelude::*;
 
+// Prefer braid thickness to to be odd to make consensus braids work well
+const BRAID_THICKNESS: usize = 5;
 
 #[derive(Clone,Serialize,Deserialize,Debug)]
 pub struct Node {
@@ -139,7 +141,7 @@ impl Node {
 
         if !self.prototype { panic!("Attempted to take a braid off an incomplete node") };
 
-        let thickness = 4;
+        let thickness = BRAID_THICKNESS;
 
         // Here we can either resample the compute node multiple times or simply take the top 4 features. I am leaning towards the latter as the approach
 
@@ -165,12 +167,9 @@ impl Node {
 
         // This block represents one subsampling and taking the top feature, and n of its most correlated features:
 
-        let mut features: Vec<Feature> =
-            self.subsample(samples,input_features,output_features)
-            .rayon_best_plus_n_splits(thickness)
-            .into_iter()
-            .map(|s| s.feature)
-            .collect();
+        let mut splits: Vec<Split> = self.subsample(samples,input_features,output_features).rayon_best_plus_n_splits(thickness);
+
+        let mut features: Vec<Feature> = splits.iter().map(|s| s.feature.clone()).collect();
 
         // This block represents resampling the input features and samples, but not the output features:
 
@@ -190,7 +189,10 @@ impl Node {
 
         let rvs: Vec<_> = features.iter().map(|f| self.input_table.rv_fetch(f.index).clone()).collect();
 
-        let braid = Braid::from_rvs(features, samples, &rvs);
+        // Here we pick whether we want to do geometric average ranking type braiding,
+        // or consensus vote braiding.
+        // let braid = Braid::from_rvs(features, samples, &rvs);
+        let braid = Braid::from_splits(features, samples, &rvs, &splits);
 
         // eprintln!("Braid split:{:?}",braid);
 
