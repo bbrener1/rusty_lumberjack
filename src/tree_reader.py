@@ -1,5 +1,13 @@
 import matplotlib as mpl
-mpl.rcParams['figure.dpi'] = 600
+# COLOR = 'white'
+# BACKGROUND = 'black'
+# mpl.rcParams['text.color'] = COLOR
+# mpl.rcParams['axes.labelcolor'] = COLOR
+# mpl.rcParams['xtick.color'] = COLOR
+# mpl.rcParams['ytick.color'] = COLOR
+# mpl.rc('axes',fc=BACKGROUND)
+
+mpl.rcParams['figure.dpi'] = 300
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -1880,7 +1888,7 @@ class Forest:
 
         return f
 
-    def plot_tree_summary(self,n=3,secondary=False):
+    def plot_tree_summary(self,n=3,primary=True,secondary=False):
 
         def leaves(tree):
             l = []
@@ -1908,31 +1916,52 @@ class Forest:
         arrow_canvas = fig.add_axes([0,0,1,1])
         arrow_canvas.axis('off')
 
-        def recursive_axis_coordinates(tree,limits=[0,1]):
+        def recursive_axis_coordinates(tree,child_coordinates,limits=[0,1]):
             # print(f"NDEBUG RECURSE:{n}")
             # We will recursively construct the figure by placing panels of up/down genes
             [x,y] = limits
-            child_coordinates = []
             child_width = 0
-            # print("Recursive tree debug")
-            # print(f"{tree[0]}")
-            # print(f"x:{x},y:{y}")
             # First we go lower in recursive layer and find how many children we need to account for from this leaf
             for child in tree[1]:
-                child_coordinates.extend(recursive_axis_coordinates(child,[x+child_width,y-(height)]))
-                child_width = np.sum([c[1][2] for c in child_coordinates])
-
+                cw = recursive_axis_coordinates(child,child_coordinates,[x+child_width,y-(height)])
+                child_width += cw
+            if child_width == 0:
+                child_width = width
+            print("Recursive tree debug")
+            print(f"x:{x},y:{y}")
+            print(f"{tree[0]}")
+            print(f"cw:{child_width}")
             # We have to place the current leaf at the average position of all leaves below
             padding = (child_width - width) / 2
             coordinates = [x + padding + (width * .1),y - (height * .9),width*.8,height*.8]
+            print(f"coordinates:{coordinates}")
 
             child_coordinates.append([tree[0],coordinates])
+            return child_width
 
             return child_coordinates
 
-        coordinates = recursive_axis_coordinates(self.likely_tree)
+        # def compact_tsne():
+        #     # raw_tsne = TSNE(n_components=2,metric='precomputed').fit_transform(self.split_cluster_transitions)
+        #     raw_tsne = np.array([s.coordinates() for s in self.split_clusters])
+        #     raw_tsne = np.sqrt(np.abs(raw_tsne)) * np.sign(raw_tsne)
+        #
+        #     max_x = np.max(raw_tsne[:,0])
+        #     min_x = np.min(raw_tsne[:,0])
+        #     max_y = np.max(raw_tsne[:,1])
+        #     min_y = np.min(raw_tsne[:,1])
+        #     x_scale = max_x-min_x
+        #     y_scale = max_y-min_y
+        #     raw_tsne[:,0] = (raw_tsne[:,0] - min_x)/x_scale
+        #     raw_tsne[:,1] = (raw_tsne[:,1] - min_y)/y_scale
+        #     coordinates = [[i,[x,y,width,height]] for i,[x,y] in enumerate(raw_tsne) ]
+        #     return coordinates
 
+        coordinates = []
+        recursive_axis_coordinates(self.likely_tree,coordinates)
         coordinates = sorted(coordinates,key=lambda x: x[0])
+
+        # coordinates = compact_tsne()
 
         for i,[x,y,w,h] in coordinates:
             ax = fig.add_axes([x ,y , w, h])
@@ -1962,39 +1991,55 @@ class Forest:
 
         flat_tree = flatten_tree(self.likely_tree)
 
-        for i,children in flat_tree:
-            x,y,w,h = coordinates[i][1]
-            center_x = x + (width * .5)
-            center_y = y - (height * .5)
-            for ci in children:
-                cx,cy,cw,ch = coordinates[ci][1]
-                child_center_x = cx + (cw/2)
-                child_center_y = cy - (height/2)
+        if primary:
 
-                # We would like to set the arrow thickness to be proportional to the mean population of the child
-                if ci < len(self.split_clusters):
-                    cp = self.split_clusters[ci].mean_population()
-                else:
-                    cp = 1
+            print(f"Coordinates:{coordinates}")
+            print(f"Flat tree:{flat_tree}")
 
-                arrow_canvas.plot([center_x,child_center_x],[center_y,child_center_y],linewidth=cp*.1,transform=arrow_canvas.transAxes)
+            for i,children in flat_tree:
+                x,y,w,h = coordinates[i][1]
+                center_x = x + (w * .5)
+                center_y = y + (h * .5)
+                for ci in children:
+                    cx,cy,cw,ch = coordinates[ci][1]
+                    child_center_x = cx + (cw/2)
+                    child_center_y = cy + (ch/2)
+
+                    # We would like to set the arrow thickness to be proportional to the mean population of the child
+                    if ci < len(self.split_clusters):
+                        cp = self.split_clusters[ci].mean_population()
+                    else:
+                        cp = 1
+
+                    arrow_canvas.plot([center_x,child_center_x],[center_y,child_center_y],linewidth=cp*.1,transform=arrow_canvas.transAxes)
 
         if secondary:
-
+            # If we want to indicate secondary connections:
             for i in range(len(self.split_clusters)):
                 for j in range(len(self.split_clusters)):
-                    if j not in flat_tree[i][1]:
-                        if self.split_cluster_transitions[i,j] > 0:
-                            x,y,w,h = coordinates[i][1]
-                            center_x = x + (width * .5)
-                            center_y = y - (height * .5)
-                            cx,cy,cw,ch = coordinates[j][1]
-                            child_center_x = cx + (cw/2)
-                            child_center_y = cy - (height/2)
-                            cp = self.split_cluster_transitions[i,j]
-                            arrow_canvas.plot([center_x,child_center_x],[center_y,child_center_y],linewidth=cp*.1,transform=arrow_canvas.transAxes)
+                    # if j not in flat_tree[i][1]:
 
+                        # We scroll through every element in the split cluster transition
+                        # matrix
 
+                    if self.split_cluster_transitions[i,j] > 0:
+
+                        # If the transitions are non-zero we obtain the coordinates
+
+                        x,y,w,h = coordinates[i][1]
+                        center_x = x + (width * .5)
+                        center_y = y + (height * .5)
+                        cx,cy,cw,ch = coordinates[j][1]
+                        child_center_x = cx + (cw/2)
+                        child_center_y = cy + (height/2)
+
+                        # And plot a line with a weight equivalent to the number of transitions
+
+                        cp = self.split_cluster_transitions[i,j]
+                        total = np.sum(self.split_cluster_transitions[i])
+                        arrow_canvas.plot([center_x,child_center_x],[center_y,child_center_y],alpha=min(1,cp/total*2),linewidth=(cp**2)*.01,transform=arrow_canvas.transAxes)
+
+            return fig
         # def recursive_axes(tree,limits=[0,1],n=3):
         #     # print(f"NDEBUG RECURSE:{n}")
         #     # We will recursively construct the figure by placing panels of up/down genes
@@ -2050,11 +2095,10 @@ class Forest:
 
         #     return child_width
 
-        # print(f"N DEBUG TOP:{n}")
+        #   print(f"N DEBUG TOP:{n}")
 
-        # recursive_axes(self.likely_tree,n=n)
-
-        return fig
+        #   recursive_axes(self.likely_tree,n=n)
+        #   return fig
 
 class TruthDictionary:
 
@@ -2617,8 +2661,8 @@ class NodeCluster:
         #     if float(down_table[i+1,1].get_text().get_text()) > 0:
         #         down_table[i+1,1].set_text_props(color='g')
 
-        table = ax.table(cellText=np.array([list(ordered_features[:n]) + list(ordered_features[-n:]),list(ordered_difference[:n]) + list(ordered_difference[-n:])]).T,cellLoc="center",colLabels=["Symbol","Fold Change"],bbox=[.1,.05,.8,.75],edges="open")
-        # table.PAD=.01
+        table = ax.table(cellText=np.array([[f[:6] for f in ordered_features[:n]] + [f[:6] for f in ordered_features[-n:]],list(ordered_difference[:n]) + list(ordered_difference[-n:])]).T,cellLoc="center",colLabels=["Symbol","Fold"],bbox=[.1,.05,.8,.75],transform=ax.transAxes,edges="open")
+        table.PAD=.0001
         table.set_fontsize(100)
         table.auto_set_font_size()
         for i in range(n*2):
