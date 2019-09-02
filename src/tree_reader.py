@@ -1,11 +1,11 @@
 import matplotlib as mpl
-# COLOR = 'white'
-# BACKGROUND = 'black'
-# mpl.rcParams['text.color'] = COLOR
-# mpl.rcParams['axes.labelcolor'] = COLOR
-# mpl.rcParams['xtick.color'] = COLOR
-# mpl.rcParams['ytick.color'] = COLOR
-# mpl.rc('axes',fc=BACKGROUND)
+COLOR = 'white'
+BACKGROUND = 'black'
+mpl.rcParams['text.color'] = COLOR
+mpl.rcParams['axes.labelcolor'] = COLOR
+mpl.rcParams['xtick.color'] = COLOR
+mpl.rcParams['ytick.color'] = COLOR
+mpl.rc('axes',fc=BACKGROUND)
 
 mpl.rcParams['figure.dpi'] = 300
 
@@ -28,24 +28,24 @@ from scipy.spatial.distance import pdist
 from scipy.spatial.distance import squareform
 from scipy.optimize import nnls
 
+import sklearn
+from sklearn.decomposition import PCA
 from sklearn.decomposition import KernelPCA
 from sklearn.manifold import TSNE
 from sklearn.cluster import DBSCAN
+from sklearn.cluster import AgglomerativeClustering
 from sklearn.manifold import MDS
 from sklearn.linear_model import Ridge,Lasso
 from sklearn.decomposition import NMF
+from umap import UMAP
+from sklearn.metrics import jaccard_similarity_score
+jaccard_index = jaccard_similarity_score
+
 
 # from hdbscan import HDBSCAN
 
 from scipy.cluster import hierarchy as hrc
 from scipy.cluster.hierarchy import dendrogram,linkage
-
-from sklearn.decomposition import PCA
-
-from sklearn.cluster import AgglomerativeClustering
-
-from sklearn.metrics import jaccard_similarity_score
-jaccard_index = jaccard_similarity_score
 
 from multiprocessing import Pool
 
@@ -281,6 +281,15 @@ class Node:
         return l2_sum
 #             print((np.var(sliced_counts[:,global_feature_index]),self.dispersions[f]))
 
+    def feature(self):
+
+        if self.split is not None:
+            return split.feature['name']
+        elif self.braid is not None:
+            return braid.features[0]
+        else:
+            return None
+
     def level(self,target):
 
         # Slices to a specific level of a given tree
@@ -334,23 +343,26 @@ class Node:
         # for this node
 
         if counts is None:
-            counts = self.forest.counts
+            counts = self.forest.output
         return counts[self.sample_mask()].T[self.feature_mask()].T
 
-    # def sorted_node_counts(self):
-    #
-    #     # Creates a sorted table of the node values, primarily useful for plotting.
-    #
-    #     sample_mask = self.sample_mask()
-    #     feature_mask = self.feature_mask()
-    #     node_counts = self.forest.counts[sample_mask].T[feature_mask].T
-    #     try:
-    #         sort_feature_index = self.forest.truth_dictionary.feature_dictionary[self.feature]
-    #         sort_order = np.argsort(self.forest.counts[:,sort_feature_index][sample_mask])
-    #     except:
-    #         sort_order = np.arange(node_counts.shape[0])
-    #
-    #     return node_counts[sort_order]
+    def sorted_node_counts(self,counts = None):
+
+        if counts is None:
+            counts = self.forest.output
+
+        # Creates a sorted table of the node values, primarily useful for plotting.
+
+        sample_mask = self.sample_mask()
+        feature_mask = self.feature_mask()
+        node_counts = counts[sample_mask].T[feature_mask].T
+        try:
+            sort_feature_index = self.forest.truth_dictionary.feature_dictionary[self.feature()]
+            sort_order = np.argsort(self.forest.counts[:,sort_feature_index][sample_mask])
+        except:
+            sort_order = np.arange(node_counts.shape[0])
+
+        return node_counts[sort_order]
 
     def total_feature_counts(self):
 
@@ -1543,20 +1555,20 @@ class Forest:
             print("Warning, cell clusters not detected")
             return None
 
-        tc = self.tsne(no_plot=True)
+        coordinates = self.coordinates(no_plot=True)
 
-        cluster_tc = np.zeros((len(self.sample_clusters),2))
+        cluster_coordiantes = np.zeros((len(self.sample_clusters),2))
 
         for i,cluster in enumerate(self.sample_clusters):
             cluster_cell_mask = self.sample_labels == cluster.id
-            mean_coordinates = np.mean(tc[cluster_cell_mask],axis=0)
-            cluster_tc[i] = mean_coordinates
+            mean_coordinates = np.mean(coordinates[cluster_cell_mask],axis=0)
+            cluster_coordiantes[i] = mean_coordinates
 
         combined_coordinates = np.zeros((self.output.shape[0]+len(self.sample_clusters),2))
 
-        combined_coordinates[0:self.output.shape[0]] = tc
+        combined_coordinates[0:self.output.shape[0]] = coordinates
 
-        combined_coordinates[self.output.shape[0]:] = cluster_tc
+        combined_coordinates[self.output.shape[0]:] = cluster_coordiantes
 
         highlight = np.ones(combined_coordinates.shape[0])
         highlight[len(self.sample_labels):] = [len(cluster.samples) for cluster in self.sample_clusters]
@@ -1592,18 +1604,18 @@ class Forest:
             print("Warning, split clusters not detected")
             return None
 
-        tc = self.tsne(no_plot=True)
+        coordinates = self.coordinates(no_plot=True)
 
-        cluster_tc = np.zeros((len(self.split_clusters),2))
+        cluster_coordinates = np.zeros((len(self.split_clusters),2))
 
         for i,cluster in enumerate(self.split_clusters):
-            cluster_tc[i] = cluster.coordinates(coordinates=tc)
+            cluster_coordinates[i] = cluster.coordinates(coordinates=coordinates)
 
         combined_coordinates = np.zeros((self.output.shape[0]+len(self.split_clusters),2))
 
-        combined_coordinates[0:self.output.shape[0]] = tc
+        combined_coordinates[0:self.output.shape[0]] = coordinates
 
-        combined_coordinates[self.output.shape[0]:] = cluster_tc
+        combined_coordinates[self.output.shape[0]:] = cluster_coordinates
 
         highlight = np.ones(combined_coordinates.shape[0])
         highlight[self.output.shape[0]:] = [len(cluster.nodes) for cluster in self.split_clusters]
@@ -1630,7 +1642,7 @@ class Forest:
             coordinates[i] = sample_cluster.median_feature_values()
         return coordinates
 
-    def tsne(self,no_plot=False,pca=False,override=False,**kwargs):
+    def tsne(self,no_plot=False,pca=True,override=False,**kwargs):
         if not hasattr(self,'tsne_coordinates') or override:
             if pca:
                 self.tsne_coordinates = TSNE().fit_transform(PCA(n_components=10).fit_transform(self.output))
@@ -1656,6 +1668,52 @@ class Forest:
             plt.show()
 
         return self.tsne_coordinates
+
+    def pca(self,no_plot=False,override=False,**kwargs):
+        if not hasattr(self,'pca_coordinates') or override:
+            self.pca_coordinates = PCA(n_components=2).fit_transform(self.output)
+
+        if not no_plot:
+            plt.figure()
+            plt.title("PCA-Transformed Cell Coordinates")
+            plt.scatter(self.pca_coordinates[:,0],self.pca_coordinates[:,1],s=.1,**kwargs)
+            plt.show()
+
+        return self.pca_coordinates
+
+    def umap(self,no_plot=False,override=False,**kwargs):
+        if not hasattr(self,'umap_coordinates') or override:
+            self.umap_coordinates = UMAP().fit_transform(self.output)
+
+        if not no_plot:
+            plt.figure()
+            plt.title("UMAP-Transformed Cell Coordinates")
+            plt.scatter(self.umap_coordinates[:,0],self.umap_coordinates[:,1],s=.1,**kwargs)
+            plt.show()
+
+        return self.umap_coordinates
+
+    def coordinates(self,type=None,scaled=True,**kwargs):
+
+        if type is None:
+            if hasattr(self,'coordinate_type'):
+                type = self.coordinate_type
+            else:
+                type = 'umap'
+
+        type_functions = {
+            'tsne':self.tsne,
+            'tsne_encoding': self.tsne_encoding,
+            'pca': self.pca,
+            'umap': self.umap,
+        }
+
+        coordinates = type_functions[type](**kwargs)
+
+        if scaled:
+            coordinates = sklearn.preprocessing.scale(coordinates)
+
+        return coordinates
 
     def average_prereq_freq_level(self,nodes):
         prereq_dict = {}
@@ -1941,21 +1999,6 @@ class Forest:
 
             return child_coordinates
 
-        # def compact_tsne():
-        #     # raw_tsne = TSNE(n_components=2,metric='precomputed').fit_transform(self.split_cluster_transitions)
-        #     raw_tsne = np.array([s.coordinates() for s in self.split_clusters])
-        #     raw_tsne = np.sqrt(np.abs(raw_tsne)) * np.sign(raw_tsne)
-        #
-        #     max_x = np.max(raw_tsne[:,0])
-        #     min_x = np.min(raw_tsne[:,0])
-        #     max_y = np.max(raw_tsne[:,1])
-        #     min_y = np.min(raw_tsne[:,1])
-        #     x_scale = max_x-min_x
-        #     y_scale = max_y-min_y
-        #     raw_tsne[:,0] = (raw_tsne[:,0] - min_x)/x_scale
-        #     raw_tsne[:,1] = (raw_tsne[:,1] - min_y)/y_scale
-        #     coordinates = [[i,[x,y,width,height]] for i,[x,y] in enumerate(raw_tsne) ]
-        #     return coordinates
 
         coordinates = []
         recursive_axis_coordinates(self.likely_tree,coordinates)
@@ -1973,8 +2016,10 @@ class Forest:
 
             # Place the up/down panel generated by the cluster in the axis:
             # If it's not the terminal node or the origin node
+            # if i < len(self.split_clusters) and i !=0:
+            #     self.split_clusters[i].up_down_panel(ax,n=n)
             if i < len(self.split_clusters) and i !=0:
-                self.split_clusters[i].up_down_panel(ax,n=n)
+                self.split_clusters[i].score_panel(ax)
             if i == 0:
                 text_rectangle(ax,"Origin",[.25,.5,.5,.5],no_warp=True)
             if i >= len(self.split_clusters):
@@ -2040,60 +2085,6 @@ class Forest:
                         arrow_canvas.plot([center_x,child_center_x],[center_y,child_center_y],alpha=min(1,cp/total*2),linewidth=(cp**2)*.01,transform=arrow_canvas.transAxes)
 
             return fig
-        # def recursive_axes(tree,limits=[0,1],n=3):
-        #     # print(f"NDEBUG RECURSE:{n}")
-        #     # We will recursively construct the figure by placing panels of up/down genes
-        #     [x,y] = limits
-        #     child_dimensions = []
-        #     child_width = 0
-        #     # print("Recursive tree debug")
-        #     # print(f"{tree[0]}")
-        #     # print(f"x:{x},y:{y}")
-        #     # First we go lower in recursive layer and find how many children we need to account for from this leaf
-        #     for child in tree[1]:
-        #         cw = recursive_axes(child,[x+child_width,y-(height)],n=n)
-        #         child_dimensions.append([child[0],x+child_width,y-(height),cw])
-        #         child_width += cw
-        #     # If we are at the bottom level of recursion, we want to set the width at the width of a single cell
-        #     if len(tree[1]) < 1:
-        #         child_width += width
-        #
-        #     # We have to place the current leaf at the average position of all leaves below
-        #     padding = (child_width - width) / 2
-        #     ax = fig.add_axes([x + padding + (width * .1),y - (height * .9),width*.8,height*.8])
-        #
-        #     # Clean up the ticks, they are irrelevant
-        #     ax.tick_params(bottom="off", left="off")
-        #     ax.set_yticklabels([])
-        #     ax.set_xticklabels([])
-        #
-        #     # Next we want to connect the current node to its children:
-        #     center_x = x + padding + (width * .5)
-        #     center_y = y - (height * .5)
-        #     for cx,cy,cw,ci in child_dimensions:
-        #         child_center_x = cx + (cw/2)
-        #         child_center_y = cy - (height/2)
-        #
-        #         # We would like to set the arrow thickness to be proportional to the mean population of the child
-        #         if ci < len(self.split_clusters):
-        #             cp = self.split_clusters[ci].mean_population()
-        #         else:
-        #             cp = 1
-        #
-        #         arrow_canvas.plot([center_x,child_center_x],[center_y,child_center_y],linewidth=cp*.1,transform=arrow_canvas.transAxes)
-        #
-        #     # print(f"coordinates:{[x+padding + (width * .1),y - (height * .9),width*.8,height*.8]}")
-        #
-        #     # Place the up/down panel generated by the cluster in the axis:
-        #     # If it's not the terminal node or the origin node
-        #     if tree[0] < len(self.split_clusters) and tree[0] !=0:
-        #         self.split_clusters[tree[0]].up_down_panel(ax,n=n)
-        #     if tree[0] == 0:
-        #         text_rectangle(ax,"Origin",[.25,.5,.5,.5],no_warp=True)
-        #     if tree[0] >= len(self.split_clusters):
-        #         text_rectangle(ax,"Terminus",[.25,.5,.5,.5],no_warp=True)
-
-        #     return child_width
 
         #   print(f"N DEBUG TOP:{n}")
 
@@ -2480,7 +2471,7 @@ class NodeCluster:
     def plot_cell_counts(self,**kwargs):
         counts = self.cell_counts()
         plt.figure(figsize=(15,10))
-        plt.scatter(self.forest.tsne(no_plot=True)[:,0],self.forest.tsne(no_plot=True)[:,1],c=counts,**kwargs)
+        plt.scatter(self.forest.coordinates(no_plot=True)[:,0],self.forest.coordinates(no_plot=True)[:,1],c=counts,**kwargs)
         plt.colorbar()
         plt.show()
 
@@ -2614,10 +2605,18 @@ class NodeCluster:
 
         return ordered_features,ordered_difference
 
+    def score_panel(self,ax):
+        coordinates = self.forest.coordinates(no_plot=True)
+        scores = self.cell_scores()
+        ax.scatter(coordinates[:,0],coordinates[:,1],c=scores)
+        ax.set_xticks([])
+        ax.set_yticks([])
+        return ax
+
 
     def up_down_panel(self,ax,n=3):
 
-        text_rectangle(ax,f"Cluster {self.id}",[.3,.85,.4,.08],no_warp=True)
+        text_rectangle(ax,f"Cluster {self.id}",[.04,.88,.52,.08],no_warp=True,linewidth=None)
         # ax.set_title(f"Cluster {self.id}")
 
         # ordered_features,ordered_difference = self.logistic_sister()
@@ -2633,35 +2632,8 @@ class NodeCluster:
         ordered_difference = ordered_difference[::-1]
         ordered_difference = [np.around(x,decimals=3) for x in ordered_difference]
 
-        # up_table = ax.table(cellText=np.array([ordered_features[:n],ordered_difference[:n]]).T,cellLoc="center",colLabels=["Up","Fold Change"],bbox=[0,.4,1,.4],edges="open")
-        # up_table.PAD=.01
-        # up_table.set_fontsize(100)
-        # up_table.auto_set_font_size()
-        # for i in range(n):
-        #     up_table[i+1,0].visible_edges = "R"
-        # up_table[0,0].visible_edges = "B"
-        # up_table[0,1].visible_edges = "B"
-        # for i in range(n):
-        #     if float(up_table[i+1,1].get_text().get_text()) < 0:
-        #         up_table[i+1,1].set_text_props(color='r')
-        #     if float(up_table[i+1,1].get_text().get_text()) > 0:
-        #         up_table[i+1,1].set_text_props(color='g')
-        #
-        # down_table = ax.table(cellText=np.array([ordered_features[-n:],ordered_difference[-n:]]).T,cellLoc="center",colLabels=["Down","Fold Change"],bbox=[0,0,1,.4],edges="open")
-        # down_table.PAD=.01
-        # down_table.set_fontsize(100)
-        # down_table.auto_set_font_size()
-        # for i in range(n):
-        #     down_table[i+1,0].visible_edges = "R"
-        # down_table[0,0].visible_edges = "B"
-        # down_table[0,1].visible_edges = "B"
-        # for i in range(n):
-        #     if float(down_table[i+1,1].get_text().get_text()) < 0:
-        #         down_table[i+1,1].set_text_props(color='r')
-        #     if float(down_table[i+1,1].get_text().get_text()) > 0:
-        #         down_table[i+1,1].set_text_props(color='g')
-
-        table = ax.table(cellText=np.array([[f[:6] for f in ordered_features[:n]] + [f[:6] for f in ordered_features[-n:]],list(ordered_difference[:n]) + list(ordered_difference[-n:])]).T,cellLoc="center",colLabels=["Symbol","Fold"],bbox=[.1,.05,.8,.75],transform=ax.transAxes,edges="open")
+        table = ax.table(cellText=np.array([[f[:6] for f in ordered_features[:n]] + [f[:6] for f in ordered_features[-n:]],list(ordered_difference[:n]) + list(ordered_difference[-n:])]).T,cellLoc="center",colLabels=["Symbol","Fold"],bbox=[0,0,.6
+        ,.86],transform=ax.transAxes,edges="open")
         table.PAD=.0001
         table.set_fontsize(100)
         table.auto_set_font_size()
@@ -2671,14 +2643,28 @@ class NodeCluster:
         # table[0,1].visible_edges = "B"
         table[0,0].set_text_props(weight='extra bold')
         table[0,1].set_text_props(weight='extra bold')
-        table[n,0].visible_edges = "BR"
-        table[n,1].visible_edges = "B"
+        table[n,0].visible_edges = "B"
+        table[n,1].visible_edges = "BL"
 
         for i in range(n*2):
             if float(table[i+1,1].get_text().get_text()) < 0:
                 table[i+1,1].set_text_props(color='r')
             if float(table[i+1,1].get_text().get_text()) > 0:
                 table[i+1,1].set_text_props(color='g')
+
+        scatter_insert = ax.inset_axes([.6,.7,.4,.3])
+        coordinates = self.forest.coordinates(no_plot=True)
+        scores = self.cell_scores()
+        sub_mask = np.random.random(coordinates.shape[0]) < .05
+        scatter_insert.scatter(coordinates[sub_mask][:,0],coordinates[sub_mask][:,1],c=scores[sub_mask])
+        scatter_insert.set_xticks([])
+        scatter_insert.set_yticks([])
+
+        text_rectangle(ax,f"Mean",[.62,.62,.36,.1],no_warp=True,linewidth=None)
+        text_rectangle(ax,f"Samples",[.62,.52,.36,.1],no_warp=True,linewidth=None)
+        text_rectangle(ax,str(np.around(self.mean_population(),decimals=1)),[.62,.42,.36,.1],no_warp=True,linewidth=0)
+
+        return ax
 
 
 ################################
@@ -2910,7 +2896,7 @@ def count_list_elements(elements):
         dict[element] += 1
     return dict
 
-def text_rectangle(ax,text,rect,no_warp=True):
+def text_rectangle(ax,text,rect,no_warp=True,color='w',edgecolor='b',linewidth=3,**kwargs):
 
     from matplotlib.text import TextPath
     import matplotlib.patches as mpatches
@@ -2919,7 +2905,7 @@ def text_rectangle(ax,text,rect,no_warp=True):
     [x,y,w,h,] = rect
 
     text_path = TextPath((0,0),s=text)
-    patch = mpatches.PathPatch(text_path)
+    patch = mpatches.PathPatch(text_path,**kwargs)
 
     _,_,t_w,t_h = patch.get_extents().bounds
 
@@ -2948,7 +2934,7 @@ def text_rectangle(ax,text,rect,no_warp=True):
     text_path = trns.Affine2D().scale(sx=sx,sy=sy).translate(x,y).transform_path(text_path)
 
     ax_transform = ax.transAxes
-    patch = mpatches.PathPatch(text_path,transform=ax_transform)
+    patch = mpatches.PathPatch(text_path,transform=ax_transform,color=color,edgecolor=edgecolor,linewidth=linewidth,**kwargs)
 
     ax.add_artist(patch)
 
