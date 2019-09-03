@@ -524,8 +524,6 @@ class Node:
             root_error += np.power((counts[i] - root_medians),2)
         return own_error,root_error
 
-    # def cluster_distances(self):
-
     def total_error_vs_parent(self):
         counts = self.total_feature_counts()
         own_medians = self.total_feature_medians()
@@ -543,6 +541,16 @@ class Node:
 
     def cluster_divergence_encoding(self):
         clusters = [c.id for c in self.forest.leaf_clusters]
+        divergence = np.zeros((len(clusters),len(clusters)))
+        for lc in self.child_clusters[0]:
+            lci = clusters.index(lc)
+            for rc in self.child_clusters[1]:
+                rci = clusters.index(rc)
+                divergence[lci,rci] = 1
+        return divergence
+
+    def split_divergence_encoding(self):
+        clusters = [c.id for c in self.forest.split_clusters]
         divergence = np.zeros((len(clusters),len(clusters)))
         for lc in self.child_clusters[0]:
             lci = clusters.index(lc)
@@ -1860,20 +1868,36 @@ class Forest:
 
     def maximum_spanning_tree(self,depth=3,transitions=None):
 
-        transitions = self.split_cluster_transition_matrix(depth=depth)
-        transitions[:,-1] = 0
-        mst = scipy.sparse.csgraph.minimum_spanning_tree(-1*transitions).todense()*-1
-        mst
-        clusters = set(range(transitions[:-1].shape[0]))
+        distances = self.split_cluster_transition_matrix(depth=depth)
+        distances[:,-1] = 0
+        # mst = scipy.sparse.csgraph.minimum_spanning_tree(-1*transitions).todense()*-1
+        # mst = np.array(mst)
+
+        # scores = np.array([c.cell_counts() for c in self.split_clusters[1:]])
+        # distances = squareform(pdist(scores,metric='euclidean'))
+        # distances = squareform(pdist(scores,metric='correlation'))
+        # distances[0] = 1.
+
+        # mst = np.array(scipy.sparse.csgraph.minimum_spanning_tree(distances).todense())
+        mst = np.array(scipy.sparse.csgraph.minimum_spanning_tree(distances*-1).todense())*-1
+
+        mst = np.maximum(mst,mst.T)
+
+        clusters = set(range(len(self.split_clusters)))
+
+        print("Max tree debug")
+        print(distances)
+        print(mst)
 
         def finite_tree(cluster,available):
-            print(cluster)
+            # print(cluster)
+            # print(mst[cluster])
             children = []
             try:
                 available.remove(cluster)
             except:
                 pass
-            for child in np.arange(transitions.shape[0])[transitions[cluster] > 0]:
+            for child in np.arange(mst.shape[0])[mst[cluster] > 0]:
                 if child in available:
                     available.remove(child)
                     children.append(child)
@@ -1970,7 +1994,7 @@ class Forest:
         # print(f"RECURSIVE TREE DEBUG H:{height},W:{width}")
 
         # Set up the figure
-        fig = plt.figure(figsize=(30,30))
+        fig = plt.figure(figsize=(45,30))
         arrow_canvas = fig.add_axes([0,0,1,1])
         arrow_canvas.axis('off')
 
@@ -2003,8 +2027,6 @@ class Forest:
         coordinates = []
         recursive_axis_coordinates(self.likely_tree,coordinates)
         coordinates = sorted(coordinates,key=lambda x: x[0])
-
-        # coordinates = compact_tsne()
 
         for i,[x,y,w,h] in coordinates:
             ax = fig.add_axes([x ,y , w, h])
@@ -2464,6 +2486,10 @@ class NodeCluster:
         encoding = self.encoding()
         return np.sum(encoding,axis=1)
 
+    def mean_level(self):
+
+        return np.mean([n.level for n in self.nodes])
+
     def mean_population(self):
 
         return np.mean([len(n.samples) for n in self.nodes])
@@ -2480,7 +2506,7 @@ class NodeCluster:
         # cluster_encoding = self.encoding()
         # return np.sum(cluster_encoding,axis=1) / np.sum(forest_encoding,axis=1)
         cluster_encoding = self.encoding()
-        return np.sum(cluster_encoding,axis=1) / cluster_encoding.shape[1]
+        return np.sum(cluster_encoding,axis=1) / (cluster_encoding.shape[1] + 1)
 
     def sister_scores(self):
 
