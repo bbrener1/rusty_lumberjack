@@ -580,7 +580,7 @@ impl<T: Borrow<[Node]> + BorrowMut<[Node]> + Index<usize,Output=Node> + IndexMut
             right_entropy = p_right.log2() * p_right;
         }
 
-        return left_entropy + center_entropy + right_entropy
+        return (left_entropy + center_entropy + right_entropy) * total
     }
 
     #[inline]
