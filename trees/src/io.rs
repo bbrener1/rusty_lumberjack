@@ -702,6 +702,7 @@ pub enum DispersionMode {
     Variance,
     SME,
     SSME,
+    Entropy,
     Mixed,
 }
 
@@ -713,6 +714,7 @@ impl DispersionMode {
             "mix" | "mixed" => DispersionMode::Mixed,
             "ssme" => DispersionMode::SSME,
             "sme" => DispersionMode::SME,
+            "entropy" => DispersionMode::Entropy,
             _ => panic!("Not a valid dispersion mode, choose var, mad, or mixed")
 
         }

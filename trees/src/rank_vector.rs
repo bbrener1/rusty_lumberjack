@@ -553,6 +553,37 @@ impl<T: Borrow<[Node]> + BorrowMut<[Node]> + Index<usize,Output=Node> + IndexMut
     }
 
     #[inline]
+    pub fn entropy(&self) -> f64 {
+
+        if self.len() < 2 {return 0.}
+
+        let left = self.zones[1];
+        let center = self.zones[2];
+        let right = self.zones[3];
+        let total = (left + right + center) as f64;
+
+        let p_left = left as f64 / total;
+        let p_center = center as f64 / total;
+        let p_right = right as f64 / total;
+
+        let mut left_entropy = 0.;
+        let mut center_entropy = 0.;
+        let mut right_entropy = 0. ;
+
+        if left > 0 {
+            left_entropy = p_left.log2() * p_left;
+        }
+        if center > 0 {
+            center_entropy = p_center.log2() * p_center;
+        }
+        if right > 0 {
+            right_entropy = p_right.log2() * p_right;
+        }
+
+        return left_entropy + center_entropy + right_entropy
+    }
+
+    #[inline]
     pub fn mean(&self) -> f64 {
         let sum:f64 = self.ordered_values().iter().sum();
         sum/self.len() as f64
@@ -641,6 +672,22 @@ impl<T: Borrow<[Node]> + BorrowMut<[Node]> + Index<usize,Output=Node> + IndexMut
         }
 
         meds_mads
+    }
+
+    pub fn ordered_entropy(&mut self,draw_order: &[usize],drop_set: &HashSet<usize>) -> Vec<(f64)> {
+
+        for dropped_sample in drop_set {
+            self.pop(*dropped_sample);
+        }
+
+        let mut entropy = Vec::with_capacity(draw_order.len());
+        entropy.push(self.entropy());
+        for draw in draw_order {
+            self.pop(*draw);
+            entropy.push(self.entropy());
+        }
+
+        entropy
     }
 
     pub fn ordered_mad_gains(&mut self,draw_order: &[usize], drop_set: &HashSet<usize>) -> Vec<f64> {

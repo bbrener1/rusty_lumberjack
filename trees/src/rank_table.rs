@@ -91,6 +91,7 @@ impl RankTable {
             DispersionMode::MAD => self.meta_vector.iter().map(|x| x.mad()).collect(),
             DispersionMode::SSME => self.meta_vector.iter().map(|x| x.ssme()).collect(),
             DispersionMode::SME => self.meta_vector.iter().map(|x| x.sme()).collect(),
+            DispersionMode::Entropy => self.meta_vector.iter().map(|x| x.entropy()).collect(),
             DispersionMode::Mixed => panic!("Mixed mode isn't a valid setting for dispersion calculation in individual trees")
         }
     }
@@ -108,7 +109,7 @@ impl RankTable {
             self.meta_vector.get(feature).map(|f| f.split_mask(value)).unwrap_or_else(|| vec![true;self.dimensions.1])
         }
         else {
-            self.meta_vector.get(feature).map(|f| f.split_mask(value).into_iter().map(|b| !b).collect()).unwrap_or_else(|| vec![true;self.dimensions.1])                        
+            self.meta_vector.get(feature).map(|f| f.split_mask(value).into_iter().map(|b| !b).collect()).unwrap_or_else(|| vec![true;self.dimensions.1])
         }
 
     }
@@ -225,6 +226,7 @@ impl RankTable {
                 DispersionMode::MAD => worker_vec.ordered_mads(&draw_order,&drop_set),
                 DispersionMode::SSME => worker_vec.ordered_ssme(&draw_order, &drop_set),
                 DispersionMode::SME => worker_vec.ordered_sme(&draw_order,&drop_set),
+                DispersionMode::Entropy => worker_vec.ordered_entropy(&draw_order,&drop_set),
                 DispersionMode::Mixed => panic!("Mixed mode not a valid split setting for individual trees!"),
             };
             for (j,fr) in fd.into_iter().enumerate() {
@@ -242,6 +244,7 @@ impl RankTable {
                 DispersionMode::MAD => worker_vec.ordered_mads(&reverse_draw_order,&drop_set),
                 DispersionMode::SSME => worker_vec.ordered_ssme(&reverse_draw_order, &drop_set),
                 DispersionMode::SME => worker_vec.ordered_sme(&reverse_draw_order,&drop_set),
+                DispersionMode::Entropy => worker_vec.ordered_entropy(&draw_order,&drop_set),
                 DispersionMode::Mixed => panic!("Mixed mode not a valid split setting for individual trees!"),
             };
             for (j,rr) in rd.into_iter().enumerate() {
