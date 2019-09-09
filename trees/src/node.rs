@@ -66,6 +66,7 @@ pub struct Node {
     braids: Vec<Braid>,
 
     pub medians: Vec<f64>,
+    pub additive: Vec<f64>,
     pub feature_weights: Vec<f64>,
     pub dispersions: Vec<f64>,
     pub local_gains: Option<Vec<f64>>,
@@ -82,6 +83,7 @@ impl Node {
         let output_table = RankTable::new(output_counts,parameters.clone());
         let feature_weights = feature_weight_option.unwrap_or(vec![1.;output_features.len()]);
         let medians = output_table.medians();
+        let additive = vec![0.;medians.len()];
         let dispersions = output_table.dispersions();
         let local_gains = vec![0.;dispersions.len()];
 
@@ -108,6 +110,7 @@ impl Node {
             braids: vec![],
 
             medians: medians,
+            additive: additive,
             feature_weights: feature_weights,
             dispersions: dispersions,
             local_gains: Some(local_gains),
@@ -346,6 +349,9 @@ impl Node {
         let mut new_braids = braid_opt.unwrap_or(self.braids.clone());
 
         let medians = new_output_table.medians();
+
+        let additive = self.medians.iter().zip(medians.iter()).map(|(pm,cm)| cm - pm).collect();
+
         let dispersions = new_output_table.dispersions();
         let feature_weights = output_features.iter().map(|y| self.feature_weights[*y]).collect();
 
@@ -374,6 +380,7 @@ impl Node {
             braids: new_braids,
 
             medians: medians,
+            additive: additive,
             feature_weights: feature_weights,
             dispersions: dispersions,
             local_gains: local_gains,
@@ -434,7 +441,6 @@ impl Node {
 
         sisters
     }
-
 
     pub fn report(&self,verbose:bool) {
         println!("Node reporting:");
@@ -530,6 +536,7 @@ impl Node {
             depth: self.depth,
 
             medians: self.medians,
+            additive: self.additive,
             dispersions: self.dispersions,
             weights: self.feature_weights,
 
@@ -562,6 +569,7 @@ impl Node {
             depth: self.depth,
 
             medians: self.medians.clone(),
+            additive: self.additive.clone(),
             dispersions: self.dispersions.clone(),
             weights: self.feature_weights.clone(),
 
@@ -779,6 +787,7 @@ impl Node {
             features: feature_encoding,
             samples: sample_encoding,
             medians: self.medians,
+            additive: self.additive,
             dispersions: self.dispersions,
 
             local_gains: self.local_gains,
@@ -825,6 +834,7 @@ pub struct StrippedNode {
     features: Vec<Feature>,
     samples: Vec<Sample>,
     medians: Vec<f64>,
+    additive: Vec<f64>,
     dispersions: Vec<f64>,
     weights: Vec<f64>,
 
@@ -1065,6 +1075,7 @@ impl StrippedNode {
             features: feature_encoding,
             samples: sample_encoding,
             medians: self.medians,
+            additive: self.additive,
             dispersions: self.dispersions,
 
             local_gains: self.local_gains,
@@ -1087,6 +1098,7 @@ pub struct UltraCompact {
     features: Vec<i8>,
     samples: Vec<i8>,
     medians: Vec<f64>,
+    additive: Vec<f64>,
     dispersions: Vec<f64>,
 
     pub local_gains: Option<Vec<f64>>,
@@ -1130,6 +1142,7 @@ mod node_testing {
             depth: 0,
 
             medians: vec![],
+            additive: vec![],
             dispersions: vec![],
             weights: vec![],
 

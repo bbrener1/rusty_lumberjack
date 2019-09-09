@@ -173,7 +173,7 @@ impl<T: Borrow<[Node]> + BorrowMut<[Node]> + Index<usize,Output=Node> + IndexMut
 
             self.check_boundaries(target);
 
-            self.balance_zones(target);
+            self.balance_zones();
 
             let (old_median,new_median) = self.recenter_median(target);
 
@@ -378,7 +378,7 @@ impl<T: Borrow<[Node]> + BorrowMut<[Node]> + Index<usize,Output=Node> + IndexMut
     }
 
     #[inline]
-    pub fn balance_zones(&mut self,target:usize) {
+    pub fn balance_zones(&mut self) {
 
         if self.len() > 0 {
 
@@ -932,6 +932,14 @@ impl<T: Borrow<[Node]> + BorrowMut<[Node]> + Index<usize,Output=Node> + IndexMut
         self.drop_f(cmp);
         self.drop = drop_mode;
     }
+
+    // Not sure that this will be useful:
+    // pub fn center(&mut self) {
+    //     let median = self.median();
+    //     for i in (0..self.raw_len()) {
+    //         self.nodes[i].data -= median;
+    //     }
+    // }
 
     pub fn check_integrity(&self) {
 

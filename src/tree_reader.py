@@ -1,11 +1,11 @@
 import matplotlib as mpl
-COLOR = 'white'
-BACKGROUND = 'black'
-mpl.rcParams['text.color'] = COLOR
-mpl.rcParams['axes.labelcolor'] = COLOR
-mpl.rcParams['xtick.color'] = COLOR
-mpl.rcParams['ytick.color'] = COLOR
-mpl.rc('axes',fc=BACKGROUND)
+# COLOR = 'white'
+# BACKGROUND = 'black'
+# mpl.rcParams['text.color'] = COLOR
+# mpl.rcParams['axes.labelcolor'] = COLOR
+# mpl.rcParams['xtick.color'] = COLOR
+# mpl.rcParams['ytick.color'] = COLOR
+# mpl.rc('axes',fc=BACKGROUND)
 
 mpl.rcParams['figure.dpi'] = 300
 
@@ -87,6 +87,7 @@ class Node:
             if node_json['braid'] is not None:
                 self.braid = Braid(node_json['braid'],self)
         self.medians = np.array(node_json['medians'])
+        self.additive = np.array(node_json['additive'])
         self.dispersions = np.array([node_json['dispersions']])
         self.local_gains = np.array(node_json['local_gains'])
         self.absolute_gains = np.array(node_json['absolute_gains'])
@@ -235,17 +236,6 @@ class Node:
 
     def sample_names(self):
         return [self.forest.samples[i] for i in self.samples]
-
-    # def feature_levels(self):
-    #
-    #     # Returns the feature used to split child nodes and the level at which the split occurs
-    #     # Deprecated?
-    #
-    #     feature_levels = []
-    #     for child in self.children:
-    #         feature_levels.extend(child.feature_levels())
-    #     feature_levels.append((self.split['feature']['name'],self.level))
-    #     return feature_levels
 
     def prerequisite_levels(self):
         prerequisite_levels = []
@@ -396,68 +386,50 @@ class Node:
                 node_counts[i,j] = truth_dictionary.look(sample,feature)
         return node_counts
 
-    # def split_feature_index(self):
-    #     split_feature_index = self.features.index(self.split['feature']['name'])
-
-    # def singly_sorted_counts(self):
-    #     counts = self.node_counts()
-    #     split_feature_index = self.split_feature_index()
-    #     node_sample_split_sort = np.argsort(counts[:,split_feature_index])
-    #     return counts[node_sample_split_sort]
-
-    # def split_sample_index(self):
-    #     counts = self.singly_sorted_counts()
-    #     return np.sum(counts[:,self.split_feature_index] > float(self.split))
-    #
-    # def ranked_feature_gain(self):
-    #
-    #     gain_rankings = np.argsort(self.local_gains)
-    #     sorted_gains = np.array(self.local_gains)[gain_rankings]
-    #     sorted_features = np.array(self.features)[gain_rankings]
-    #     sorted_dispersions = np.array(self.dispersions)[gain_rankings]
-    #     sorted_original_dispersions = np.array(self.tree.root.dispersions)[gain_rankings]
-    #
-    #     return sorted_features,sorted_gains,sorted_dispersions,sorted_original_dispersions
-    #
-    # def ranked_error_vs_root(self):
-    #     error_change = self.total_error_vs_root()
-    #     gain_rankings = np.argsort(error_change)
-    #     sorted_gains = np.array(error_change[gain_rankings])
-    #     sorted_features = self.forest.features[gain_rankings]
-    #     sorted_error_change = error_change[gain_rankings]
-    #     return sorted_features,sorted_gains
-
-    # def aborting_sample_descent(self,sample):
-    #     if self.split is not None:
-    #         if self.split['feature']['name'] in sample:
-    #             if sample[self.split['feature']['name']] <= self.split['value']:
-    #                 return self.children[0].aborting_sample_descent(sample)
-    #             else:
-    #                 return self.children[1].aborting_sample_descent(sample)
-    #         else:
-    #             return []
-    #     else:
-    #         return [self,]
-
-    def sample_descent(self,sample):
-
-        mode = None
+    def sample_leaves(self,sample):
 
         if self.braid is not None:
-            braided_value = 0;
-            for feature in self.braid.features:
-                sample[feature['name']]
-
+            braid_score = self.braid.score_sample(sample)
+            try:
+                if braid_score <= braid.compound_split:
+                    return self.children[0].sample_descent(sample)
+                else:
+                    return self.children[1].sample_descent(sample)
+            except:
+                return [self,]
         elif self.split is not None:
             if self.split['feature']['name'] in sample:
                 if sample[self.split['feature']['name']] <= self.split['value']:
-                    return self.children[0].aborting_sample_descent(sample)
+                    return self.children[0].sample_descent(sample)
                 else:
-                    return self.children[1].aborting_sample_descent(sample)
+                    return self.children[1].sample_descent(sample)
             else:
                 return []
         else:
             return [self,]
+
+    def sample_nodes(self,sample):
+
+        nodes = [self,]
+
+        if self.braid is not None:
+            braid_score = self.braid.score_sample(sample)
+            try:
+                if braid_score <= braid.compound_split:
+                    nodes.extend(self.children[0].sample_descent(sample))
+                else:
+                    nodes.extend(self.children[1].sample_descent(sample))
+            except:
+                return [self,]
+        elif self.split is not None:
+            if self.split['feature']['name'] in sample:
+                if sample[self.split['feature']['name']] <= self.split['value']:
+                    nodes.extend(self.children[0].sample_descent(sample))
+                else:
+                    nodes.extend(self.children[1].sample_descent(sample))
+
+        return nodes
+
 
     def predict_dictionary(self):
         return {x:y for x,y in zip(self.features,self.medians)}
@@ -478,8 +450,8 @@ class Node:
                 differences.append(sample[feature] - self.medians[i])
         return differences
 
-    def tree_path_vector(self):
-        return np.array([0 if prerequisite[2] == '<' else 1 for prerequisite in self.prerequisites])
+    # def tree_path_vector(self):
+    #     return np.array([0 if prerequisite[2] == '<' else 1 for prerequisite in self.prerequisites])
 
     def leaf_distances(self):
         leaves = self.leaves()
@@ -513,31 +485,31 @@ class Node:
             return self
 
 
-    def total_error_vs_root(self):
-        own_medians = self.total_feature_medians()
-        root_medians = self.root().total_feature_medians()
-        counts = self.total_feature_counts()
-        own_error = np.zeros(len(own_medians))
-        root_error = np.zeros(len(root_medians))
-        for i in range(counts.shape[0]):
-            own_error += np.power((counts[i] - own_medians),2)
-            root_error += np.power((counts[i] - root_medians),2)
-        return own_error,root_error
-
-    def total_error_vs_parent(self):
-        counts = self.total_feature_counts()
-        own_medians = self.total_feature_medians()
-        parent_medians = None
-        if self.parent is not None:
-            parent_medians = self.parent.total_feature_medians()
-        else:
-            parent_medians = self.total_feature_medians()
-        own_error = np.zeros(len(own_medians))
-        parent_error = np.zeros(len(parent_medians))
-        for i in range(counts.shape[0]):
-            own_error += np.power((counts[i] - own_medians),2)
-            parent_error += np.power((counts[i] - parent_medians),2)
-        return own_error,parent_error
+    # def total_error_vs_root(self):
+    #     own_medians = self.total_feature_medians()
+    #     root_medians = self.root().total_feature_medians()
+    #     counts = self.total_feature_counts()
+    #     own_error = np.zeros(len(own_medians))
+    #     root_error = np.zeros(len(root_medians))
+    #     for i in range(counts.shape[0]):
+    #         own_error += np.power((counts[i] - own_medians),2)
+    #         root_error += np.power((counts[i] - root_medians),2)
+    #     return own_error,root_error
+    #
+    # def total_error_vs_parent(self):
+    #     counts = self.total_feature_counts()
+    #     own_medians = self.total_feature_medians()
+    #     parent_medians = None
+    #     if self.parent is not None:
+    #         parent_medians = self.parent.total_feature_medians()
+    #     else:
+    #         parent_medians = self.total_feature_medians()
+    #     own_error = np.zeros(len(own_medians))
+    #     parent_error = np.zeros(len(parent_medians))
+    #     for i in range(counts.shape[0]):
+    #         own_error += np.power((counts[i] - own_medians),2)
+    #         parent_error += np.power((counts[i] - parent_medians),2)
+    #     return own_error,parent_error
 
     def cluster_divergence_encoding(self):
         clusters = [c.id for c in self.forest.leaf_clusters]
@@ -580,24 +552,49 @@ class Node:
                     divergence[s2i,s1i,1] = 1
         return divergence
 
-    def lr_encoding_vectors(self):
-        left = np.zeros(len(self.forest.samples),dtype=bool)
-        right = np.zeros(len(self.forest.samples),dtype=bool)
-        child_masks = [left,right]
-        for i,child in enumerate(self.children):
-            child_masks[i] = child.sample_mask()
-        return child_masks
+    def set_split_cluster(self,cluster):
+        self.split_cluster = cluster
+        if self.parent is not None:
+            self.parent.add_child_cluster(cluster,self.lr)
+
+    def add_child_cluster(self,cluster,lr):
+        self.child_clusters[lr].append(cluster)
+        if self.parent is not None:
+            self.parent.add_child_cluster(cluster,self.lr)
+
+    def find_cluster_divergence(self,cluster):
+        if self.parent is not None:
+            if cluster in self.parent.child_clusters[0] or cluster in self.parent.child_clusters[1]:
+                return self.parent
+            else:
+                return self.parent.find_cluster_divergence(cluster)
+        else:
+            return self
+
+
+    # def lr_encoding_vectors(self):
+    #     left = np.zeros(len(self.forest.samples),dtype=bool)
+    #     right = np.zeros(len(self.forest.samples),dtype=bool)
+    #     child_masks = [left,right]
+    #     for i,child in enumerate(self.children):
+    #         child_masks[i] = child.sample_mask()
+    #     return child_masks
 
 
 class Braid:
 
     def __init__(self,braid_json,node):
-        self.node = node
-        self.features = np.array([f['name'] for f in braid_json['features']])
-        # self.samples = np.array([s['name'] for s in node_json['samples']])
-        self.samples = self.node.samples
-        self.compound_values = np.array(braid_json['compound_values'])
-        self.compound_split = braid_json['compound_split']
+        try:
+            self.node = node
+            self.features = np.array([f['name'] for f in braid_json['features']])
+            self.feature_splits = braid_json['feature_splits']
+            # self.samples = np.array([s['name'] for s in node_json['samples']])
+            self.samples = self.node.samples
+            self.compound_values = np.array(braid_json['compound_values'])
+            self.compound_split = braid_json['compound_split']
+        except:
+            print(braid_json)
+            raise Exception
 
     def braid_matrix(mtx):
 
@@ -609,6 +606,26 @@ class Braid:
             ranked[:,i] = rankdata(ranked[:,i],method='min')
 
         return np.exp(np.mean(np.log(ranked),axis=1))
+
+    def braid_scores(self):
+        scores = np.zeros(len(self.forest.samples))
+        sd = self.truth_dictionary.sample_dictionary
+        for score,sample in zip(self.compound_values,self.samples):
+            scores[sd[sample]] = score
+
+        return scores
+
+    def score_sample(self,sample):
+        score = 0
+        for split in self.feature_splits:
+            try:
+                if sample[split['feature']['name']] < split['value']:
+                    score += 1
+                else:
+                    score -= 1
+            except:
+                continue
+        return score
 
 class Tree:
 
@@ -955,7 +972,7 @@ class Forest:
             level.extend(tree.level(target))
         return level
 
-    def load(location, prefix="/run", ifh="/run.ifh",ofh='run.ofh',clusters='run.cluster',input="input.counts",output="output.counts"):
+    def load(location, prefix="/run", ifh="/run.ifh",ofh='run.ofh',clusters='run.cluster',input="input.counts",output="output.counts",test="test.counts"):
 
         combined_tree_files = sorted(glob.glob(location + prefix + "*.compact"))
 
@@ -963,6 +980,12 @@ class Forest:
         output = np.loadtxt(location+output)
         ifh = np.loadtxt(location+ifh,dtype=str)
         ofh = np.loadtxt(location+ofh,dtype=str)
+
+        try:
+            test = np.loadtxt(location+test)
+        except:
+            print("Test data not detected")
+            pass
 
         split_labels = None
         try:
@@ -1509,7 +1532,8 @@ class Forest:
             self.split_labels = labels
 
         for node,label in zip(nodes,self.split_labels):
-            node.split_cluster = label
+            node.set_split_cluster(label)
+            # node.split_cluster = label
 
         cluster_set = set(self.split_labels)
         clusters = []
@@ -2367,31 +2391,19 @@ class NodeCluster:
 
         fd = self.forest.truth_dictionary.feature_dictionary
 
-        braid_matrix_dimension = [len(self.forest.samples),0]
-
-        braid_splits = []
-
-        for braid in braids:
-            braid_matrix_dimension[1] += len(braid.features)
+        braid_matrix_dimension = [len(self.forest.samples),len(braids)]
 
         braid_matrix = np.zeros((braid_matrix_dimension[0],braid_matrix_dimension[1]))
-        i = 0
 
-        for braid in braids:
-            braid_splits.append(braid.compound_split)
-            for feature in braid.features:
-                fi = fd[feature]
-                braid_matrix[:,i] = self.forest.output[:,fi]
-                i += 1
+        for i,braid in enumerate(braids):
 
-        braided_scores = Braid.braid_matrix(braid_matrix)
+            braid_matrix[:,i] = braid.braid_scores()
+            if pearsonr(braid_matrix[:,i],braid_matrix[:,0])[0] < 0:
+                braid_matrix[:,i] *= -1
 
-        braided_scores -= gmean(braid_splits)
+        braided_scores = np.mean(braid_matrix)
 
         return braided_scores
-
-
-
 
     def braid_features(self):
 
@@ -2402,6 +2414,25 @@ class NodeCluster:
                 if feature not in features:
                     features[feature] = 0
                 features[feature] += 1
+
+        braid_scores = self.braid_scores()
+
+        for feature in features.keys():
+            feature_index = self.forest.truth_dictionary.feature_dictionary[feature]
+            feature_values = self.forest.output[:,feature_index]
+            # features[feature] *= np.sign(scipy.stats.spearmanr(feature_values,braid_scores)[0])
+
+        return features
+
+    def top_braid_features(self):
+
+        features = {}
+
+        for braid in self.braids():
+            feature = braid.features[0]
+            if feature not in features:
+                features[feature] = 0
+            features[feature] += 1
 
         braid_scores = self.braid_scores()
 

@@ -157,6 +157,7 @@ pub struct Braid {
     compound_values: Vec<f64>,
     draw_order: Vec<usize>,
     drop_set: HashSet<usize>,
+    feature_splits: Option<Vec<Split>>,
     compound_split: Option<f64>,
 }
 
@@ -220,7 +221,12 @@ impl Braid {
             }
             compound_values[i] /= ranked_values.len() as f64;
             compound_values[i] = compound_values[i].exp();
+
+            // Finally we would like to center the compound values:
+            // This allows us to more easily handle the ommitted samples
+            compound_values[i] -= (ranked_values.len() as f64 / 2.);
         }
+
 
         let compound_vector = RankVector::<Vec<Node>>::link(&compound_values);
         let (draw_order,drop_set) = compound_vector.draw_and_drop();
@@ -234,6 +240,7 @@ impl Braid {
             compound_values,
             draw_order,
             drop_set,
+            feature_splits: None,
             compound_split: None,
         }
     }
@@ -287,6 +294,7 @@ impl Braid {
                 if *b {
                     compound_values[j] += 1.;
                 }
+                else {compound_values[j] -= 1.};
             }
         }
 
@@ -303,6 +311,7 @@ impl Braid {
             compound_values,
             draw_order,
             drop_set,
+            feature_splits: Some(splits.iter().cloned().collect()),
             compound_split: None,
         }
     }
