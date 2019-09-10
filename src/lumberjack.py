@@ -40,10 +40,14 @@ def main(location,input,output=None,ifh=None,ofh=None,**kwargs):
     fit_return = save_trees(location,input_counts,output_counts=output_counts,ifh=ifh,ofh=ofh,**kwargs)
     print(fit_return)
 
-def save_trees(location,input_counts,output_counts=None,test_counts=None,ifh=None,ofh=None,**kwargs):
+def save_trees(location,input_counts,output_counts=None,test_counts=None,ifh=None,ofh=None,header=None,**kwargs):
 
     if output_counts is None:
         output_counts = input_counts
+
+    if header is not None:
+        ifh = header
+        ofh = header
 
     np.savetxt(location + "input.counts",input_counts)
     np.savetxt(location + "output.counts",output_counts)
@@ -79,30 +83,7 @@ def fit(input_counts,output_counts=None,test_counts=None,ifh=None,ofh=None,heade
     tmp_dir = tmp.TemporaryDirectory()
     location = tmp_dir.name + "/"
 
-    save_trees(tmp_dir.name + "/",input_counts=input_counts,output_counts=output_counts,test_counts=test_counts,ifh=ifh,ofh=ofh,**kwargs)
-
-    # np.savetxt(location + "input.counts",input_counts)
-    # np.savetxt(location + "output.counts", output_counts)
-    #
-    # if test is not None:
-    #     np.savetxt(location + "test.counts",test_counts)
-    #
-    # input_features = input_counts.shape[1]
-    # output_features = output_counts.shape[1]
-    #
-    # if header is not None:
-    #     ifh = header
-    #     ofh = header
-    #
-    # if ifh is None:
-    #     np.savetxt(location + "tmp.ifh", np.arange(input_counts.shape[1],dtype=int),fmt='%u')
-    # else:
-    #     np.savetxt(location + "tmp.ifh", np.array(ifh),fmt="%s")
-    #
-    # if ofh is None:
-    #     np.savetxt(location + "tmp.ofh", np.arange(output_counts.shape[1],dtype=int),fmt='%u')
-    # else:
-    #     np.savetxt(location + "tmp.ofh", np.array(ofh),fmt="%s")
+    save_trees(tmp_dir.name + "/",input_counts=input_counts,output_counts=output_counts,test_counts=test_counts,ifh=ifh,ofh=ofh,header=header,**kwargs)
 
     print("CHECK TRUTH")
     print(tmp_dir.name)

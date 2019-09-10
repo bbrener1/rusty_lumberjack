@@ -367,9 +367,12 @@ class Node:
 
         # Predicts medians for all features, same as medians if the tree is fat.
 
-        counts = self.total_feature_counts()
-        medians = np.median(counts,axis=0)
-        return medians
+        if self.features == self.forest.output_features:
+            return self.medians
+        else:
+            counts = self.total_feature_counts()
+            medians = np.median(counts,axis=0)
+            return medians
 
     def ordered_node_counts(self,counts=None,truth_dictionary=None):
 
@@ -1020,15 +1023,6 @@ class Forest:
 
         return first_forest
 
-    def abort_sample_leaves(self,sample):
-
-        leaves = []
-
-        for tree in self.trees:
-            leaves.extend(tree.aborting_sample_descent(sample))
-
-        return leaves
-
     def raw_predict_nodes(self,nodes):
 
         consolidated_predictions = {}
@@ -1190,11 +1184,11 @@ class Forest:
         plt.hist(self.feature_weight_matrix(forest_leaves).flatten(),bins=50,log=True)
         plt.show()
 
-    def abort_predict_sample(self,sample):
+    def predict_sample(self,sample):
 
         fd = self.truth_dictionary.feature_dictionary
 
-        leaves = self.abort_sample_leaves(sample)
+        leaves = self.sample_leaves(sample)
 
         consolidated_predictions = self.raw_predict_nodes(leaves)
 
@@ -1206,9 +1200,9 @@ class Forest:
 
         return single_prediction
 
-    def abort_weighted_predict_sample(self,sample):
+    def weighted_predict_sample(self,sample):
 
-        leaves = self.abort_sample_leaves(sample)
+        leaves = self.sample_leaves(sample)
 
         return self.weighted_node_vector_prediction(leaves)
 
@@ -1248,9 +1242,9 @@ class Forest:
         for i,row in enumerate(matrix):
             sample = {feature:value for feature,value in zip(features,row)}
             if weighted:
-                predictions[i] = self.abort_weighted_predict_sample(sample)
+                predictions[i] = self.weighted_predict_sample(sample)
             else:
-                predictions[i] = self.abort_predict_sample(sample)
+                predictions[i] = self.predict_sample(sample)
 
         return predictions
 
@@ -1520,15 +1514,17 @@ class Forest:
 
         labels = np.zeros(len(nodes)).astype(dtype=int)
 
-        gain_matrix = self.local_gain_matrix(nodes).T
-        # encoding = self.node_sample_encoding(nodes)
-        # raw_features = self.node_matrix(nodes)
+        # reduction = self.local_gain_matrix(nodes).T
+        encoding = self.node_sample_encoding(nodes)
+        reduction = squareform(pdist(encoding.T,metric='jaccard'))
+        # reduction = self.node_matrix(nodes)
 
         if hasattr(self,'split_labels') and not override:
             print("Clustering has already been done")
             # return self.split_labels
         else:
-            labels[stem_mask] = 1 + np.array(sdg.fit_predict(gain_matrix[stem_mask],*args,**kwargs))
+            # labels[stem_mask] = 1 + np.array(sdg.fit_predict(gain_matrix[stem_mask],*args,**kwargs))
+            labels[stem_mask] = 1 + np.array(sdg.fit_predict(reduction[stem_mask],*args,**kwargs))
             self.split_labels = labels
 
         for node,label in zip(nodes,self.split_labels):
@@ -1542,10 +1538,10 @@ class Forest:
             clusters.append(NodeCluster(self,[nodes[i] for i in split_index],cluster))
 
         split_order = np.argsort(self.split_labels)
-        # split_order = dendrogram(linkage(gain_matrix,metric='cos',method='average'),no_plot=True)['leaves']
-        feature_order = dendrogram(linkage(gain_matrix.T+1,metric='cosine',method='average'),no_plot=True)['leaves']
+        # split_order = dendrogram(linkage(reduction,metric='cos',method='average'),no_plot=True)['leaves']
+        feature_order = dendrogram(linkage(reduction.T+1,metric='cosine',method='average'),no_plot=True)['leaves']
 
-        image = gain_matrix[split_order].T[feature_order].T
+        image = reduction[split_order].T[feature_order].T
         neg = image < 0
         pos = image > 0
         image[neg] = -1 * np.log(np.abs(image[neg]) + 1)
@@ -1565,19 +1561,6 @@ class Forest:
 
         return self.split_labels,image
 
-
-    def filter_cells(cells,prerequisite):
-        filtered = []
-        feature,split,direction = prerequisite
-        if direction == '<':
-            for cell in cells:
-                if self.truth_dictionary.look(cell,feature) < split:
-                    filtered.append(cell)
-        if direction == '>':
-            for cell in cells:
-                if self.truth_dictionary.look(cell,feature) > split:
-                    filtered.append(cell)
-        return filtered
 
     def plot_cell_clusters(self,colorize=True,label=True):
         # if not hasattr(self,'leaf_clusters'):
@@ -1629,8 +1612,7 @@ class Forest:
             plt.scatter(combined_coordinates[:len(self.samples),0],combined_coordinates[:len(self.samples),1],s=1,c=combined_labels[:len(self.samples)],cmap='rainbow')
             plt.savefig("./tmp.delete.png",dpi=300)
         return f
-
-
+        
     def plot_split_clusters(self,colorize=True):
         if not hasattr(self,'split_clusters'):
             print("Warning, split clusters not detected")

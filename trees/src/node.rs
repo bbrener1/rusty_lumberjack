@@ -192,9 +192,6 @@ impl Node {
 
         let rvs: Vec<_> = features.iter().map(|f| self.input_table.rv_fetch(f.index).clone()).collect();
 
-        // Here we pick whether we want to do geometric average ranking type braiding,
-        // or consensus vote braiding.
-        // let braid = Braid::from_rvs(features, samples, &rvs);
         let braid = Braid::from_splits(features, samples, &rvs, &splits);
 
         // eprintln!("Braid split:{:?}",braid);
