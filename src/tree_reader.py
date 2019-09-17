@@ -83,9 +83,13 @@ class Node:
         try:
             if len(node_json['braids']) > 0 and len(node_json['braids']) > level:
                 self.braid = Braid(node_json['braids'][-1],self)
+            else:
+                self.braid = None
         except:
             if node_json['braid'] is not None:
                 self.braid = Braid(node_json['braid'],self)
+            else:
+                self.braid = None
         self.medians = np.array(node_json['medians'])
         self.additive = np.array(node_json['additive'])
         self.dispersions = np.array([node_json['dispersions']])
@@ -391,21 +395,26 @@ class Node:
 
     def sample_leaves(self,sample):
 
-        if self.braid is not None:
-            braid_score = self.braid.score_sample(sample)
-            try:
-                if braid_score <= braid.compound_split:
-                    return self.children[0].sample_descent(sample)
+        if hasattr(self,"braid"):
+            if self.braid is not None:
+                braid_score = self.braid.score_sample(sample)
+                # print("Braid prediction!")
+                # print(braid_score)
+                # print(self.braid.compound_split)
+                # print("Trying comparison")
+                # print(braid_score <= self.braid.compound_split)
+                if braid_score <= self.braid.compound_split:
+                    # print("Descending left")
+                    return self.children[0].sample_leaves(sample)
                 else:
-                    return self.children[1].sample_descent(sample)
-            except:
-                return [self,]
+                    # print("Descending right")
+                    return self.children[1].sample_leaves(sample)
         elif self.split is not None:
             if self.split['feature']['name'] in sample:
                 if sample[self.split['feature']['name']] <= self.split['value']:
-                    return self.children[0].sample_descent(sample)
+                    return self.children[0].sample_leaves(sample)
                 else:
-                    return self.children[1].sample_descent(sample)
+                    return self.children[1].sample_leaves(sample)
             else:
                 return []
         else:
@@ -611,7 +620,7 @@ class Braid:
         return np.exp(np.mean(np.log(ranked),axis=1))
 
     def braid_scores(self):
-        scores = np.zeros(len(self.forest.samples))
+        scores = np.zeros(len(self.node.forest.samples))
         sd = self.truth_dictionary.sample_dictionary
         for score,sample in zip(self.compound_values,self.samples):
             scores[sd[sample]] = score
@@ -824,13 +833,15 @@ class Tree:
 
 class Forest:
 
-    def __init__(self,trees,input,output,input_features=None,output_features=None,samples=None,split_labels=None):
+    def __init__(self,trees,input,output,test=None,input_features=None,output_features=None,samples=None,split_labels=None):
         if input_features is None:
             input_features = [str(i) for i in range(input.shape[1])]
         if output_features is None:
             output_features = [str(i) for i in range(output.shape[1])]
         if samples is None:
             samples = [str(i) for i in range(input.shape[0])]
+        if test is not None:
+            self.test = test
 
         self.truth_dictionary = TruthDictionary(output,output_features,samples)
 
@@ -898,10 +909,9 @@ class Forest:
         return leaves
 
     def sample_leaves(self,sample):
-        leaves = self.leaves()
-        encoding = self.node_sample_encoding(leaves)
-        leaf_indecies = np.arange(len(leaves))[encoding[sample]]
-        sample_leaves = [leaves[i] for i in leaf_indecies]
+        sample_leaves = []
+        for tree in self.trees:
+            sample_leaves.extend(tree.root.sample_leaves(sample))
         return sample_leaves
 
     def leaves_of_samples(self,samples):
@@ -997,7 +1007,7 @@ class Forest:
         except:
             pass
 
-        first_forest = Forest([],input_features=ifh,output_features=ofh,input=input,output=output,split_labels=split_labels)
+        first_forest = Forest([],input_features=ifh,output_features=ofh,input=input,output=output,test=test,split_labels=split_labels)
 
         trees = []
         for tree_file in combined_tree_files:
@@ -1233,11 +1243,11 @@ class Forest:
     def predict_matrix(self,matrix,features=None,samples=None,weighted=True):
 
         if features is None:
-            features = self.features
+            features = self.input_features
         if samples is None:
             samples = self.samples
 
-        predictions = np.zeros((len(matrix),len(self.features)))
+        predictions = np.zeros((len(matrix),len(self.output_features)))
 
         for i,row in enumerate(matrix):
             sample = {feature:value for feature,value in zip(features,row)}
@@ -1250,9 +1260,9 @@ class Forest:
 
     def predict_vector_leaves(self,vector,features=None):
         if features is None:
-            features = self.features
+            features = self.input_features
         sample = {feature:value for feature,value in zip(features,vector)}
-        return self.abort_sample_leaves(sample)
+        return self.sample_leaves(sample)
 
     def cluster_samples_simple(self,override=False,pca=False,*args,**kwargs):
 
@@ -1504,7 +1514,7 @@ class Forest:
 
 
 
-    def interpret_splits(self,override=False,no_plot=False,depth=3,*args,**kwargs):
+    def interpret_splits(self,override=False,no_plot=False,mode='gain',depth=3,*args,**kwargs):
 
 
         nodes = np.array(self.nodes(root=True,depth=depth))
@@ -1514,16 +1524,18 @@ class Forest:
 
         labels = np.zeros(len(nodes)).astype(dtype=int)
 
-        # reduction = self.local_gain_matrix(nodes).T
-        encoding = self.node_sample_encoding(nodes)
-        reduction = squareform(pdist(encoding.T,metric='jaccard'))
-        # reduction = self.node_matrix(nodes)
+        if mode == 'gain':
+            reduction = self.local_gain_matrix(nodes).T
+        if mode == 'sample':
+            encoding = self.node_sample_encoding(nodes)
+            reduction = squareform(pdist(encoding.T,metric='jaccard'))
+        else:
+            reduction = self.node_matrix(nodes)
 
         if hasattr(self,'split_labels') and not override:
             print("Clustering has already been done")
             # return self.split_labels
         else:
-            # labels[stem_mask] = 1 + np.array(sdg.fit_predict(gain_matrix[stem_mask],*args,**kwargs))
             labels[stem_mask] = 1 + np.array(sdg.fit_predict(reduction[stem_mask],*args,**kwargs))
             self.split_labels = labels
 
@@ -1612,7 +1624,7 @@ class Forest:
             plt.scatter(combined_coordinates[:len(self.samples),0],combined_coordinates[:len(self.samples),1],s=1,c=combined_labels[:len(self.samples)],cmap='rainbow')
             plt.savefig("./tmp.delete.png",dpi=300)
         return f
-        
+
     def plot_split_clusters(self,colorize=True):
         if not hasattr(self,'split_clusters'):
             print("Warning, split clusters not detected")
@@ -1976,7 +1988,7 @@ class Forest:
 
         return f
 
-    def plot_tree_summary(self,n=3,type="ud",primary=True,secondary=False):
+    def plot_tree_summary(self,n=3,type="ud",primary=True,secondary=False,figsize=(30,30)):
 
         def leaves(tree):
             l = []
@@ -2000,7 +2012,7 @@ class Forest:
         # print(f"RECURSIVE TREE DEBUG H:{height},W:{width}")
 
         # Set up the figure
-        fig = plt.figure(figsize=(30,30))
+        fig = plt.figure(figsize=figsize)
         arrow_canvas = fig.add_axes([0,0,1,1])
         arrow_canvas.axis('off')
 
@@ -2050,7 +2062,7 @@ class Forest:
             if type == "id":
                 if i < len(self.split_clusters) and i !=0:
                     text_rectangle(ax,f"{i}",[.4,.4,.2,.2],no_warp=True)
-            else:
+            if type == "score":
                 if i < len(self.split_clusters) and i !=0:
                     self.split_clusters[i].score_panel(ax)
             if i == 0:
@@ -2940,7 +2952,13 @@ def count_list_elements(elements):
         dict[element] += 1
     return dict
 
-def text_rectangle(ax,text,rect,no_warp=True,color='w',edgecolor='b',linewidth=3,**kwargs):
+def text_rectangle(ax,text,rect,no_warp=True,color=None,edgecolor='b',linewidth=3,**kwargs):
+
+    if color is None:
+        try:
+            color = mpl.rcParams['text.color']
+        except:
+            color = 'b'
 
     from matplotlib.text import TextPath
     import matplotlib.patches as mpatches
