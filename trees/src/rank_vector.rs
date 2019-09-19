@@ -611,7 +611,8 @@ impl<T: Borrow<[Node]> + BorrowMut<[Node]> + Index<usize,Output=Node> + IndexMut
     pub fn sme(&self) -> f64 {
         let values = self.ordered_values();
         let median = self.median();
-        values.iter().sum::<f64>() - (median * values.len() as f64)
+        let sum:f64 = values.into_iter().map(|x| (x - median).abs()).sum();
+        sum
     }
 
     #[inline]
