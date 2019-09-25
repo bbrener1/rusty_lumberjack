@@ -17,6 +17,7 @@ pub struct RankVector<T> {
     rank_order: Option<Vec<usize>>,
     drop: DropMode,
     zones: [usize;4],
+    // sums: [f64;2],
     offset: usize,
     median: (usize,usize),
     left: usize,
@@ -79,6 +80,7 @@ impl<T: Borrow<[Node]> + BorrowMut<[Node]> + Index<usize,Output=Node> + IndexMut
         };
 
         let mut zones = [0;4];
+        // let mut sums = [0.;2];
 
         let (clean_vector,dirty_set) = sanitize_vector(in_vec);
 
@@ -114,6 +116,7 @@ impl<T: Borrow<[Node]> + BorrowMut<[Node]> + Index<usize,Output=Node> + IndexMut
             vector[index] = node;
 
             zones[2] += 1;
+            // sums[1] += data;
 
         };
 
@@ -133,6 +136,7 @@ impl<T: Borrow<[Node]> + BorrowMut<[Node]> + Index<usize,Output=Node> + IndexMut
             rank_order: Some(rank_order),
             drop: DropMode::No,
             zones: zones,
+            // sums: sums,
             offset: 2,
             median: median,
             left: left,
@@ -164,11 +168,24 @@ impl<T: Borrow<[Node]> + BorrowMut<[Node]> + Index<usize,Output=Node> + IndexMut
         let target_zone = self.nodes[target].zone;
 
         if target_zone != 0 {
+            // eprintln!("Pop debug:");
+            // eprintln!("Values:{:?}",self.ordered_values());
+            // eprintln!("Sums:{:?}",self.sums);
+            // eprintln!("Target:{:?}",self.nodes[target]);
+            // eprintln!("Median:{:?}",self.median);
 
             self.unlink(target);
 
             self.zones[target_zone] -= 1;
             self.zones[0] += 1;
+
+            // if self.nodes[target].rank < self.nodes[self.median.1].rank {
+            //     self.sums[0] -= self.nodes[target].data;
+            // }
+            // if self.nodes[target].rank > self.nodes[self.median.0].rank {
+            //     self.sums[1] -= self.nodes[target].data;
+            // }
+
             self.nodes[target].zone = 0;
 
             self.check_boundaries(target);
@@ -190,7 +207,21 @@ impl<T: Borrow<[Node]> + BorrowMut<[Node]> + Index<usize,Output=Node> + IndexMut
     fn mpop(&mut self, target: usize) -> (f64,f64) {
         let target_zone = self.nodes[target].zone;
         if target_zone != 0 {
+            // eprintln!("Mpop debug:");
+            // eprintln!("Values:{:?}",self.ordered_values());
+            // eprintln!("Sums:{:?}",self.sums);
+            // eprintln!("Target:{:?}",self.nodes[target]);
+            // eprintln!("Median:{:?}",self.median);
+
             self.unlink(target);
+
+            // if self.nodes[target].rank < self.nodes[self.median.1].rank {
+            //     self.sums[0] -= self.nodes[target].data;
+            // }
+            // if self.nodes[target].rank > self.nodes[self.median.0].rank {
+            //     self.sums[1] -= self.nodes[target].data;
+            // }
+
             let (_old_median,new_median) = self.recenter_median(target);
             (new_median,self.nodes[target].data)
         }
@@ -230,20 +261,33 @@ impl<T: Borrow<[Node]> + BorrowMut<[Node]> + Index<usize,Output=Node> + IndexMut
 
         let order = self.left_to_right();
 
+        // eprintln!("Establishing median: order:{:?}",order);
+
         match order.len() % 2 {
             0 => {
                 if order.len() == 0 {
                     self.median = (0,1)
                 }
                 else {
-                    self.median = (order[(order.len()/2)-1],order[order.len()/2]);
+                    let m = order.len()/2;
+                    self.median = (order[m-1],order[m]);
+                    // let l_sum = order[..m].iter().map(|&i| self.nodes[i].data).sum::<f64>();
+                    // let r_sum = order[m..].iter().map(|&i| self.nodes[i].data).sum::<f64>();
+                    // self.sums = [l_sum,r_sum];
+                    // eprintln!("Establishing median:{:?},{:?}",self.median,self.sums);
                 }
             },
             1 => {
-                self.median = (order[order.len()/2],order[order.len()/2]);
+                let m = order.len()/2;
+                self.median = (order[m],order[m]);
+                // let l_sum = order[..m].iter().map(|&i| self.nodes[i].data).sum::<f64>();
+                // let r_sum = order[(m+1)..].iter().map(|&i| self.nodes[i].data).sum::<f64>();
+                // self.sums = [l_sum,r_sum];
+                // eprintln!("Establishing median:{:?},{:?}",self.median,self.sums);
             },
             _ => unreachable!(),
         }
+
 
     }
 
@@ -415,9 +459,11 @@ impl<T: Borrow<[Node]> + BorrowMut<[Node]> + Index<usize,Output=Node> + IndexMut
     pub fn shift_median_left(&mut self) {
         match self.median.0 == self.median.1 {
             false => {
+                // self.sums[0] -= self.nodes[self.median.0].data;
                 self.median = (self.nodes[self.median.1].previous,self.nodes[self.median.1].previous)
             },
             true => {
+                // self.sums[1] += self.nodes[self.median.1].data;
                 self.median = (self.nodes[self.median.1].previous,self.median.1)
             }
         }
@@ -427,9 +473,11 @@ impl<T: Borrow<[Node]> + BorrowMut<[Node]> + Index<usize,Output=Node> + IndexMut
     pub fn shift_median_right(&mut self) {
         match self.median.0 == self.median.1 {
             false => {
+                // self.sums[1] -= self.nodes[self.median.1].data;
                 self.median = (self.nodes[self.median.0].next,self.nodes[self.median.0].next)
             },
             true => {
+                // self.sums[0] += self.nodes[self.median.0].data;
                 self.median = (self.median.0,self.nodes[self.median.0].next)
             }
         }
@@ -445,10 +493,12 @@ impl<T: Borrow<[Node]> + BorrowMut<[Node]> + Index<usize,Output=Node> + IndexMut
         let right_rank = self.nodes[self.median.1].rank;
 
         if target_rank > left_rank {
-                self.shift_median_left();
+            // eprintln!("Shift left");
+            self.shift_median_left();
         }
         else if target_rank < right_rank {
-                self.shift_median_right();
+            // eprintln!("Shift right");
+            self.shift_median_right();
         }
         else {
             self.median.0 = self.nodes[target].previous;
@@ -741,6 +791,7 @@ impl<T: Borrow<[Node]> + BorrowMut<[Node]> + Index<usize,Output=Node> + IndexMut
 
     pub fn ordered_ssme(&mut self,draw_order: &[usize], drop_set: &HashSet<usize>) -> Vec<f64> {
 
+
         for dropped_sample in drop_set {
             self.pop(*dropped_sample);
         }
@@ -770,27 +821,51 @@ impl<T: Borrow<[Node]> + BorrowMut<[Node]> + Index<usize,Output=Node> + IndexMut
 
     pub fn ordered_sme(&mut self,draw_order: &[usize], drop_set: &HashSet<usize>) -> Vec<f64> {
 
-        for dropped_sample in drop_set {
-            self.pop(*dropped_sample);
-        }
+        unimplemented!();
 
-        let mut smes = Vec::with_capacity(draw_order.len());
+        // for dropped_sample in drop_set {
+        //     self.pop(*dropped_sample);
+        // }
+        //
+        // let mut smes = Vec::with_capacity(draw_order.len());
+        // let mut total_values = self.len();
+        //
+        // let mut running_median = self.median();
+        //
+        // for (i,draw) in draw_order.iter().enumerate() {
+        //     let sig = running_median * (total_values / 2) as f64;
+        //     let left = (sig - self.sums[0]);
+        //     let right = (self.sums[1] - sig);
+        //     smes.push(left + right);
+        //     self.mpop(*draw);
+        //     running_median = self.median();
+        //     total_values -= 1;
+        // };
+        //
+        // smes
 
-        let ordered_values = self.ordered_values();
-        let mut total_values = ordered_values.len() as f64;
-        let mut running_sum = ordered_values.iter().sum::<f64>();
-        let mut running_median = self.median();
-
-        for (i,draw) in draw_order.iter().enumerate() {
-            let new_sme = running_sum - (total_values * running_median);
-            smes.push(new_sme);
-            let (new_median,value) = self.mpop(*draw);
-            running_median = new_median;
-            running_sum -= value;
-            total_values -= 1.;
-        };
-
-        smes
+        //
+        // for dropped_sample in drop_set {
+        //     self.pop(*dropped_sample);
+        // }
+        //
+        // let mut smes = Vec::with_capacity(draw_order.len());
+        //
+        // let ordered_values = self.ordered_values();
+        // let mut total_values = ordered_values.len() as f64;
+        // let mut running_sum = ordered_values.iter().sum::<f64>();
+        // let mut running_median = self.median();
+        //
+        // for (i,draw) in draw_order.iter().enumerate() {
+        //     let new_sme = running_sum - (total_values * running_median);
+        //     smes.push(new_sme);
+        //     let (new_median,value) = self.mpop(*draw);
+        //     running_median = new_median;
+        //     running_sum -= value;
+        //     total_values -= 1.;
+        // };
+        //
+        // smes
 
     }
 
@@ -934,13 +1009,15 @@ impl<T: Borrow<[Node]> + BorrowMut<[Node]> + Index<usize,Output=Node> + IndexMut
         self.drop = drop_mode;
     }
 
-    // Not sure that this will be useful:
-    // pub fn center(&mut self) {
-    //     let median = self.median();
-    //     for i in (0..self.raw_len()) {
-    //         self.nodes[i].data -= median;
-    //     }
-    // }
+    #[inline]
+    pub fn crawl_left(&self, index:usize) -> GLVCrawler<T> {
+        GLVCrawler::new(self,index)
+    }
+
+    #[inline]
+    pub fn crawl_right(&self, index:usize) -> GRVCrawler<T> {
+        GRVCrawler::new(self,index)
+    }
 
     pub fn check_integrity(&self) {
 
@@ -1019,6 +1096,7 @@ impl RankVector<Vec<Node>> {
         };
 
         let mut new_zones = [0;4];
+        // let mut new_sums = [0.;2];
 
         let mut previous = left;
 
@@ -1040,6 +1118,7 @@ impl RankVector<Vec<Node>> {
             new_nodes[previous].next = new_index;
             new_nodes[new_index] = new_node;
             new_zones[2] += 1;
+            // new_sums[1] += data;
 
             previous = new_index;
 
@@ -1057,6 +1136,7 @@ impl RankVector<Vec<Node>> {
             rank_order: Some(new_rank_order),
             drop: self.drop,
             zones: new_zones,
+            // sums: new_sums,
             offset: self.offset,
             median: (4,4),
             nodes: new_nodes,
@@ -1092,6 +1172,7 @@ impl RankVector<Vec<Node>> {
             rank_order: None,
             drop: self.drop,
             zones: self.zones,
+            // sums: self.sums,
             offset: self.offset,
             median: self.median,
             left: self.left,
@@ -1295,6 +1376,11 @@ fn slow_ssme(values: Vec<f64>) -> f64 {
     values.iter().map(|x| (x - median).powi(2)).sum()
 }
 
+fn slow_sme(values: Vec<f64>) -> f64 {
+    let median = slow_median(values.clone());
+    values.iter().map(|x| (x - median).abs()).sum()
+}
+
 #[cfg(test)]
 mod rank_vector_tests {
 
@@ -1400,6 +1486,26 @@ mod rank_vector_tests {
             assert_eq!(vm.median(),slow_median(vm.ordered_values()));
             assert_eq!(vm.mad(),slow_mad(vm.ordered_values()));
         }
+
+    }
+
+    #[test]
+    fn sequential_sme_simple() {
+        let mut vector = RankVector::<Vec<Node>>::link(&vec![10.,-3.,0.,5.,-2.,-1.,15.,20.],);
+        vector.drop_f(0.);
+        let draw_order = vector.draw_order();
+        let drop_set = HashSet::new();
+        let mut vm = vector.clone();
+        let ordered_sme = vector.clone().ordered_sme(&draw_order,&drop_set);
+        println!("{:?}",ordered_sme);
+        let mut slow_ordered_sme = vec![];
+        for (i,draw) in vm.draw_order().iter().enumerate() {
+            println!("{:?}",vm.ordered_values());
+            println!("{:?}",slow_sme(vm.ordered_values()));
+            slow_ordered_sme.push(slow_sme(vm.ordered_values()));
+            vm.pop(*draw);
+        }
+        assert_eq!(ordered_sme,slow_ordered_sme);
 
     }
 

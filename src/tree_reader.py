@@ -1559,13 +1559,13 @@ class Forest:
         image[neg] = -1 * np.log(np.abs(image[neg]) + 1)
         image[pos] = np.log(image[pos] + 1)
 
-        # median = np.median(image)
-        # range = np.max(image) - median
 
 
         plt.figure(figsize=(10,10))
-        # plt.imshow(image,aspect='auto',cmap='bwr',vmin=median-range,vmax=median+range)
-        plt.imshow(image,aspect='auto',cmap='bwr',vmin=-.3,vmax=.3)
+        median = np.median(image)
+        range = np.max(image) - median
+        plt.imshow(image,aspect='auto',cmap='bwr',vmin=median-range,vmax=median+range)
+        # plt.imshow(image,aspect='auto',cmap='bwr',vmin=-.3,vmax=.3)
         plt.colorbar()
         plt.show()
 
@@ -2403,17 +2403,21 @@ class NodeCluster:
 
         features = {}
 
-        for braid in self.braids():
-            for feature in braid.features:
-                if feature not in features:
-                    features[feature] = 0
-                features[feature] += 1
+        for braid in self.parent_braids():
+            feature = braid.features[0]
+            if feature not in features:
+                features[feature] = 0
+            features[feature] += 1
+            # for feature in braid.features:
+            #     if feature not in features:
+            #         features[feature] = 0
+            #     features[feature] += 1
 
-        braid_scores = self.braid_scores()
+        # braid_scores = self.braid_scores()
 
-        for feature in features.keys():
-            feature_index = self.forest.truth_dictionary.feature_dictionary[feature]
-            feature_values = self.forest.output[:,feature_index]
+        # for feature in features.keys():
+        #     feature_index = self.forest.truth_dictionary.feature_dictionary[feature]
+        #     feature_values = self.forest.output[:,feature_index]
             # features[feature] *= np.sign(scipy.stats.spearmanr(feature_values,braid_scores)[0])
 
         return features
