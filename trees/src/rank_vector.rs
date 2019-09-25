@@ -17,7 +17,7 @@ pub struct RankVector<T> {
     rank_order: Option<Vec<usize>>,
     drop: DropMode,
     zones: [usize;4],
-    // sums: [f64;2],
+    sums: [f64;2],
     offset: usize,
     median: (usize,usize),
     left: usize,
@@ -80,7 +80,7 @@ impl<T: Borrow<[Node]> + BorrowMut<[Node]> + Index<usize,Output=Node> + IndexMut
         };
 
         let mut zones = [0;4];
-        // let mut sums = [0.;2];
+        let mut sums = [0.;2];
 
         let (clean_vector,dirty_set) = sanitize_vector(in_vec);
 
@@ -116,7 +116,7 @@ impl<T: Borrow<[Node]> + BorrowMut<[Node]> + Index<usize,Output=Node> + IndexMut
             vector[index] = node;
 
             zones[2] += 1;
-            // sums[1] += data;
+            sums[1] += data;
 
         };
 
@@ -136,7 +136,7 @@ impl<T: Borrow<[Node]> + BorrowMut<[Node]> + Index<usize,Output=Node> + IndexMut
             rank_order: Some(rank_order),
             drop: DropMode::No,
             zones: zones,
-            // sums: sums,
+            sums: sums,
             offset: 2,
             median: median,
             left: left,
@@ -179,12 +179,12 @@ impl<T: Borrow<[Node]> + BorrowMut<[Node]> + Index<usize,Output=Node> + IndexMut
             self.zones[target_zone] -= 1;
             self.zones[0] += 1;
 
-            // if self.nodes[target].rank < self.nodes[self.median.1].rank {
-            //     self.sums[0] -= self.nodes[target].data;
-            // }
-            // if self.nodes[target].rank > self.nodes[self.median.0].rank {
-            //     self.sums[1] -= self.nodes[target].data;
-            // }
+            if self.nodes[target].rank < self.nodes[self.median.1].rank {
+                self.sums[0] -= self.nodes[target].data;
+            }
+            if self.nodes[target].rank > self.nodes[self.median.0].rank {
+                self.sums[1] -= self.nodes[target].data;
+            }
 
             self.nodes[target].zone = 0;
 
@@ -215,12 +215,12 @@ impl<T: Borrow<[Node]> + BorrowMut<[Node]> + Index<usize,Output=Node> + IndexMut
 
             self.unlink(target);
 
-            // if self.nodes[target].rank < self.nodes[self.median.1].rank {
-            //     self.sums[0] -= self.nodes[target].data;
-            // }
-            // if self.nodes[target].rank > self.nodes[self.median.0].rank {
-            //     self.sums[1] -= self.nodes[target].data;
-            // }
+            if self.nodes[target].rank < self.nodes[self.median.1].rank {
+                self.sums[0] -= self.nodes[target].data;
+            }
+            if self.nodes[target].rank > self.nodes[self.median.0].rank {
+                self.sums[1] -= self.nodes[target].data;
+            }
 
             let (_old_median,new_median) = self.recenter_median(target);
             (new_median,self.nodes[target].data)
@@ -271,18 +271,18 @@ impl<T: Borrow<[Node]> + BorrowMut<[Node]> + Index<usize,Output=Node> + IndexMut
                 else {
                     let m = order.len()/2;
                     self.median = (order[m-1],order[m]);
-                    // let l_sum = order[..m].iter().map(|&i| self.nodes[i].data).sum::<f64>();
-                    // let r_sum = order[m..].iter().map(|&i| self.nodes[i].data).sum::<f64>();
-                    // self.sums = [l_sum,r_sum];
+                    let l_sum = order[..m].iter().map(|&i| self.nodes[i].data).sum::<f64>();
+                    let r_sum = order[m..].iter().map(|&i| self.nodes[i].data).sum::<f64>();
+                    self.sums = [l_sum,r_sum];
                     // eprintln!("Establishing median:{:?},{:?}",self.median,self.sums);
                 }
             },
             1 => {
                 let m = order.len()/2;
                 self.median = (order[m],order[m]);
-                // let l_sum = order[..m].iter().map(|&i| self.nodes[i].data).sum::<f64>();
-                // let r_sum = order[(m+1)..].iter().map(|&i| self.nodes[i].data).sum::<f64>();
-                // self.sums = [l_sum,r_sum];
+                let l_sum = order[..m].iter().map(|&i| self.nodes[i].data).sum::<f64>();
+                let r_sum = order[(m+1)..].iter().map(|&i| self.nodes[i].data).sum::<f64>();
+                self.sums = [l_sum,r_sum];
                 // eprintln!("Establishing median:{:?},{:?}",self.median,self.sums);
             },
             _ => unreachable!(),
@@ -459,11 +459,11 @@ impl<T: Borrow<[Node]> + BorrowMut<[Node]> + Index<usize,Output=Node> + IndexMut
     pub fn shift_median_left(&mut self) {
         match self.median.0 == self.median.1 {
             false => {
-                // self.sums[0] -= self.nodes[self.median.0].data;
+                self.sums[0] -= self.nodes[self.median.0].data;
                 self.median = (self.nodes[self.median.1].previous,self.nodes[self.median.1].previous)
             },
             true => {
-                // self.sums[1] += self.nodes[self.median.1].data;
+                self.sums[1] += self.nodes[self.median.1].data;
                 self.median = (self.nodes[self.median.1].previous,self.median.1)
             }
         }
@@ -473,11 +473,11 @@ impl<T: Borrow<[Node]> + BorrowMut<[Node]> + Index<usize,Output=Node> + IndexMut
     pub fn shift_median_right(&mut self) {
         match self.median.0 == self.median.1 {
             false => {
-                // self.sums[1] -= self.nodes[self.median.1].data;
+                self.sums[1] -= self.nodes[self.median.1].data;
                 self.median = (self.nodes[self.median.0].next,self.nodes[self.median.0].next)
             },
             true => {
-                // self.sums[0] += self.nodes[self.median.0].data;
+                self.sums[0] += self.nodes[self.median.0].data;
                 self.median = (self.median.0,self.nodes[self.median.0].next)
             }
         }
@@ -1096,7 +1096,7 @@ impl RankVector<Vec<Node>> {
         };
 
         let mut new_zones = [0;4];
-        // let mut new_sums = [0.;2];
+        let mut new_sums = [0.;2];
 
         let mut previous = left;
 
@@ -1118,7 +1118,7 @@ impl RankVector<Vec<Node>> {
             new_nodes[previous].next = new_index;
             new_nodes[new_index] = new_node;
             new_zones[2] += 1;
-            // new_sums[1] += data;
+            new_sums[1] += data;
 
             previous = new_index;
 
@@ -1136,7 +1136,7 @@ impl RankVector<Vec<Node>> {
             rank_order: Some(new_rank_order),
             drop: self.drop,
             zones: new_zones,
-            // sums: new_sums,
+            sums: new_sums,
             offset: self.offset,
             median: (4,4),
             nodes: new_nodes,
@@ -1172,7 +1172,7 @@ impl RankVector<Vec<Node>> {
             rank_order: None,
             drop: self.drop,
             zones: self.zones,
-            // sums: self.sums,
+            sums: self.sums,
             offset: self.offset,
             median: self.median,
             left: self.left,
