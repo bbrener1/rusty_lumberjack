@@ -1514,7 +1514,7 @@ class Forest:
 
 
 
-    def interpret_splits(self,override=False,no_plot=False,mode='gain',depth=3,*args,**kwargs):
+    def interpret_splits(self,override=False,no_plot=False,mode='gain',metric='cosine',reduction_metric='jaccard',depth=3,*args,**kwargs):
 
 
         nodes = np.array(self.nodes(root=True,depth=depth))
@@ -1525,18 +1525,24 @@ class Forest:
         labels = np.zeros(len(nodes)).astype(dtype=int)
 
         if mode == 'gain':
-            reduction = self.local_gain_matrix(nodes).T
+            gain = self.local_gain_matrix(nodes).T
+            reduction = gain
+            # reduction = squareform(pdist(gain,metric=metric))
         if mode == 'sample':
-            encoding = self.node_sample_encoding(nodes)
-            reduction = squareform(pdist(encoding.T,metric='jaccard'))
+            encoding = self.node_sample_encoding(nodes).T
+            # reduction = encoding
+            reduction = squareform(pdist(encoding,metric=reduction_metric))
+            # reduction = squareform(pdist(encoding.T,metric=metric))
         else:
             reduction = self.node_matrix(nodes)
+            # reduction = squareform(pdist(self.node_matrix(nodes),metric=metric))
 
         if hasattr(self,'split_labels') and not override:
             print("Clustering has already been done")
             # return self.split_labels
         else:
             labels[stem_mask] = 1 + np.array(sdg.fit_predict(reduction[stem_mask],*args,**kwargs))
+            # labels[stem_mask] = 1 + np.array(sdg.fit_predict(reduction.T[stem_mask].T[stem_mask],*args,**kwargs))
             self.split_labels = labels
 
         for node,label in zip(nodes,self.split_labels):
@@ -1551,25 +1557,27 @@ class Forest:
 
         split_order = np.argsort(self.split_labels)
         # split_order = dendrogram(linkage(reduction,metric='cos',method='average'),no_plot=True)['leaves']
-        feature_order = dendrogram(linkage(reduction.T+1,metric='cosine',method='average'),no_plot=True)['leaves']
+        feature_order = dendrogram(linkage(reduction.T+1,metric=metric,method='average'),no_plot=True)['leaves']
+
+        self.split_clusters = clusters
 
         image = reduction[split_order].T[feature_order].T
-        neg = image < 0
-        pos = image > 0
-        image[neg] = -1 * np.log(np.abs(image[neg]) + 1)
-        image[pos] = np.log(image[pos] + 1)
+        # neg = image < 0
+        # pos = image > 0
+        # image[neg] = -1 * np.log(np.abs(image[neg]) + 1)
+        # image[pos] = np.log(image[pos] + 1)
 
 
 
         plt.figure(figsize=(10,10))
-        median = np.median(image)
-        range = np.max(image) - median
-        plt.imshow(image,aspect='auto',cmap='bwr',vmin=median-range,vmax=median+range)
+        plt.imshow(image,aspect='auto',cmap='bwr')
+        # median = np.median(image)
+        # range = np.max(image) - median
+        # plt.imshow(image,aspect='auto',cmap='bwr',vmin=median-range,vmax=median+range)
         # plt.imshow(image,aspect='auto',cmap='bwr',vmin=-.3,vmax=.3)
-        plt.colorbar()
+        # plt.colorbar()
         plt.show()
 
-        self.split_clusters = clusters
 
         return self.split_labels,image
 
