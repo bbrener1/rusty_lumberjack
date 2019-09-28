@@ -83,7 +83,7 @@ def fit(input_counts,output_counts=None,test_counts=None,ifh=None,ofh=None,heade
     tmp_dir = tmp.TemporaryDirectory()
     location = tmp_dir.name + "/"
 
-    save_trees(tmp_dir.name + "/",input_counts=input_counts,output_counts=output_counts,test_counts=test_counts,ifh=ifh,ofh=ofh,header=header,**kwargs)
+    save_trees(tmp_dir.name + "/",input_counts=input_counts,output_counts=output_counts,test_counts=test_counts,ifh=ifh,ofh=ofh,header=header,lrg_mem=lrg_mem,**kwargs)
 
     print("CHECK TRUTH")
     print(tmp_dir.name)
