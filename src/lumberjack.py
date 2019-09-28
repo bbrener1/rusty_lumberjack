@@ -70,7 +70,7 @@ def save_trees(location,input_counts,output_counts=None,test_counts=None,ifh=Non
     inner_fit(input_counts,output_counts,location,ifh=(location + "tmp.ifh"),ofh=(location+"tmp.ofh"),**kwargs)
 
 
-def fit(input_counts,output_counts=None,test_counts=None,ifh=None,ofh=None,header=None,backtrace=False,**kwargs):
+def fit(input_counts,output_counts=None,test_counts=None,ifh=None,ofh=None,header=None,backtrace=False,lrg_mem=None,**kwargs):
 
     if output_counts is None:
         output_counts = input_counts
@@ -136,7 +136,7 @@ def fit(input_counts,output_counts=None,test_counts=None,ifh=None,ofh=None,heade
 #             print(output.strip())
 
 
-def inner_fit(input_counts,output_counts,location,backtrace=False, **kwargs):
+def inner_fit(input_counts,output_counts,location,backtrace=False,lrg_mem=None, **kwargs):
 
     # targets = "\n".join(["\t".join([str(y) for y in x]) for x in targets]) + "\n"
 
@@ -149,11 +149,15 @@ def inner_fit(input_counts,output_counts,location,backtrace=False, **kwargs):
     # if backtrace:
     #     arg_list.append("RUST_BACKTRACE=1")
 
+
     arg_list.extend([str(path_to_rust),"generate","-ic",location + "input.counts","-oc",location + "output.counts","-o",location + "tmp","-auto"])
 
     for arg in kwargs.keys():
         arg_list.append("-" + str(arg))
         arg_list.append(str(kwargs[arg]))
+
+    if lrg_mem is not None:
+        arg_list.append("-lrg_mem")
 
     print("Command: " + " ".join(arg_list))
 
