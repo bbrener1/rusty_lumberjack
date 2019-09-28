@@ -869,8 +869,13 @@ class Forest:
         test_forest.trees = test_trees
 
     def backup(self,location):
-        with open(location,mode='bw') as f:
-            pickle.dump(self,f)
+        print("Saving forest")
+        print(location)
+        try:
+            with open(location,mode='bw') as f:
+                pickle.dump(self,f)
+        except:
+            print("Failed to save")
 
     def reconstitute(location):
         with open(location,mode='br') as f:
