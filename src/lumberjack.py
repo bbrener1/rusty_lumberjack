@@ -40,7 +40,7 @@ def main(location,input,output=None,ifh=None,ofh=None,**kwargs):
     fit_return = save_trees(location,input_counts,output_counts=output_counts,ifh=ifh,ofh=ofh,**kwargs)
     print(fit_return)
 
-def save_trees(location,input_counts,output_counts=None,test_counts=None,ifh=None,ofh=None,header=None,**kwargs):
+def save_trees(location,input_counts,output_counts=None,test_counts=None,ifh=None,ofh=None,header=None,lrg_mem=None,**kwargs):
 
     if output_counts is None:
         output_counts = input_counts
@@ -67,7 +67,7 @@ def save_trees(location,input_counts,output_counts=None,test_counts=None,ifh=Non
 
     print("Generating trees")
 
-    inner_fit(input_counts,output_counts,location,ifh=(location + "tmp.ifh"),ofh=(location+"tmp.ofh"),**kwargs)
+    inner_fit(input_counts,output_counts,location,ifh=(location + "tmp.ifh"),ofh=(location+"tmp.ofh"),lrg_mem=lrg_mem,**kwargs)
 
 
 def fit(input_counts,output_counts=None,test_counts=None,ifh=None,ofh=None,header=None,backtrace=False,lrg_mem=None,**kwargs):
