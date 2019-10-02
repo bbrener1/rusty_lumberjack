@@ -2687,6 +2687,17 @@ class NodeCluster:
         ax.set_yticks([])
         return ax
 
+    def feature_panel(self,ax,features):
+
+        fd = self.forest.truth_dictionary.feature_dictionary
+
+        panel_array = np.zeros(len(features))
+
+        for i,feature in enumerate(features):
+            fi = fd[feature]
+            cells = self.cell_scores
+            feature_mean = (cells * self.forest.output_features[:,fi]) / np.sum(cells)
+            panel_array[i] = feature_mean
 
     def up_down_panel(self,ax,n=3,mask_fraction=.05):
 
