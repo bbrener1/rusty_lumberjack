@@ -40,7 +40,7 @@ use std::env;
 use rayon::prelude::*;
 
 // Prefer braid thickness to to be odd to make consensus braids work well
-const BRAID_THICKNESS: usize = 5;
+const BRAID_THICKNESS: usize = 3;
 
 #[derive(Clone,Serialize,Deserialize,Debug)]
 pub struct Node {

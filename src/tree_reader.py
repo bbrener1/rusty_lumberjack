@@ -1521,6 +1521,7 @@ class Forest:
 
     def interpret_splits(self,override=False,no_plot=False,mode='gain',metric='cosine',reduction_metric='jaccard',depth=3,*args,**kwargs):
 
+        from sklearn.manifold import MDS
 
         nodes = np.array(self.nodes(root=True,depth=depth))
 
@@ -1537,7 +1538,7 @@ class Forest:
             encoding = self.node_sample_encoding(nodes).T
             # reduction = encoding
             reduction = squareform(pdist(encoding,metric=reduction_metric))
-            # reduction = squareform(pdist(encoding.T,metric=metric))
+            # reduction = MDS(n_components=10,dissimilarity="precomputed").fit_transform(reduction)
         else:
             reduction = self.node_matrix(nodes)
             # reduction = squareform(pdist(self.node_matrix(nodes),metric=metric))
