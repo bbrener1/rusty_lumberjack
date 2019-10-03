@@ -1589,7 +1589,8 @@ class Forest:
 
         self.split_clusters = clusters
 
-        image = reduction[split_order].T[feature_order].T
+        if metric is not None:
+            image = reduction[split_order].T[split_order].T
         # neg = image < 0
         # pos = image > 0
         # image[neg] = -1 * np.log(np.abs(image[neg]) + 1)
