@@ -937,6 +937,17 @@ class Forest:
                 encoding[sd[sample],i] = True
         return encoding
 
+    def node_sister_encoding(self,nodes):
+        encoding = np.zeros((len(self.samples),len(nodes)),dtype=int)
+        sd = self.truth_dictionary.sample_dictionary
+        for i,node in enumerate(nodes):
+            for sample in node.samples:
+                encoding[sd[sample],i] = 1
+            if node.sister() is not None:
+                for sample in node.sister().samples:
+                    encoding[sd[sample],i] = -1
+        return encoding
+
     def node_feature_encoding(self,nodes):
 
         fd = self.truth_dictionary.feature_dictionary
@@ -1519,7 +1530,7 @@ class Forest:
 
 
 
-    def interpret_splits(self,override=False,no_plot=False,mode='gain',metric='cosine',reduction_metric='jaccard',depth=3,*args,**kwargs):
+    def interpret_splits(self,override=False,no_plot=False,mode='gain',metric='cosine',pca=False,reduction_metric='jaccard',depth=3,*args,**kwargs):
 
         from sklearn.manifold import MDS
 
@@ -1531,22 +1542,31 @@ class Forest:
         labels = np.zeros(len(nodes)).astype(dtype=int)
 
         if mode == 'gain':
-            gain = self.local_gain_matrix(nodes).T
-            reduction = gain
-            # reduction = squareform(pdist(gain,metric=metric))
-        if mode == 'sample':
+            print("Gain reduction")
+            encoding = self.local_gain_matrix(nodes).T
+        elif mode == 'sample':
+            print("Sample reduction")
             encoding = self.node_sample_encoding(nodes).T
-            # reduction = encoding
-            reduction = squareform(pdist(encoding,metric=reduction_metric))
-            # reduction = MDS(n_components=10,dissimilarity="precomputed").fit_transform(reduction)
+        elif mode == 'sister':
+            print("Sister reduction")
+            encoding = self.node_sister_encoding(nodes).T
         else:
-            reduction = self.node_matrix(nodes)
-            # reduction = squareform(pdist(self.node_matrix(nodes),metric=metric))
+            print("Median reduction")
+            encoding = self.node_matrix(nodes)
+
+        if pca:
+            encoding = PCA(n_components=10).fit_transform(encoding)
+
+        if metric is not None:
+            reduction = squareform(pdist(encoding,metric=metric))
+        else:
+            reduction = encoding
 
         if hasattr(self,'split_labels') and not override:
             print("Clustering has already been done")
             # return self.split_labels
         else:
+            # labels[stem_mask] = 1 + np.array(sdg.fit_predict(reduction[stem_mask],*args,**kwargs))
             labels[stem_mask] = 1 + np.array(sdg.fit_predict(reduction[stem_mask],*args,**kwargs))
             # labels[stem_mask] = 1 + np.array(sdg.fit_predict(reduction.T[stem_mask].T[stem_mask],*args,**kwargs))
             self.split_labels = labels
@@ -1563,6 +1583,8 @@ class Forest:
 
         split_order = np.argsort(self.split_labels)
         # split_order = dendrogram(linkage(reduction,metric='cos',method='average'),no_plot=True)['leaves']
+        if metric is None:
+            metric = "cosine"
         feature_order = dendrogram(linkage(reduction.T+1,metric=metric,method='average'),no_plot=True)['leaves']
 
         self.split_clusters = clusters
@@ -2698,6 +2720,7 @@ class NodeCluster:
             cells = self.cell_scores
             feature_mean = (cells * self.forest.output_features[:,fi]) / np.sum(cells)
             panel_array[i] = feature_mean
+
 
     def up_down_panel(self,ax,n=3,mask_fraction=.05):
 
