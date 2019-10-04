@@ -208,7 +208,7 @@ pub struct Parameters {
     pub norm_mode: NormMode,
     pub weighing_mode: WeighingMode,
     pub dispersion_mode: DispersionMode,
-    pub split_fraction_regularization: usize,
+    pub split_fraction_regularization: f64,
     pub big_mem: bool,
 
     pub backups: Option<String>,
@@ -259,7 +259,7 @@ impl Parameters {
             norm_mode: NormMode::L2,
             weighing_mode: WeighingMode::Flat,
             dispersion_mode: DispersionMode::SSME,
-            split_fraction_regularization: 1,
+            split_fraction_regularization: 1.,
             big_mem: false,
 
 
@@ -346,7 +346,7 @@ impl Parameters {
                     arg_struct.dispersion_mode = DispersionMode::read(&args.next().expect("Failed to read split mode"));
                 },
                 "-split_fraction_regularization" | "-sfr" => {
-                    arg_struct.split_fraction_regularization = args.next().expect("Error processing SFR").parse::<usize>().expect("Error parsing SFR");
+                    arg_struct.split_fraction_regularization = args.next().expect("Error processing SFR").parse::<f64>().expect("Error parsing SFR");
                 }
                 "-n" | "-norm" | "-norm_mode" => {
                     arg_struct.norm_mode = NormMode::read(&args.next().expect("Failed to read norm mode"));

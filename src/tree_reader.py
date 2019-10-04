@@ -1530,7 +1530,7 @@ class Forest:
 
 
 
-    def interpret_splits(self,override=False,no_plot=False,mode='gain',metric='cosine',pca=False,reduction_metric='jaccard',depth=3,*args,**kwargs):
+    def interpret_splits(self,override=False,no_plot=False,mode='gain',metric='cosine',pca=False,reduction_metric='jaccard',depth=3,no_plot=False,*args,**kwargs):
 
         from sklearn.manifold import MDS
 
@@ -1583,29 +1583,30 @@ class Forest:
 
         split_order = np.argsort(self.split_labels)
         # split_order = dendrogram(linkage(reduction,metric='cos',method='average'),no_plot=True)['leaves']
-        if metric is None:
-            metric = "cosine"
-        feature_order = dendrogram(linkage(reduction.T+1,metric=metric,method='average'),no_plot=True)['leaves']
 
         self.split_clusters = clusters
 
-        if metric is not None:
-            image = reduction[split_order].T[split_order].T
-        # neg = image < 0
-        # pos = image > 0
-        # image[neg] = -1 * np.log(np.abs(image[neg]) + 1)
-        # image[pos] = np.log(image[pos] + 1)
+        if not no_plot:
+            if metric is not None:
+                image = reduction[split_order].T[split_order].T
+            else:
+                feature_order = dendrogram(linkage(reduction.T+1,metric='cosine',method='average'),no_plot=True)['leaves']
+                image = reduction[split_order].T[feature_order].T
+            # neg = image < 0
+            # pos = image > 0
+            # image[neg] = -1 * np.log(np.abs(image[neg]) + 1)
+            # image[pos] = np.log(image[pos] + 1)
 
 
 
-        plt.figure(figsize=(10,10))
-        plt.imshow(image,aspect='auto',cmap='bwr')
-        # median = np.median(image)
-        # range = np.max(image) - median
-        # plt.imshow(image,aspect='auto',cmap='bwr',vmin=median-range,vmax=median+range)
-        # plt.imshow(image,aspect='auto',cmap='bwr',vmin=-.3,vmax=.3)
-        # plt.colorbar()
-        plt.show()
+            plt.figure(figsize=(10,10))
+            plt.imshow(image,aspect='auto',cmap='bwr')
+            # median = np.median(image)
+            # range = np.max(image) - median
+            # plt.imshow(image,aspect='auto',cmap='bwr',vmin=median-range,vmax=median+range)
+            # plt.imshow(image,aspect='auto',cmap='bwr',vmin=-.3,vmax=.3)
+            # plt.colorbar()
+            plt.show()
 
 
         return self.split_labels,image

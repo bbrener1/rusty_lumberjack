@@ -30,7 +30,7 @@ pub struct RankTable {
 
     dispersion_mode: DispersionMode,
     norm_mode: NormMode,
-    split_fraction_regularization: i32
+    split_fraction_regularization: f64
 }
 
 
@@ -61,7 +61,7 @@ impl RankTable {
 
             norm_mode: parameters.norm_mode,
             dispersion_mode: parameters.dispersion_mode,
-            split_fraction_regularization: parameters.split_fraction_regularization as i32,
+            split_fraction_regularization: parameters.split_fraction_regularization as f64,
         }
 
     }
@@ -75,7 +75,7 @@ impl RankTable {
 
             norm_mode: NormMode::L1,
             dispersion_mode: DispersionMode::MAD,
-            split_fraction_regularization: 1,
+            split_fraction_regularization: 1.,
         }
 
     }
@@ -261,7 +261,7 @@ impl RankTable {
 
         for (i,(f_s,r_s)) in forward_dispersions.into_iter().zip(reverse_dispersions.into_iter()).enumerate() {
             for (j,(gf,gr)) in f_s.into_iter().zip(r_s.into_iter()).enumerate() {
-                dispersions[i][j] = (gf * ((len - i) as f64 / len as f64).powi(self.split_fraction_regularization)) + (gr * ((i+1) as f64/ len as f64).powi(self.split_fraction_regularization));
+                dispersions[i][j] = (gf * ((len - i) as f64 / len as f64).powf(self.split_fraction_regularization)) + (gr * ((i+1) as f64/ len as f64).powf(self.split_fraction_regularization));
             }
         }
 
