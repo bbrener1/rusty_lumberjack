@@ -1607,7 +1607,8 @@ class Forest:
             # plt.imshow(image,aspect='auto',cmap='bwr',vmin=-.3,vmax=.3)
             # plt.colorbar()
             plt.show()
-
+        else:
+            image = None
 
         return self.split_labels,image
 
