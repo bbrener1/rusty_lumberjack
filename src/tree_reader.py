@@ -1530,7 +1530,7 @@ class Forest:
 
 
 
-    def interpret_splits(self,override=False,no_plot=False,mode='gain',metric='cosine',pca=False,reduction_metric='jaccard',depth=3,no_plot=False,*args,**kwargs):
+    def interpret_splits(self,override=False,no_plot=False,mode='gain',metric='cosine',pca=False,reduction_metric='jaccard',depth=3,*args,**kwargs):
 
         from sklearn.manifold import MDS
 
