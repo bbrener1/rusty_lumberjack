@@ -868,18 +868,16 @@ class Forest:
         test_trees = [Tree.test_tree(root,test_forest) for root in roots]
         test_forest.trees = test_trees
 
-    def backup(self,location):
-        print("Saving forest")
-        print(location)
-        try:
-            with open(location,mode='bw') as f:
-                pickle.dump(self,f)
-        except:
-            print("Failed to save")
+########################################################################
+########################################################################
 
-    def reconstitute(location):
-        with open(location,mode='br') as f:
-            return pickle.load(f)
+            ## Node selection methods
+
+      # Methods for picking specific nodes from the forest
+
+########################################################################
+########################################################################
+
 
     def nodes(self,root=True,depth=None):
         nodes = []
@@ -894,6 +892,12 @@ class Forest:
         for tree in self.trees:
             leaves.extend(tree.leaves())
         return leaves
+
+    def level(self,target):
+        level = []
+        for tree in self.trees:
+            level.extend(tree.level(target))
+        return level
 
     def stems(self,depth=None):
         stems = []
@@ -948,6 +952,18 @@ class Forest:
                     encoding[sd[sample],i] = -1
         return encoding
 
+########################################################################
+########################################################################
+
+            ## Node/Matrix Methods
+
+      # Methods for turning a set of nodes into an encoding matrix
+      # For methods that turn nodes into float matrices see prediction
+
+########################################################################
+########################################################################
+
+
     def node_feature_encoding(self,nodes):
 
         fd = self.truth_dictionary.feature_dictionary
@@ -995,11 +1011,30 @@ class Forest:
                 gains[fd[feature],i] = gain
         return gains
 
-    def level(self,target):
-        level = []
-        for tree in self.trees:
-            level.extend(tree.level(target))
-        return level
+
+########################################################################
+########################################################################
+
+            ## Loading/Creation Methods
+
+      # This section deals with methods that load and unload the forest
+      # from disk
+
+########################################################################
+########################################################################
+
+    def backup(self,location):
+        print("Saving forest")
+        print(location)
+        try:
+            with open(location,mode='bw') as f:
+                pickle.dump(self,f)
+        except:
+            print("Failed to save")
+
+    def reconstitute(location):
+        with open(location,mode='br') as f:
+            return pickle.load(f)
 
     def load(location, prefix="/run", ifh="/run.ifh",ofh='run.ofh',clusters='run.cluster',input="input.counts",output="output.counts",test="test.counts"):
 
@@ -1048,6 +1083,20 @@ class Forest:
             print("WARNING, UNREPRESENTED FEATURES")
 
         return first_forest
+
+
+########################################################################
+########################################################################
+
+            ## PREDICTION METHODS
+
+      # This section deals with methods that allow predictions on
+      # samples
+
+########################################################################
+########################################################################
+
+
 
     def raw_predict_nodes(self,nodes):
 
@@ -1111,27 +1160,10 @@ class Forest:
                 table[node_index,forest_feature_index] = node_feature_index
         return table
 
-    def node_predict_assisted(self,nodes,feature_indecies):
-        if -1 in weight_indecies:
-            print("Tried to predict a feature a node doesn't have!")
-            raise ValueError
-        predictions = np.zeros(len(nodes))
-        for node_index,node,feature_index in zip(range(len(nodes)),nodes,feature_indecies):
-            predictions[node_index] = node.medians[feature_index]
-        return predictions
-
     def set_feature_weights(self,nodes,weights,feature):
         for node,weight in zip(nodes,weights):
             feature_index = np.where(node.features == feature)[0]
             node.weights[feature_index] = weight
-
-    def set_feature_weights_assisted(self,nodes,weight_indecies,weights):
-        if -1 in weight_indecies:
-            print("Tried to set a weight for a feature a node doesn't have!")
-            print(weight_indecies)
-            raise ValueError
-        for node,weight_index,weight in zip(nodes,weight_indecies,weights):
-            node.weights[weight_index] = weight
 
 
     def weigh_leaves(self,positive=True):
@@ -1280,6 +1312,20 @@ class Forest:
         sample = {feature:value for feature,value in zip(features,vector)}
         return self.sample_leaves(sample)
 
+    def node_total_predictions(self,nodes):
+        meta_predictions = np.zeros((len(nodes),self.dim[1]))
+        for i,node in enumerate(nodes):
+            meta_predictions[i] = node.total_feature_medians()
+        return meta_predictions
+
+########################################################################
+########################################################################
+
+            ## Clustering methods
+
+########################################################################
+########################################################################
+
     def cluster_samples_simple(self,override=False,pca=False,*args,**kwargs):
 
         counts = self.output
@@ -1302,6 +1348,7 @@ class Forest:
         self.sample_clusters = clusters
 
         return self.sample_labels
+
 
     def cluster_samples_encoding(self,override=False,*args,**kwargs):
 
@@ -1421,11 +1468,6 @@ class Forest:
 
         return self.leaf_labels
 
-    def node_total_predictions(self,nodes):
-        meta_predictions = np.zeros((len(nodes),self.dim[1]))
-        for i,node in enumerate(nodes):
-            meta_predictions[i] = node.total_feature_medians()
-        return meta_predictions
 
     def node_change_absolute(self,nodes1,nodes2):
         # First we obtain the medians for the nodes in question
@@ -1516,20 +1558,6 @@ class Forest:
         gain_matrix = self.absolute_gain_matrix(self.leaves())
         return sdg.fit_predict(gain_matrix,*args,**kwargs)
 
-    def plot_counts(self,no_plot=False):
-
-        if not no_plot:
-            cell_sort = dendrogram(linkage(encoding,metric='cos',method='average'),no_plot=True)['leaves']
-            leaf_sort = dendrogram(linkage(encoding.T,metric='cos',method='average'),no_plot=True)['leaves']
-
-            plt.figure(figsize=(10,10))
-            plt.imshow(encoding[cell_sort].T[leaf_sort].T,cmap='binary')
-            plt.show()
-
-        return cell_sort,leaf_sort,self.ouput_counts
-
-
-
     def interpret_splits(self,override=False,no_plot=False,mode='gain',metric='cosine',pca=False,reduction_metric='jaccard',depth=3,*args,**kwargs):
 
         from sklearn.manifold import MDS
@@ -1588,30 +1616,81 @@ class Forest:
 
         if not no_plot:
             if metric is not None:
+                # image = reduction[split_order].T[split_order].T
+                agg_f = dendrogram(linkage(reduction,metric='cosine',method='average'),no_plot=True)['leaves']
+                agg_s = dendrogram(linkage(reduction.T,metric='cosine',method='average'),no_plot=True)['leaves']
+                image = reduction[agg_f].T[agg_s].T
+            else:
+                # feature_order = dendrogram(linkage(reduction.T+1,metric='cosine',method='average'),no_plot=True)['leaves']
+                # image = reduction[split_order].T[feature_order].T
+                agg_f = dendrogram(linkage(reduction,metric='cosine',method='average'),no_plot=True)['leaves']
+                agg_s = dendrogram(linkage(reduction.T,metric='cosine',method='average'),no_plot=True)['leaves']
+                image = reduction[agg_f].T[agg_s].T
+
+            plt.figure(figsize=(10,10))
+            plt.imshow(image,aspect='auto',cmap='bwr')
+            plt.show()
+
+            if metric is not None:
                 image = reduction[split_order].T[split_order].T
             else:
                 feature_order = dendrogram(linkage(reduction.T+1,metric='cosine',method='average'),no_plot=True)['leaves']
                 image = reduction[split_order].T[feature_order].T
-            # neg = image < 0
-            # pos = image > 0
-            # image[neg] = -1 * np.log(np.abs(image[neg]) + 1)
-            # image[pos] = np.log(image[pos] + 1)
-
-
-
             plt.figure(figsize=(10,10))
             plt.imshow(image,aspect='auto',cmap='bwr')
-            # median = np.median(image)
-            # range = np.max(image) - median
-            # plt.imshow(image,aspect='auto',cmap='bwr',vmin=median-range,vmax=median+range)
-            # plt.imshow(image,aspect='auto',cmap='bwr',vmin=-.3,vmax=.3)
-            # plt.colorbar()
             plt.show()
         else:
             image = None
 
         return self.split_labels,image
 
+
+    def reset_clusters(self):
+        try:
+            del self.sample_clusters
+            del self.sample_labels
+        except:
+            pass
+        try:
+            del self.leaf_clusters
+            del self.leaf_labels
+        except:
+            pass
+        try:
+            del self.split_clusters
+            del self.split_labels
+        except:
+            pass
+
+        for node in self.nodes():
+            node.child_clusters = ([],[])
+            if hasattr(node,'split_cluster'):
+                del node.split_cluster
+            if hasattr(node,'leaf_cluster'):
+                del node.leaf_cluster
+
+
+
+########################################################################
+########################################################################
+
+            ## Plotting methods
+
+########################################################################
+########################################################################
+
+
+    def plot_counts(self,no_plot=False):
+
+        if not no_plot:
+            cell_sort = dendrogram(linkage(encoding,metric='cos',method='average'),no_plot=True)['leaves']
+            leaf_sort = dendrogram(linkage(encoding.T,metric='cos',method='average'),no_plot=True)['leaves']
+
+            plt.figure(figsize=(10,10))
+            plt.imshow(encoding[cell_sort].T[leaf_sort].T,cmap='binary')
+            plt.show()
+
+        return cell_sort,leaf_sort,self.ouput_counts
 
     def plot_cell_clusters(self,colorize=True,label=True):
         # if not hasattr(self,'leaf_clusters'):
@@ -1780,66 +1859,64 @@ class Forest:
 
         return coordinates
 
-    def average_prereq_freq_level(self,nodes):
-        prereq_dict = {}
-        for node in nodes:
-            for level,prerequisite in enumerate(node.prerequisites):
-                prereq_feature, split, prereq_sign = prerequisite
-                if prereq_feature not in prereq_dict:
-                    prereq_dict[prereq_feature] = [0,0]
-                prereq_dict[prereq_feature][0] += level
-                prereq_dict[prereq_feature][1] += 1
-        for prereq_feature in prereq_dict:
-            prereq_dict[prereq_feature][0] /= prereq_dict[prereq_feature][1]
-        sorted_prereqs = sorted(list(prereq_dict.items()),key=lambda prereq: prereq[1][0])
-        return sorted_prereqs
-
-    def prereq_summary(self):
-
-        leaves = self.leaves()
-        prereqs = self.average_prereq_freq_level(leaves)
-
-        # prereqs = [prereq for prereq in prereqs if prereq[0][:2] != "CG"]
-        prereqs = sorted(prereqs,key=lambda prereq: prereq[1][1])[::-1]
-
-        prereq_features = [prereq[0] for prereq in prereqs]
-        prereq_levels = [prereq[1][0] for prereq in prereqs]
-        prereq_frequencies = [prereq[1][1] for prereq in prereqs]
-
-        fig = plt.figure(figsize=(10,10))
-        ax = fig.add_axes([.6,.025,.2,.95])
-        ax.set_title("Prerequisite/Level Distribution")
-        ax.scatter(prereq_levels[:50],np.arange(49,-1,-1),s=prereq_frequencies[:50])
-        ax.set_xlabel("Average Level of Decision")
-        # ax.set_xlim(max(prereq_levels[:20])*1.1,-0.01)
-        ax.set_yticks(np.arange(49,-1,-1))
-        ax.set_yticklabels(prereq_features[:50])
-        # ax.grid(axis='y')
 
 
-    def reset_clusters(self):
-        try:
-            del self.sample_clusters
-            del self.sample_labels
-        except:
-            pass
-        try:
-            del self.leaf_clusters
-            del self.leaf_labels
-        except:
-            pass
-        try:
-            del self.split_clusters
-            del self.split_labels
-        except:
-            pass
 
-        for node in self.nodes():
-            node.child_clusters = ([],[])
-            if hasattr(node,'split_cluster'):
-                del node.split_cluster
-            if hasattr(node,'leaf_cluster'):
-                del node.leaf_cluster
+    def plot_manifold(self,depth=3):
+
+        f = self.plot_cell_clusters()
+
+        # most_likely_tree = self.most_likely_tree(depth=depth)
+        most_likely_tree = self.maximum_spanning_tree(depth=depth)
+
+        def recursive_tree_plot(parent,children,figure,level=0):
+            print("Recursion debug")
+            print(f"p:{parent}")
+            print(f"c:{children}")
+            pc = self.split_clusters[parent].coordinates()
+            vectors = []
+            for child,sub_children in children:
+                if child == len(self.split_clusters):
+                    continue
+                cc = self.split_clusters[child].coordinates()
+                print("coordinates")
+                print(f"p{parent}:{pc}")
+                print(f"c{child}:{cc}")
+                # v = pc - cc
+                v = cc - pc
+                plt.figure(figure.number)
+                plt.arrow(pc[0],pc[1],v[0],v[1],width=(depth+1-level)*.3,length_includes_head=True)
+                vectors.append((pc,v))
+                figure,cv = recursive_tree_plot(child,sub_children,figure,level=level+1)
+                vectors.extend(cv)
+            print("===============")
+            return figure,vectors
+
+        f,v = recursive_tree_plot(most_likely_tree[0],most_likely_tree[1],f)
+
+        plt.savefig("./tmp.delete.png",dpi=300)
+
+        return f,v
+
+    def plot_braid_vectors(self):
+
+        f = self.plot_cell_clusters(label=False)
+        ax = f.add_axes([0,0,1,1])
+
+        for cluster in self.split_clusters:
+            ax = cluster.plot_braid_vectors(ax=ax,scatter=False,show=False)
+
+        plt.savefig("./tmp.delete.png",dpi=300)
+
+        return f
+
+########################################################################
+########################################################################
+
+            ## Consensus tree methods
+
+########################################################################
+########################################################################
 
     def split_cluster_transition_matrix(self,depth=3):
 
@@ -1979,55 +2056,7 @@ class Forest:
 
         return tree
 
-    def plot_manifold(self,depth=3):
-
-        f = self.plot_cell_clusters()
-
-        # most_likely_tree = self.most_likely_tree(depth=depth)
-        most_likely_tree = self.maximum_spanning_tree(depth=depth)
-
-        def recursive_tree_plot(parent,children,figure,level=0):
-            print("Recursion debug")
-            print(f"p:{parent}")
-            print(f"c:{children}")
-            pc = self.split_clusters[parent].coordinates()
-            vectors = []
-            for child,sub_children in children:
-                if child == len(self.split_clusters):
-                    continue
-                cc = self.split_clusters[child].coordinates()
-                print("coordinates")
-                print(f"p{parent}:{pc}")
-                print(f"c{child}:{cc}")
-                # v = pc - cc
-                v = cc - pc
-                plt.figure(figure.number)
-                plt.arrow(pc[0],pc[1],v[0],v[1],width=(depth+1-level)*.3,length_includes_head=True)
-                vectors.append((pc,v))
-                figure,cv = recursive_tree_plot(child,sub_children,figure,level=level+1)
-                vectors.extend(cv)
-            print("===============")
-            return figure,vectors
-
-        f,v = recursive_tree_plot(most_likely_tree[0],most_likely_tree[1],f)
-
-        plt.savefig("./tmp.delete.png",dpi=300)
-
-        return f,v
-
-    def plot_braid_vectors(self):
-
-        f = self.plot_cell_clusters(label=False)
-        ax = f.add_axes([0,0,1,1])
-
-        for cluster in self.split_clusters:
-            ax = cluster.plot_braid_vectors(ax=ax,scatter=False,show=False)
-
-        plt.savefig("./tmp.delete.png",dpi=300)
-
-        return f
-
-    def plot_tree_summary(self,n=3,type="ud",primary=True,secondary=False,figsize=(30,30)):
+    def plot_tree_summary(self,n=3,type="ud",custom=None,labels=None,features=None,primary=True,secondary=False,figsize=(30,30)):
 
         def leaves(tree):
             l = []
@@ -2101,6 +2130,12 @@ class Forest:
             if type == "id":
                 if i < len(self.split_clusters) and i !=0:
                     text_rectangle(ax,f"{i}",[.4,.4,.2,.2],no_warp=True)
+            if type == "custom":
+                if i < len(self.split_clusters):
+                    self.split_clusters[i].custom_panel(ax,custom,labels=labels)
+            if type == "features":
+                if i < len(self.split_clusters) and i !=0:
+                    self.split_clusters[i].feature_panel(ax,features)
             if type == "score":
                 if i < len(self.split_clusters) and i !=0:
                     self.split_clusters[i].score_panel(ax)
@@ -2614,23 +2649,6 @@ class NodeCluster:
                     pass
         return levels
 
-    def average_prereq_freq_level(self,plot=True):
-        prereqs = self.forest.average_prereq_freq_level(self.nodes)
-
-        if plot:
-            sorted_prereqs = sorted(prereqs,key=lambda prereq: prereq[1][1])[::-1]
-            prereq_features = [prereq[0] for prereq in sorted_prereqs]
-            prereq_levels = [prereq[1][0] for prereq in sorted_prereqs]
-            prereq_frequencies = [prereq[1][1] * 10 for prereq in sorted_prereqs]
-
-            plt.figure(figsize=(4,10))
-            plt.title(f"The Path to Cluster {self.id}",fontsize=15)
-            plt.scatter(prereq_levels[:30],np.arange(29,-1,-1),s=prereq_frequencies[:30])
-            plt.xlabel("Average Level of Decision",fontsize=15)
-            plt.yticks(np.arange(29,-1,-1),prereq_features[:30],fontsize=15)
-            plt.show()
-
-        return prereqs
 
     def prerequisite_frequency(self,n=50,plot=True):
         prerequisites = list(self.prerequisites().items())
@@ -2712,7 +2730,7 @@ class NodeCluster:
         ax.set_yticks([])
         return ax
 
-    def feature_panel(self,ax,features):
+    def feature_panel(self,ax,features,**kwargs):
 
         fd = self.forest.truth_dictionary.feature_dictionary
 
@@ -2723,6 +2741,24 @@ class NodeCluster:
             cells = self.cell_scores
             feature_mean = (cells * self.forest.output_features[:,fi]) / np.sum(cells)
             panel_array[i] = feature_mean
+
+        ax.imshow(panel_array,aspect='auto',**kwargs)
+        plt.xticks(np.arange(n),features,rotation='vertical')
+        return ax
+
+    def custom_panel(self,ax,custom,labels=None,**kwargs):
+
+        panel_array = np.zeros((1,custom.shape[1]))
+
+        for i,cf in enumerate(custom.T):
+            cells = self.cell_scores()
+            feature_mean = (np.sum(cells * cf)) / np.sum(cells)
+            panel_array[0,i] = feature_mean
+
+        ax.imshow(panel_array,aspect='auto',**kwargs)
+        if labels is not None:
+            plt.xticks(np.arange(len(panel_array)),labels,rotation='vertical')
+        return ax
 
 
     def up_down_panel(self,ax,n=3,mask_fraction=.05):
