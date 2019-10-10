@@ -1578,6 +1578,10 @@ class Forest:
         elif mode == 'sister':
             print("Sister reduction")
             encoding = self.node_sister_encoding(nodes).T
+        elif mode == 'mutual_information':
+            print("Mutual information")
+            encoding = self.node_sample_encoding(nodes).T
+            encoding = partition_mutual_information(encoding)
         else:
             print("Median reduction")
             encoding = self.node_matrix(nodes)
@@ -3022,6 +3026,17 @@ def stack_dictionaries(dictionaries):
                 stacked[key] = []
             stacked[key].append(value)
     return stacked
+
+def partition_mutual_information(p1,p2):
+    p1 = p1.astype(dtype=float)
+    p2 = p2.astype(dtype=float)
+    population = p1.shape[1]
+    intersections = np.dot(p1,p2.T)
+    partition_size_products = np.outer(np.sum(p1,axis=1),np.sum(p2,axis=1))
+    log_term = np.log(intersections) - np.log(partition_size_products) + np.log(population)
+    log_term[np.logical_not(np.isfinite(log_term))] = 0
+    mutual_information_matrix = (intersections / population) * log_term
+    return mutual_information_matrix
 
 def consolidate_entries(keys,dictionaries):
     consolidated = empty_list_dictionary(keys)
