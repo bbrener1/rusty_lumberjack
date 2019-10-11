@@ -15,7 +15,7 @@ import subprocess as sp
 # path_to_rust = (Path(__file__).parent / "target/release/lumberjack_1").resolve()
 # path_to_tree_reader = Path(__file__).resolve()
 # sys.path.append(path_to_tree_reader)
-import tree_reader as tr
+import tree_reader_sc as tr
 
 import numpy as np
 # import matplotlib.pyplot as plt

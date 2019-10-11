@@ -76,7 +76,10 @@ class Node:
         self.level = level
         self.split = node_json['split']
         self.prerequisites = node_json['prerequisites']
-        self.samples = [s['indx'] for s in node_json['samples']]
+        try:
+            self.samples = np.array([s['index'] for s in node_json['samples']])
+        except:
+            self.samples = np.array([t[0] for t in enumerate(node_json['samples']) if t[1] == 1])
         try:
             if len(node_json['braids']) > 0 and len(node_json['braids']) > level:
                 self.braid = Braid(node_json['braids'][-1],self)
@@ -136,6 +139,7 @@ class Node:
         node_counts = np.zeros((len(self.samples),self.forest.output.shape[1]))
         for i,sample in enumerate(self.samples):
             node_counts[i] = self.forest.output[sample]
+        return node_counts
 
     def medians(self):
         if self.cache:
@@ -172,7 +176,7 @@ class Node:
             self.dispersion_cache = dispersions
         return dispersions
 
-    def absolute_gains():
+    def absolute_gains(self):
         if self.cache:
             if hasattr(self,'absolute_gain_cache'):
                 return self.absolute_gain_cache
@@ -183,7 +187,7 @@ class Node:
             self.absolute_gain_cache = gains
         return gains
 
-    def local_gains():
+    def local_gains(self):
         if self.cache:
             if hasattr(self,'local_gain_cache'):
                 return self.local_gain_cache
@@ -787,10 +791,9 @@ class Forest:
 
     def node_sample_encoding(self,nodes):
         encoding = np.zeros((len(self.samples),len(nodes)),dtype=bool)
-        sd = self.truth_dictionary.sample_dictionary
         for i,node in enumerate(nodes):
             for sample in node.samples:
-                encoding[sd[sample],i] = True
+                encoding[sample,i] = True
         return encoding
 
     def node_sister_encoding(self,nodes):
@@ -826,7 +829,7 @@ class Forest:
     def local_gain_matrix(self,nodes):
         gains = np.zeros((len(self.output_features),len(nodes)))
         for i,node in enumerate(nodes):
-            gains[i] = node.local_gains()
+            gains[:,i] = node.local_gains()
         return gains
 
 
@@ -895,11 +898,6 @@ class Forest:
         if np.sum(np.sum(sample_encoding,axis=1) == 0) > 0:
             print("WARNING, UNREPRESENTED SAMPLES")
 
-        feature_encoding = first_forest.node_feature_encoding(first_forest.leaves())
-
-        if np.sum(np.sum(feature_encoding,axis=0) == 0) > 0:
-            print("WARNING, UNREPRESENTED FEATURES")
-
         return first_forest
 
 
@@ -957,7 +955,7 @@ class Forest:
     def weigh_leaves(self,positive=True):
 
         forest_leaves = self.leaves()
-        leaf_sample_encoding = self.node_sample_encoding(forest_leaves)
+        leaf_sample_encoding = self.node_sample_encoding(forest_leaves).astype(dtype=float)
         raw_prediction_matrix = self.node_matrix(forest_leaves)
 
         for feature in self.output_features:
@@ -998,7 +996,7 @@ class Forest:
             # print(truth)
             # print(weights)
 
-            self.set_feature_weights(feature_leaves,weights,feature)
+            self.set_feature_weights(forest_leaves,weights,feature)
 
             # linear_problems.append((len(linear_problems),feature,feature_leaf_sample_encoding,truth))
 
@@ -1396,34 +1394,61 @@ class Forest:
         return self.split_labels
 
 
-    # def plot_split_cluster_metric(self,metric):
-    #         if metric is not None:
-    #             # image = reduction[split_order].T[split_order].T
-    #             agg_f = dendrogram(linkage(reduction,metric='cosine',method='average'),no_plot=True)['leaves']
-    #             agg_s = dendrogram(linkage(reduction.T,metric='cosine',method='average'),no_plot=True)['leaves']
-    #             image = reduction[agg_f].T[agg_s].T
-    #         else:
-    #             # feature_order = dendrogram(linkage(reduction.T+1,metric='cosine',method='average'),no_plot=True)['leaves']
-    #             # image = reduction[split_order].T[feature_order].T
-    #             agg_f = dendrogram(linkage(reduction,metric='cosine',method='average'),no_plot=True)['leaves']
-    #             agg_s = dendrogram(linkage(reduction.T,metric='cosine',method='average'),no_plot=True)['leaves']
-    #             image = reduction[agg_f].T[agg_s].T
-    #
-    #         plt.figure(figsize=(10,10))
-    #         plt.imshow(image,aspect='auto',cmap='bwr')
-    #         plt.show()
-    #
-    #         if metric is not None:
-    #             image = reduction[split_order].T[split_order].T
-    #         else:
-    #             feature_order = dendrogram(linkage(reduction.T+1,metric='cosine',method='average'),no_plot=True)['leaves']
-    #             image = reduction[split_order].T[feature_order].T
-    #         plt.figure(figsize=(10,10))
-    #         plt.imshow(image,aspect='auto',cmap='bwr')
-    #         plt.show()
-    #     else:
-    #         image = None
-    #     pass
+    def plot_split_cluster_metric(self,depth=3,mode='gain',metric='cos',pca=False):
+
+        nodes = np.array(self.nodes(depth=depth))
+        stem_mask = np.array([n.level != 0 for n in nodes])
+        nodes = list(nodes[stem_mask])
+
+        if mode == 'gain':
+            print("Gain reduction")
+            encoding = self.local_gain_matrix(nodes).T
+        elif mode == 'sample':
+            print("Sample reduction")
+            encoding = self.node_sample_encoding(nodes).T
+        elif mode == 'sister':
+            print("Sister reduction")
+            encoding = self.node_sister_encoding(nodes).T
+        else:
+            print("Median reduction")
+            encoding = self.node_matrix(nodes)
+
+        if pca:
+            encoding = PCA(n_components=10).fit_transform(encoding)
+
+        if metric is not None:
+            reduction = squareform(pdist(encoding,metric=metric))
+        else:
+            reduction = encoding
+
+        reduction
+
+        if metric is not None:
+            # image = reduction[split_order].T[split_order].T
+            agg_f = dendrogram(linkage(reduction,metric='cosine',method='average'),no_plot=True)['leaves']
+            agg_s = dendrogram(linkage(reduction.T,metric='cosine',method='average'),no_plot=True)['leaves']
+            image = reduction[agg_f].T[agg_s].T
+        else:
+            # feature_order = dendrogram(linkage(reduction.T+1,metric='cosine',method='average'),no_plot=True)['leaves']
+            # image = reduction[split_order].T[feature_order].T
+            agg_f = dendrogram(linkage(reduction,metric='cosine',method='average'),no_plot=True)['leaves']
+            agg_s = dendrogram(linkage(reduction.T,metric='cosine',method='average'),no_plot=True)['leaves']
+            image = reduction[agg_f].T[agg_s].T
+
+        plt.figure(figsize=(10,10))
+        plt.imshow(image,aspect='auto',cmap='bwr')
+        plt.show()
+
+        split_order = np.argsort(self.split_labels[stem_mask])
+
+        if metric is not None:
+            image = reduction[split_order].T[split_order].T
+        else:
+            feature_order = dendrogram(linkage(reduction.T+1,metric='cosine',method='average'),no_plot=True)['leaves']
+            image = reduction[split_order].T[feature_order].T
+        plt.figure(figsize=(10,10))
+        plt.imshow(image,aspect='auto',cmap='bwr')
+        plt.show()
 
     def reset_clusters(self):
         try:
@@ -2624,7 +2649,7 @@ def numpy_mad(mtx):
 def ssme(mtx,axis=None):
     medians = np.median(mtx,axis=0)
     median_distances = np.abs(mtx - np.tile(np.array(medians), (mtx.shape[0],1)))
-    ssme = np.sum(np.powi(median_distances,2),axis=axis)
+    ssme = np.sum(np.power(median_distances,2),axis=axis)
     return ssme
 
 

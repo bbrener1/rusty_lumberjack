@@ -917,22 +917,6 @@ class Forest:
                 leaves.extend(tree.leaves)
         return leaves
 
-    def sample_leaves(self,sample):
-        sample_leaves = []
-        for tree in self.trees:
-            sample_leaves.extend(tree.root.sample_leaves(sample))
-        return sample_leaves
-
-    def leaves_of_samples(self,samples):
-        sample_leaves_total = []
-        leaves = self.leaves()
-        encoding = self.node_sample_encoding(leaves)
-        for sample in samples:
-            leaf_indecies = np.arange(len(leaves))[encoding[sample]]
-            sample_leaves = [leaves[i] for i in leaf_indecies]
-            sample_leaves_total.extend(sample_leaves)
-        return sample_leaves_total
-
     def node_sample_encoding(self,nodes):
         encoding = np.zeros((len(self.samples),len(nodes)),dtype=bool)
         sd = self.truth_dictionary.sample_dictionary
@@ -1096,7 +1080,21 @@ class Forest:
 ########################################################################
 ########################################################################
 
+    def sample_leaves(self,sample):
+        sample_leaves = []
+        for tree in self.trees:
+            sample_leaves.extend(tree.root.sample_leaves(sample))
+        return sample_leaves
 
+    def leaves_of_samples(self,samples):
+        sample_leaves_total = []
+        leaves = self.leaves()
+        encoding = self.node_sample_encoding(leaves)
+        for sample in samples:
+            leaf_indecies = np.arange(len(leaves))[encoding[sample]]
+            sample_leaves = [leaves[i] for i in leaf_indecies]
+            sample_leaves_total.extend(sample_leaves)
+        return sample_leaves_total
 
     def raw_predict_nodes(self,nodes):
 
@@ -1578,10 +1576,6 @@ class Forest:
         elif mode == 'sister':
             print("Sister reduction")
             encoding = self.node_sister_encoding(nodes).T
-        elif mode == 'mutual_information':
-            print("Mutual information")
-            encoding = self.node_sample_encoding(nodes).T
-            encoding = partition_mutual_information(encoding)
         else:
             print("Median reduction")
             encoding = self.node_matrix(nodes)
@@ -1618,36 +1612,75 @@ class Forest:
 
         self.split_clusters = clusters
 
-        if not no_plot:
-            if metric is not None:
-                # image = reduction[split_order].T[split_order].T
-                agg_f = dendrogram(linkage(reduction,metric='cosine',method='average'),no_plot=True)['leaves']
-                agg_s = dendrogram(linkage(reduction.T,metric='cosine',method='average'),no_plot=True)['leaves']
-                image = reduction[agg_f].T[agg_s].T
-            else:
-                # feature_order = dendrogram(linkage(reduction.T+1,metric='cosine',method='average'),no_plot=True)['leaves']
-                # image = reduction[split_order].T[feature_order].T
-                agg_f = dendrogram(linkage(reduction,metric='cosine',method='average'),no_plot=True)['leaves']
-                agg_s = dendrogram(linkage(reduction.T,metric='cosine',method='average'),no_plot=True)['leaves']
-                image = reduction[agg_f].T[agg_s].T
+        return self.split_labels
 
-            plt.figure(figsize=(10,10))
-            plt.imshow(image,aspect='auto',cmap='bwr')
-            plt.show()
+    def interpret_splits_by_mutual_info(self,override=False,no_plot=False,depth=3,*args,**kwargs):
 
-            if metric is not None:
-                image = reduction[split_order].T[split_order].T
-            else:
-                feature_order = dendrogram(linkage(reduction.T+1,metric='cosine',method='average'),no_plot=True)['leaves']
-                image = reduction[split_order].T[feature_order].T
-            plt.figure(figsize=(10,10))
-            plt.imshow(image,aspect='auto',cmap='bwr')
-            plt.show()
+        from sklearn.manifold import MDS
+
+        nodes = np.array(self.nodes(root=True,depth=depth))
+
+        stem_mask = np.array([n.level != 0 for n in nodes])
+        root_mask = np.logical_not(stem_mask)
+
+        labels = np.zeros(len(nodes)).astype(dtype=int)
+
+        encoding = self.node_sample_encoding(nodes).T
+        distances = partition_mutual_information(encoding)
+
+        if hasattr(self,'split_labels') and not override:
+            print("Clustering has already been done")
+            # return self.split_labels
         else:
-            image = None
+            labels[stem_mask] = 1 + np.array(sdg.fit_predict(distances[stem_mask].T[stem_mask].T,precomputed=True,*args,**kwargs))
+            self.split_labels = labels
 
-        return self.split_labels,image
+        for node,label in zip(nodes,self.split_labels):
+            node.set_split_cluster(label)
+            # node.split_cluster = label
 
+        cluster_set = set(self.split_labels)
+        clusters = []
+        for cluster in cluster_set:
+            split_index = np.arange(len(self.split_labels))[self.split_labels == cluster]
+            clusters.append(NodeCluster(self,[nodes[i] for i in split_index],cluster))
+
+        split_order = np.argsort(self.split_labels)
+        # split_order = dendrogram(linkage(reduction,metric='cos',method='average'),no_plot=True)['leaves']
+
+        self.split_clusters = clusters
+
+        return self.split_labels
+
+
+    # def plot_split_cluster_metric(self,metric):
+    #         if metric is not None:
+    #             # image = reduction[split_order].T[split_order].T
+    #             agg_f = dendrogram(linkage(reduction,metric='cosine',method='average'),no_plot=True)['leaves']
+    #             agg_s = dendrogram(linkage(reduction.T,metric='cosine',method='average'),no_plot=True)['leaves']
+    #             image = reduction[agg_f].T[agg_s].T
+    #         else:
+    #             # feature_order = dendrogram(linkage(reduction.T+1,metric='cosine',method='average'),no_plot=True)['leaves']
+    #             # image = reduction[split_order].T[feature_order].T
+    #             agg_f = dendrogram(linkage(reduction,metric='cosine',method='average'),no_plot=True)['leaves']
+    #             agg_s = dendrogram(linkage(reduction.T,metric='cosine',method='average'),no_plot=True)['leaves']
+    #             image = reduction[agg_f].T[agg_s].T
+    #
+    #         plt.figure(figsize=(10,10))
+    #         plt.imshow(image,aspect='auto',cmap='bwr')
+    #         plt.show()
+    #
+    #         if metric is not None:
+    #             image = reduction[split_order].T[split_order].T
+    #         else:
+    #             feature_order = dendrogram(linkage(reduction.T+1,metric='cosine',method='average'),no_plot=True)['leaves']
+    #             image = reduction[split_order].T[feature_order].T
+    #         plt.figure(figsize=(10,10))
+    #         plt.imshow(image,aspect='auto',cmap='bwr')
+    #         plt.show()
+    #     else:
+    #         image = None
+    #     pass
 
     def reset_clusters(self):
         try:
