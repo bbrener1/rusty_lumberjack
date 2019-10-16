@@ -918,15 +918,13 @@ class Forest:
             sample_leaves.extend(tree.root.sample_leaves(sample))
         return sample_leaves
 
-    def leaves_of_samples(self,samples):
-        sample_leaves_total = []
-        leaves = self.leaves()
-        encoding = self.node_sample_encoding(leaves)
-        for sample in samples:
-            leaf_indecies = np.arange(len(leaves))[encoding[sample]]
-            sample_leaves = [leaves[i] for i in leaf_indecies]
-            sample_leaves_total.extend(sample_leaves)
-        return sample_leaves_total
+    def predict_node_sample_encoding(self,matrix):
+        encoding = np.zeros((len(self.nodes),matrix.shape[0]))
+        for i,sample in enumerate(matrix):
+            leaves = predict_vector_leaves(sample)
+            for leaf in leaves:
+                encoding[i,leaf.index]
+        return encoding
 
     def node_matrix(self,nodes):
         predictions = np.zeros((len(nodes),len(self.output_features)))
@@ -958,8 +956,8 @@ class Forest:
         leaf_sample_encoding = self.node_sample_encoding(forest_leaves).astype(dtype=float)
         raw_prediction_matrix = self.node_matrix(forest_leaves)
 
-        for feature in self.output_features:
-            print(f"Calculating weights for {feature}")
+        for i,feature in enumerate(self.output_features):
+            print(f"{i}. Calculating weights for {feature}")
             feature_index = self.truth_dictionary.feature_dictionary[feature]
             leaf_predictions = raw_prediction_matrix[:,feature_index]
             sample_prediction_encoding = leaf_sample_encoding.copy()
@@ -1055,6 +1053,7 @@ class Forest:
             features = self.input_features
         sample = {feature:value for feature,value in zip(features,vector)}
         return self.sample_leaves(sample)
+
 
 
 ########################################################################
@@ -2014,6 +2013,54 @@ class Forest:
 
         #   recursive_axes(self.likely_tree,n=n)
         #   return fig
+
+    def split_cluster_leaves(self):
+        def tree_leaves(tree):
+            leaves = []
+            for child in tree[1]:
+                leaves.extend(tree_leaves(child))
+            if len(tree[1]) < 1:
+                leaves.append(tree[0])
+            return leaves
+
+        tree = self.likely_tree
+        leaf_clusters = [self.split_clusters[i] for i in tree_leaves(tree)]
+
+        return leaf_clusters
+
+    def cluster_samples_by_split_clusters(self,override=False,*args,**kwargs):
+
+        if hasattr(self,'sample_clusters') and not override:
+            print("Clustering has already been done")
+            return self.sample_labels
+
+        leaf_split_clusters = self.split_cluster_leaves()
+        leaf_split_cluster_cell_scores = np.array([c.cell_counts() for c in leaf_split_clusters])
+        sample_labels = np.array([np.argmax(leaf_split_cluster_cell_scores[:,i]) for i in range(len(self.samples))])
+
+        self.sample_labels = sample_labels
+
+        sample_clusters = []
+        cluster_set = set(sample_labels)
+
+        for cluster in cluster_set:
+            cells = np.arange(len(self.sample_labels))[self.sample_labels == cluster]
+            sample_clusters.append(SampleCluster(self,cells,cluster))
+
+        self.sample_clusters = sample_clusters
+
+        return self.sample_labels
+
+    def most_likely_sample_leaf_cluster(self,node_sample_encoding):
+        leaf_split_clusters = self.split_cluster_leaves()
+        leaf_split_cluster_masks = np.array([self.split_labels == c.id for c in leaf_split_clusters])
+        sample_clusters = np.zeros(node_sample_encoding.shape[1])
+        for sample,sample_encoding in enumerate(node_sample_encoding.T):
+            cluster_scores = np.zeros(len(leaf_split_clusters))
+            for split_cluster,split_cluster_mask in enumerate(leaf_split_cluster_masks):
+                cluster_scores[split_cluster] = np.sum(np.logical_and(sample_encoding,split_cluster_mask))
+            sample_clusters[sample] = leaf_split_clusters[np.argmax(cluster_scores)].id
+        return sample_clusters
 
 class TruthDictionary:
 
