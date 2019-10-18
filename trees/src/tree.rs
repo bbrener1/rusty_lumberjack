@@ -178,12 +178,30 @@ impl<'a> Tree {
         Ok(())
     }
 
+    pub fn serialize_nano(&self) -> Result<(),Error> {
+        println!("Serializing to:");
+        println!("{}",self.report_address);
+        let mut tree_dump = OpenOptions::new().write(true).truncate(true).create(true).open(&self.report_address)?;
+        tree_dump.write(self.root.clone().nano_compact().to_string().as_bytes())?;
+        tree_dump.write(b"\n")?;
+        Ok(())
+    }
+
 
     pub fn serialize_compact_consume(self) -> Result<(),Error> {
         println!("Serializing to:");
         println!("{}",self.report_address);
         let mut tree_dump = OpenOptions::new().write(true).truncate(true).create(true).open(&self.report_address)?;
         tree_dump.write(self.root.to_string().as_bytes())?;
+        tree_dump.write(b"\n")?;
+        Ok(())
+    }
+
+    pub fn serialize_nano_consume(&self) -> Result<(),Error> {
+        println!("Serializing to:");
+        println!("{}",self.report_address);
+        let mut tree_dump = OpenOptions::new().write(true).truncate(true).create(true).open(&self.report_address)?;
+        tree_dump.write(self.root.clone().nano_compact().to_string().as_bytes())?;
         tree_dump.write(b"\n")?;
         Ok(())
     }

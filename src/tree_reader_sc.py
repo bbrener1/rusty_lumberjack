@@ -343,6 +343,12 @@ class Node:
             d = max(child.depth(d+1),d)
         return d
 
+    def trim(depth):
+        all_children = self.nodes()
+        keep_children = set(self.descend(depth))
+        for child in all_children:
+            if child not in keep_children:
+                del(child)
 
 
     def sorted_node_counts(self):
@@ -376,6 +382,8 @@ class Node:
                 else:
                     # print("Descending right")
                     return self.children[1].sample_leaves(sample)
+            else:
+                return [self,]
         elif self.split is not None:
             if self.split['feature']['name'] in sample:
                 if sample[self.split['feature']['name']] <= self.split['value']:
@@ -394,12 +402,12 @@ class Node:
         if self.braid is not None:
             braid_score = self.braid.score_sample(sample)
             try:
-                if braid_score <= braid.compound_split:
-                    nodes.extend(self.children[0].sample_descent(sample))
+                if braid_score <= self.braid.compound_split:
+                    nodes.extend(self.children[0].sample_nodes(sample))
                 else:
-                    nodes.extend(self.children[1].sample_descent(sample))
+                    nodes.extend(self.children[1].sample_nodes(sample))
             except:
-                return [self,]
+                raise
         elif self.split is not None:
             if self.split['feature']['name'] in sample:
                 if sample[self.split['feature']['name']] <= self.split['value']:
@@ -462,6 +470,25 @@ class Node:
         else:
             return self
 
+    def l2_sum(self):
+        counts = self.node_counts()
+        medians = np.median(counts,axis=0)
+        tile = np.tile(medians,(counts.shape[0],1))
+        error = counts - tile
+        return np.sum(np.power(error,2))
+
+    def l1_sum(self):
+        counts = self.node_counts()
+        medians = np.median(counts,axis=0)
+        tile = np.tile(medians,(counts.shape[0],1))
+        error = counts - tile
+        return np.sum(error)
+
+    def l2_gain(self):
+        if len(self.children) > 0:
+            return self.l2_sum() - self.children[0].l2_sum() - self.children[1].l2_sum()
+        else:
+            return 0
 
     # def lr_encoding_vectors(self):
     #     left = np.zeros(len(self.forest.samples),dtype=bool)
@@ -557,12 +584,8 @@ class Tree:
         else:
             return self
 
-    def l2_fit_leaves(self):
-        l2_sum = 0.0
-        leaves = 0
-        for node in self.leaves():
-            l2_sum += node.l2_fit()
-        return l2_sum/leaves
+    def trim(self, depth):
+        self.root.trim(depth)
 
     def feature_levels(self):
         return self.root.feature_levels()
@@ -798,14 +821,18 @@ class Forest:
 
     def node_sister_encoding(self,nodes):
         encoding = np.zeros((len(self.samples),len(nodes)),dtype=int)
-        sd = self.truth_dictionary.sample_dictionary
         for i,node in enumerate(nodes):
             for sample in node.samples:
-                encoding[sd[sample],i] = 1
+                encoding[sample,i] = 1
             if node.sister() is not None:
                 for sample in node.sister().samples:
-                    encoding[sd[sample],i] = -1
+                    encoding[sample,i] = -1
         return encoding
+
+    def trim(depth):
+
+        for tree in self.trees:
+            tree.trim(depth)
 
 ########################################################################
 ########################################################################
@@ -918,12 +945,19 @@ class Forest:
             sample_leaves.extend(tree.root.sample_leaves(sample))
         return sample_leaves
 
+    def sample_nodes(self,sample):
+        sample_nodes = []
+        for tree in self.trees:
+            sample_nodes.extend(tree.root.sample_nodes(sample))
+        return sample_nodes
+
+
     def predict_node_sample_encoding(self,matrix):
-        encoding = np.zeros((len(self.nodes),matrix.shape[0]))
+        encoding = np.zeros((len(self.nodes()),matrix.shape[0]),dtype=bool)
         for i,sample in enumerate(matrix):
-            leaves = predict_vector_leaves(sample)
+            leaves = self.predict_vector_leaves(sample)
             for leaf in leaves:
-                encoding[i,leaf.index]
+                encoding[leaf.index,i] = True
         return encoding
 
     def node_matrix(self,nodes):
@@ -1054,6 +1088,11 @@ class Forest:
         sample = {feature:value for feature,value in zip(features,vector)}
         return self.sample_leaves(sample)
 
+    def predict_vector_nodes(self,vector,features=None):
+        if features is None:
+            features = self.input_features
+        sample = {feature:value for feature,value in zip(features,vector)}
+        return self.sample_nodes(sample)
 
 
 ########################################################################
@@ -1296,7 +1335,7 @@ class Forest:
         gain_matrix = self.absolute_gain_matrix(self.leaves())
         return sdg.fit_predict(gain_matrix,*args,**kwargs)
 
-    def interpret_splits(self,override=False,no_plot=False,mode='gain',metric='cosine',pca=False,reduction_metric='jaccard',depth=3,*args,**kwargs):
+    def interpret_splits(self,override=False,mode='gain',metric='cosine',pca=False,reduction_metric='jaccard',depth=3,*args,**kwargs):
 
         from sklearn.manifold import MDS
 
@@ -1354,43 +1393,14 @@ class Forest:
 
         return self.split_labels
 
-    def interpret_splits_by_mutual_info(self,override=False,no_plot=False,depth=3,*args,**kwargs):
+    def recursive_interpretation(self,nodes=None,override=False,no_plot=False,mode='gain',metric='cosine',pca=False,reduction_metric='jaccard',depth=3,*args,**kwargs):
 
-        from sklearn.manifold import MDS
+        if nodes is None:
+            nodes = self.nodes()
 
-        nodes = np.array(self.nodes(root=True,depth=depth))
 
-        stem_mask = np.array([n.level != 0 for n in nodes])
-        root_mask = np.logical_not(stem_mask)
 
-        labels = np.zeros(len(nodes)).astype(dtype=int)
-
-        encoding = self.node_sample_encoding(nodes).T
-        distances = partition_mutual_information(encoding)
-
-        if hasattr(self,'split_labels') and not override:
-            print("Clustering has already been done")
-            # return self.split_labels
-        else:
-            labels[stem_mask] = 1 + np.array(sdg.fit_predict(distances[stem_mask].T[stem_mask].T,precomputed=True,*args,**kwargs))
-            self.split_labels = labels
-
-        for node,label in zip(nodes,self.split_labels):
-            node.set_split_cluster(label)
-            # node.split_cluster = label
-
-        cluster_set = set(self.split_labels)
-        clusters = []
-        for cluster in cluster_set:
-            split_index = np.arange(len(self.split_labels))[self.split_labels == cluster]
-            clusters.append(NodeCluster(self,[nodes[i] for i in split_index],cluster))
-
-        split_order = np.argsort(self.split_labels)
-        # split_order = dendrogram(linkage(reduction,metric='cos',method='average'),no_plot=True)['leaves']
-
-        self.split_clusters = clusters
-
-        return self.split_labels
+        pass
 
 
     def plot_split_cluster_metric(self,depth=3,mode='gain',metric='cos',pca=False):
@@ -1855,8 +1865,8 @@ class Forest:
         tree = finite_tree(0,clusters)
         rtree = reverse_tree(tree)
 
-        self.maximum_tree = tree
-        self.reverse_maximum_tree = rtree
+        self.likely_tree = tree
+        self.reverse_likely_tree = rtree
 
         return tree
 
@@ -2052,15 +2062,21 @@ class Forest:
         return self.sample_labels
 
     def most_likely_sample_leaf_cluster(self,node_sample_encoding):
-        leaf_split_clusters = self.split_cluster_leaves()
-        leaf_split_cluster_masks = np.array([self.split_labels == c.id for c in leaf_split_clusters])
-        sample_clusters = np.zeros(node_sample_encoding.shape[1])
-        for sample,sample_encoding in enumerate(node_sample_encoding.T):
-            cluster_scores = np.zeros(len(leaf_split_clusters))
-            for split_cluster,split_cluster_mask in enumerate(leaf_split_cluster_masks):
-                cluster_scores[split_cluster] = np.sum(np.logical_and(sample_encoding,split_cluster_mask))
-            sample_clusters[sample] = leaf_split_clusters[np.argmax(cluster_scores)].id
+        cluster_scores = np.zeros((node_sample_encoding.shape[1],len(self.split_clusters)))
+        for cluster in self.split_clusters:
+            cluster_mask = np.array([n.split_cluster == cluster.id for n in self.nodes()])
+            print(cluster.id)
+            print(cluster_mask)
+            print(np.sum(cluster_mask))
+            for sample,sample_encoding in enumerate(node_sample_encoding.T):
+                cluster_scores[sample,cluster.id] = np.sum(np.logical_and(sample_encoding,cluster_mask).astype(dtype=int))
+        plt.figure()
+        plt.imshow(cluster_scores,aspect='auto',cmap='gray')
+        plt.colorbar()
+        plt.show()
+        sample_clusters = np.argmax(cluster_scores,axis=1)
         return sample_clusters
+
 
 class TruthDictionary:
 

@@ -41,7 +41,7 @@ impl Forest {
         let prototype_tree = Tree::prototype_tree(&input_array,&output_array,&input_features,&output_features,&samples,None, parameters.clone() ,report_string);
 
         // prototype_tree.serialize_clone();
-        prototype_tree.serialize_ultra_compact().unwrap();
+        prototype_tree.serialize_nano().unwrap();
 
         let tree_limit = parameters.tree_limit;
         let processor_limit = parameters.processor_limit;
@@ -78,7 +78,7 @@ impl Forest {
                         .map(|mut new_tree| {
                             new_tree.grow_branches(parameters.clone());
                             // new_tree.serialize_clone();
-                            new_tree.serialize_ultra_compact();
+                            new_tree.serialize_nano();
                             new_tree
                         })
                         .collect::<Vec<Tree>>();
@@ -97,11 +97,11 @@ impl Forest {
                     new_tree.grow_branches(parameters.clone());
                     if remember {
                         // new_tree.serialize_clone()?;
-                        new_tree.serialize_ultra_compact()?;
+                        new_tree.serialize_nano()?;
                         self.trees.push(new_tree);
                     }
                     // else { new_tree.serialize()?; };
-                    else {new_tree.serialize_ultra_compact()?;};
+                    else {new_tree.serialize_nano()?;};
                 }
 
             };

@@ -792,6 +792,27 @@ impl Node {
         }
     }
 
+    pub fn nano_compact(self) -> NanoCompact {
+
+        let sample_encoding = self.sample_encoding(None).into_iter().map(|b| if b {1} else {0}).collect();
+        let children = self.children.into_iter().map(|c| c.nano_compact()).collect();
+        let mut braid = if self.braids.len() == (self.depth+1) {self.braids.last().map(|b| b.clone())} else {None};
+        if braid.is_some() {
+            braid.as_mut().unwrap().samples = vec![];
+        }
+
+        NanoCompact {
+            children: children,
+
+            split: self.split,
+
+            prerequisites: self.prerequisites,
+            braid: braid,
+
+            samples: sample_encoding,
+        }
+    }
+
     // pub fn assert_integrity(&self) {
     //
     //     // Here we check assumptions that must remain true of each node: that each sample in the node fulfills the requirements
@@ -1079,8 +1100,32 @@ impl StrippedNode {
             absolute_gains: self.absolute_gains,
         }
     }
+    
+    pub fn nano_compact(self) -> NanoCompact {
+
+        let sample_encoding = self.sample_encoding(None).into_iter().map(|b| if b {1} else {0}).collect();
+        let children = self.children.into_iter().map(|c| c.nano_compact()).collect();
+        let mut braid = if self.braids.len() == (self.depth+1) {self.braids.last().map(|b| b.clone())} else {None};
+        if braid.is_some() {
+            braid.as_mut().unwrap().samples = vec![];
+        }
+
+        NanoCompact {
+            children: children,
+
+            split: self.split,
+
+            prerequisites: self.prerequisites,
+            braid: braid,
+
+            samples: sample_encoding,
+        }
+    }
+
 
 }
+
+
 
 #[derive(Serialize,Deserialize,Clone,Debug)]
 pub struct UltraCompact {
@@ -1107,6 +1152,26 @@ impl UltraCompact {
         serde_json::to_string(&self).unwrap()
     }
 }
+
+#[derive(Serialize,Deserialize,Clone,Debug)]
+pub struct NanoCompact {
+
+    pub children: Vec<NanoCompact>,
+
+    split: Option<Split>,
+
+    prerequisites: Vec<Prerequisite>,
+    braid: Option<Braid>,
+
+    samples: Vec<i8>,
+}
+
+impl NanoCompact {
+    pub fn to_string(self) -> String {
+        serde_json::to_string(&self).unwrap()
+    }
+}
+
 
 #[cfg(test)]
 mod node_testing {
