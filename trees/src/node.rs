@@ -258,14 +258,31 @@ impl Node {
 
 
     pub fn derive_complete_by_braid(&mut self,mut braid:Braid) -> Option<Vec<Node>> {
-        let (draw_order,drop_set) = braid.draw_order();
-        let dispersions = self.output_table.order_dispersions(&draw_order,&drop_set,&self.feature_weights)?;
-        let (split_index,minimum_dispersion) = argmin(&dispersions[1..])?;
+        // let (draw_order,drop_set) = braid.draw_order();
+        // let dispersions = self.output_table.order_dispersions(&draw_order,&drop_set,&self.feature_weights)?;
+        // let (split_index,minimum_dispersion) = argmin(&dispersions[1..])?;
 
-        let left_indices:Vec<usize> = draw_order[..split_index].to_owned();
-        let right_indices:Vec<usize> = draw_order[split_index..].to_owned();
 
-        braid.compound_split = Some(braid.compound_values[draw_order[split_index]]);
+
+        let left_indices:Vec<usize> =
+            braid.compound_values.iter()
+            .enumerate()
+            .flat_map(|(i,&v)| {
+                if v < 0. {Some(i)}
+                else {None}
+            })
+            .collect();
+
+        let right_indices:Vec<usize> =
+            braid.compound_values.iter()
+            .enumerate()
+            .flat_map(|(i,&v)| {
+                if v > 0. {Some(i)}
+                else {None}
+            })
+            .collect();
+
+        braid.compound_split = Some(0.);
 
         self.braids.push(braid.clone());
 
@@ -1100,7 +1117,7 @@ impl StrippedNode {
             absolute_gains: self.absolute_gains,
         }
     }
-    
+
     pub fn nano_compact(self) -> NanoCompact {
 
         let sample_encoding = self.sample_encoding(None).into_iter().map(|b| if b {1} else {0}).collect();

@@ -99,8 +99,8 @@ class Node:
         # matrices but I think this leads to slightly more elegant structure.
 
         if len(node_json['children']) > 0:
-            self.children.append(Node(node_json['children'][0],self.tree,self.forest,parent=self,lr=0,level=level+1))
-            self.children.append(Node(node_json['children'][1],self.tree,self.forest,parent=self,lr=1,level=level+1))
+            self.children.append(Node(node_json['children'][0],self.tree,self.forest,parent=self,lr=0,level=level+1,cache=cache))
+            self.children.append(Node(node_json['children'][1],self.tree,self.forest,parent=self,lr=1,level=level+1,cache=cache))
 
     ## Two nodes used for testing, not relevant for normal operation
 
@@ -200,6 +200,20 @@ class Node:
         if self.cache:
             self.local_gain_cache = gains
         return gains
+
+    def additive_gains(self):
+        if self.cache:
+            if hasattr(self,'additive_cache'):
+                return self.additive_cache
+        if self.parent is not None:
+            parent_medians = self.parent.medians()
+        else:
+            parent_medians = np.zeros(len(self.forest.output_features))
+        own_medians = self.medians()
+        additive = own_medians - parent_medians
+        if self.cache:
+            self.additive_cache = additive
+        return additive
 
     def leaves(self):
 
@@ -455,6 +469,9 @@ class Node:
         self.split_cluster = cluster
         if self.parent is not None:
             self.parent.add_child_cluster(cluster,self.lr)
+        for descendant in self.nodes():
+            if not hasattr(descendant,'split_cluster'):
+                descendant.split_cluster = cluster
 
     def add_child_cluster(self,cluster,lr):
         self.child_clusters[lr].append(cluster)
@@ -548,7 +565,7 @@ class Braid:
 class Tree:
 
     def __init__(self, tree_json, forest):
-        self.root = Node(tree_json, self, forest)
+        self.root = Node(tree_json, self, forest,cache=forest.cache)
         self.forest = forest
 
     def nodes(self,root=True):
@@ -735,7 +752,7 @@ class Tree:
 
 class Forest:
 
-    def __init__(self,trees,input,output,test=None,input_features=None,output_features=None,samples=None,split_labels=None):
+    def __init__(self,trees,input,output,test=None,input_features=None,output_features=None,samples=None,split_labels=None,cache=False):
         if input_features is None:
             input_features = [str(i) for i in range(input.shape[1])]
         if output_features is None:
@@ -744,6 +761,8 @@ class Forest:
             samples = [str(i) for i in range(input.shape[0])]
         if test is not None:
             self.test = test
+
+        self.cache = cache
 
         self.truth_dictionary = TruthDictionary(output,output_features,samples)
 
@@ -757,8 +776,6 @@ class Forest:
         self.input_dim = input.shape
         self.output_dim = output.shape
 
-        if split_labels is not None:
-            self.split_labels = split_labels
 
         self.trees = trees
 
@@ -818,6 +835,35 @@ class Forest:
             for sample in node.samples:
                 encoding[sample,i] = True
         return encoding
+
+    def node_representation(self,nodes=None,mode='gain',metric='jaccard',pca=False):
+
+        if nodes is None:
+            nodes = self.nodes()
+
+        if mode == 'gain':
+            print("Gain reduction")
+            encoding = self.local_gain_matrix(nodes).T
+        elif mode == 'sample':
+            print("Sample reduction")
+            encoding = self.node_sample_encoding(nodes).T
+        elif mode == 'sister':
+            print("Sister reduction")
+            encoding = self.node_sister_encoding(nodes).T
+        else:
+            print("Median reduction")
+            encoding = self.node_matrix(nodes)
+
+        if pca:
+            encoding = PCA(n_components=10).fit_transform(encoding)
+
+        if metric is not None:
+            representation = squareform(pdist(encoding,metric=metric))
+        else:
+            representation = encoding
+
+        return representation
+
 
     def node_sister_encoding(self,nodes):
         encoding = np.zeros((len(self.samples),len(nodes)),dtype=int)
@@ -883,6 +929,11 @@ class Forest:
     def reconstitute(location):
         with open(location,mode='br') as f:
             return pickle.load(f)
+
+    def set_cache(self,value):
+        self.cache = value
+        for node in self.nodes():
+            node.cache = value
 
     def load(location, prefix="/run", ifh="/run.ifh",ofh='run.ofh',clusters='run.cluster',input="input.counts",output="output.counts",test="test.counts"):
 
@@ -1102,6 +1153,9 @@ class Forest:
 
 ########################################################################
 ########################################################################
+
+    def split_labels(self):
+        return np.array([n.split_cluster for n in self.nodes()])
 
     def cluster_samples_simple(self,override=False,pca=False,*args,**kwargs):
 
@@ -1335,7 +1389,11 @@ class Forest:
         gain_matrix = self.absolute_gain_matrix(self.leaves())
         return sdg.fit_predict(gain_matrix,*args,**kwargs)
 
-    def interpret_splits(self,override=False,mode='gain',metric='cosine',pca=False,reduction_metric='jaccard',depth=3,*args,**kwargs):
+
+    def sdg_cluster_representation(representation,**kwargs):
+        return np.array(sdg.fit_predict(representation,**kwargs))
+
+    def interpret_splits(self,override=False,mode='gain',metric='jaccard',distance='cosine',pca=False,depth=3,*args,**kwargs):
 
         from sklearn.manifold import MDS
 
@@ -1346,118 +1404,102 @@ class Forest:
 
         labels = np.zeros(len(nodes)).astype(dtype=int)
 
-        if mode == 'gain':
-            print("Gain reduction")
-            encoding = self.local_gain_matrix(nodes).T
-        elif mode == 'sample':
-            print("Sample reduction")
-            encoding = self.node_sample_encoding(nodes).T
-        elif mode == 'sister':
-            print("Sister reduction")
-            encoding = self.node_sister_encoding(nodes).T
-        else:
-            print("Median reduction")
-            encoding = self.node_matrix(nodes)
+        representation = self.node_representation(nodes,mode=mode,metric=metric,pca=pca)
 
-        if pca:
-            encoding = PCA(n_components=10).fit_transform(encoding)
+        labels[stem_mask] = 1 + np.array(sdg.fit_predict(representation[stem_mask],*args,**kwargs))
 
-        if metric is not None:
-            reduction = squareform(pdist(encoding,metric=metric))
-        else:
-            reduction = encoding
-
-        if hasattr(self,'split_labels') and not override:
-            print("Clustering has already been done")
-            # return self.split_labels
-        else:
-            # labels[stem_mask] = 1 + np.array(sdg.fit_predict(reduction[stem_mask],*args,**kwargs))
-            labels[stem_mask] = 1 + np.array(sdg.fit_predict(reduction[stem_mask],*args,**kwargs))
-            # labels[stem_mask] = 1 + np.array(sdg.fit_predict(reduction.T[stem_mask].T[stem_mask],*args,**kwargs))
-            self.split_labels = labels
-
-        for node,label in zip(nodes,self.split_labels):
+        for node,label in zip(nodes,labels):
             node.set_split_cluster(label)
             # node.split_cluster = label
 
-        cluster_set = set(self.split_labels)
+
+        cluster_set = set(labels)
         clusters = []
         for cluster in cluster_set:
-            split_index = np.arange(len(self.split_labels))[self.split_labels == cluster]
+            split_index = np.arange(len(labels))[labels == cluster]
             clusters.append(NodeCluster(self,[nodes[i] for i in split_index],cluster))
 
-        split_order = np.argsort(self.split_labels)
+        split_order = np.argsort(labels)
         # split_order = dendrogram(linkage(reduction,metric='cos',method='average'),no_plot=True)['leaves']
 
         self.split_clusters = clusters
 
-        return self.split_labels
+        return labels
 
-    def recursive_interpretation(self,nodes=None,override=False,no_plot=False,mode='gain',metric='cosine',pca=False,reduction_metric='jaccard',depth=3,*args,**kwargs):
+    # def recursive_interpretation(self,nodes=None,mode='gain',metric='cosine',pca=False,distance='cosine',depth=3,level=0,**kwargs):
+    #
+    #     print("Recursively interpreting splits")
+    #     print(f"Level:{level}")
+    #
+    #     if nodes is None:
+    #         nodes = self.nodes()
+    #
+    #     children = []
+    #     for node in nodes:
+    #         children.extend(node.children)
+    #
+    #     child_representation = self.node_representation(children,mode=mode,metric=metric,pca=pca)
+    #
+    #     child_labels = self.sdg_cluster_representation(child_representation,**kwargs)
+    #
+    #     for child,label in zip(children,labels):
+    #         child.set_split_cluster(label)
+    #
+    #     cluster_set = set(child_labels)
+    #     clusters = []
+    #     for cluster in cluster_set:
+    #         split_index = np.arange(len(labels))[labels == cluster]
+    #         clusters.append(NodeCluster(self,[nodes[i] for i in split_index],cluster))
+    #
+    #     if level <= depth:
+    #
+    #         for cluster in clusters:
+    #             clusters.extend(recursive_interpretation(nodes = cluster.nodes(), mode=mode,metric=metric,pca=pca,distacne=distance,depth=depth,level=level+1,*args,**kwargs))
+    #
+    #     self.split_clusters = clusters
+    #
+    #     return clusters
 
-        if nodes is None:
-            nodes = self.nodes()
+    def create_root_cluster(self):
+
+        roots = [t.root for t in self.trees]
+
+        for node in roots:
+            node.set_split_cluster(0)
+
+        self.split_clusters = [NodeCluster(self,roots,0),]
 
 
-
-        pass
-
-
-    def plot_split_cluster_metric(self,depth=3,mode='gain',metric='cos',pca=False):
-
-        nodes = np.array(self.nodes(depth=depth))
-        stem_mask = np.array([n.level != 0 for n in nodes])
-        nodes = list(nodes[stem_mask])
-
-        if mode == 'gain':
-            print("Gain reduction")
-            encoding = self.local_gain_matrix(nodes).T
-        elif mode == 'sample':
-            print("Sample reduction")
-            encoding = self.node_sample_encoding(nodes).T
-        elif mode == 'sister':
-            print("Sister reduction")
-            encoding = self.node_sister_encoding(nodes).T
-        else:
-            print("Median reduction")
-            encoding = self.node_matrix(nodes)
-
-        if pca:
-            encoding = PCA(n_components=10).fit_transform(encoding)
-
-        if metric is not None:
-            reduction = squareform(pdist(encoding,metric=metric))
-        else:
-            reduction = encoding
-
-        reduction
+    def plot_representation(self,representation,labels=None,mode='gain',metric='cos',pca=False):
 
         if metric is not None:
             # image = reduction[split_order].T[split_order].T
-            agg_f = dendrogram(linkage(reduction,metric='cosine',method='average'),no_plot=True)['leaves']
-            agg_s = dendrogram(linkage(reduction.T,metric='cosine',method='average'),no_plot=True)['leaves']
-            image = reduction[agg_f].T[agg_s].T
+            agg_f = dendrogram(linkage(representation,metric='cosine',method='average'),no_plot=True)['leaves']
+            agg_s = dendrogram(linkage(representation.T,metric='cosine',method='average'),no_plot=True)['leaves']
+            image = representation[agg_f].T[agg_s].T
         else:
             # feature_order = dendrogram(linkage(reduction.T+1,metric='cosine',method='average'),no_plot=True)['leaves']
             # image = reduction[split_order].T[feature_order].T
-            agg_f = dendrogram(linkage(reduction,metric='cosine',method='average'),no_plot=True)['leaves']
-            agg_s = dendrogram(linkage(reduction.T,metric='cosine',method='average'),no_plot=True)['leaves']
-            image = reduction[agg_f].T[agg_s].T
+            agg_f = dendrogram(linkage(representation,metric='cosine',method='average'),no_plot=True)['leaves']
+            agg_s = dendrogram(linkage(representation.T,metric='cosine',method='average'),no_plot=True)['leaves']
+            image = representation[agg_f].T[agg_s].T
 
         plt.figure(figsize=(10,10))
         plt.imshow(image,aspect='auto',cmap='bwr')
         plt.show()
 
-        split_order = np.argsort(self.split_labels[stem_mask])
+        if labels is not None:
 
-        if metric is not None:
-            image = reduction[split_order].T[split_order].T
-        else:
-            feature_order = dendrogram(linkage(reduction.T+1,metric='cosine',method='average'),no_plot=True)['leaves']
-            image = reduction[split_order].T[feature_order].T
-        plt.figure(figsize=(10,10))
-        plt.imshow(image,aspect='auto',cmap='bwr')
-        plt.show()
+            split_order = np.argsort(labels)
+
+            if metric is not None:
+                image = representation[split_order].T[split_order].T
+            else:
+                feature_order = dendrogram(linkage(representation.T+1,metric='cosine',method='average'),no_plot=True)['leaves']
+                image = representation[split_order].T[feature_order].T
+            plt.figure(figsize=(10,10))
+            plt.imshow(image,aspect='auto',cmap='bwr')
+            plt.show()
 
     def reset_clusters(self):
         try:
@@ -1468,11 +1510,6 @@ class Forest:
         try:
             del self.leaf_clusters
             del self.leaf_labels
-        except:
-            pass
-        try:
-            del self.split_clusters
-            del self.split_labels
         except:
             pass
 
@@ -1735,7 +1772,7 @@ class Forest:
     def split_cluster_transition_matrix(self,depth=3):
 
         nodes = np.array(self.nodes(depth=depth))
-        labels = self.split_labels
+        labels = self.split_labels()
         clusters = set(labels)
         transitions = np.zeros((len(clusters)+1,len(clusters)+1))
 
@@ -2057,6 +2094,8 @@ class Forest:
             cells = np.arange(len(self.sample_labels))[self.sample_labels == cluster]
             sample_clusters.append(SampleCluster(self,cells,cluster))
 
+        print([c.id for c in leaf_split_clusters])
+
         self.sample_clusters = sample_clusters
 
         return self.sample_labels
@@ -2191,6 +2230,40 @@ class NodeCluster:
 
     def encoding(self):
         return self.forest.node_sample_encoding(self.nodes)
+
+    def cluster_children(self,nodes=None,mode='gain',metric='cosine',pca=False,distance='cosine',**kwargs):
+
+        print("Interpreting cluster children")
+        print(f"Cluster:{self.id}")
+
+        children = []
+        for node in self.nodes:
+            children.extend(node.children)
+
+        print(f"Child nodes:{len(children)}")
+
+        child_representation = self.forest.node_representation(children,mode=mode,metric=metric,pca=pca)
+
+        child_labels = len(self.forest.split_clusters) + Forest.sdg_cluster_representation(child_representation,distance=distance,**kwargs)
+
+        self.forest.plot_representation(child_representation,labels=child_labels,mode=mode,metric=metric,pca=pca)
+
+        for child,label in zip(children,child_labels):
+            child.set_split_cluster(label)
+
+        cluster_set = set(child_labels)
+
+        print(f"New clusters: {cluster_set}")
+
+        clusters = []
+
+        for cluster in cluster_set:
+            split_indices = np.arange(len(children))[child_labels == cluster]
+            clusters.append(NodeCluster(self.forest,[children[i] for i in split_indices],cluster))
+
+        self.forest.split_clusters.extend(clusters)
+
+        return clusters
 
     def mean_absolute_feature_gains(self):
         mean_gains = np.zeros(len(self.forest.features))
