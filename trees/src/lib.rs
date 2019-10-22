@@ -155,9 +155,8 @@ pub struct Braid {
     features: Vec<Feature>,
     samples: Vec<Sample>,
     compound_values: Vec<f64>,
-    draw_order: Vec<usize>,
-    drop_set: HashSet<usize>,
     feature_splits: Option<Vec<Split>>,
+    split_flips: Option<Vec<bool>>,
     compound_split: Option<f64>,
 }
 
@@ -181,7 +180,7 @@ impl Braid {
 
         let midpoint = len/2;
 
-        let orientation =
+        let flip =
             split_values.iter()
             .map(|v|
                     ( v[..midpoint].iter()
@@ -197,8 +196,8 @@ impl Braid {
             })
             .collect::<Vec<bool>>();
 
-        for (orientation,v) in orientation.iter().zip(split_values.iter_mut()) {
-            if *orientation {
+        for (v_flip,v) in flip.iter().zip(split_values.iter_mut()) {
+            if *v_flip {
                 for b in v.iter_mut() {
                     *b = !*b;
                 }
@@ -227,9 +226,8 @@ impl Braid {
             samples,
             // compound_vector,
             compound_values,
-            draw_order,
-            drop_set,
             feature_splits: Some(splits.iter().cloned().collect()),
+            split_flips: Some(flip),
             compound_split: None,
         }
     }
@@ -238,9 +236,9 @@ impl Braid {
     //     let sf = self.features.iter().flat_map(|f| sample.get(f))
     // }
 
-    fn draw_order(&self) -> (&[usize],&HashSet<usize>) {
-        (&self.draw_order,&self.drop_set)
-    }
+    // fn draw_order(&self) -> (&[usize],&HashSet<usize>) {
+    //     (&self.draw_order,&self.drop_set)
+    // }
 
     fn set_split(&mut self, split:f64) {
         self.compound_split = Some(split)

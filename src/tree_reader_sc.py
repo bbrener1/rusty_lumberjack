@@ -554,10 +554,10 @@ class Braid:
         score = 0
         for split in self.feature_splits:
             try:
-                if sample[split['feature']['name']] < split['value']:
-                    score += 1
-                else:
+                if sample[split['feature']['name']] <= split['value']:
                     score -= 1
+                else:
+                    score += 1
             except:
                 continue
         return score
@@ -844,6 +844,9 @@ class Forest:
         if mode == 'gain':
             print("Gain reduction")
             encoding = self.local_gain_matrix(nodes).T
+        if mode == 'additive':
+            print("Additive reduction")
+            encoding = self.additive_matrix(nodes).T
         elif mode == 'sample':
             print("Sample reduction")
             encoding = self.node_sample_encoding(nodes).T
@@ -903,6 +906,12 @@ class Forest:
         gains = np.zeros((len(self.output_features),len(nodes)))
         for i,node in enumerate(nodes):
             gains[:,i] = node.local_gains()
+        return gains
+
+    def additive_matrix(self,nodes):
+        gains = np.zeros((len(self.output_features),len(nodes)))
+        for i,node in enumerate(nodes):
+            gains[:,i] = node.additive_gains()
         return gains
 
 
@@ -1154,8 +1163,9 @@ class Forest:
 ########################################################################
 ########################################################################
 
-    def split_labels(self):
-        return np.array([n.split_cluster for n in self.nodes()])
+    def split_labels(self,depth=3):
+        nodes = self.nodes(depth=depth)
+        return np.array([n.split_cluster for n in nodes])
 
     def cluster_samples_simple(self,override=False,pca=False,*args,**kwargs):
 
@@ -1470,19 +1480,24 @@ class Forest:
         self.split_clusters = [NodeCluster(self,roots,0),]
 
 
-    def plot_representation(self,representation,labels=None,mode='gain',metric='cos',pca=False):
+    def plot_representation(self,representation,labels=None,metric='cos',pca=False):
 
         if metric is not None:
             # image = reduction[split_order].T[split_order].T
-            agg_f = dendrogram(linkage(representation,metric='cosine',method='average'),no_plot=True)['leaves']
-            agg_s = dendrogram(linkage(representation.T,metric='cosine',method='average'),no_plot=True)['leaves']
+            agg_f = dendrogram(linkage(representation,metric=metric,method='average'),no_plot=True)['leaves']
+            agg_s = dendrogram(linkage(representation.T,metric=metric,method='average'),no_plot=True)['leaves']
             image = representation[agg_f].T[agg_s].T
         else:
             # feature_order = dendrogram(linkage(reduction.T+1,metric='cosine',method='average'),no_plot=True)['leaves']
             # image = reduction[split_order].T[feature_order].T
-            agg_f = dendrogram(linkage(representation,metric='cosine',method='average'),no_plot=True)['leaves']
-            agg_s = dendrogram(linkage(representation.T,metric='cosine',method='average'),no_plot=True)['leaves']
-            image = representation[agg_f].T[agg_s].T
+            try:
+                agg_f = dendrogram(linkage(representation,metric='cosine',method='average'),no_plot=True)['leaves']
+                agg_s = dendrogram(linkage(representation.T,metric='cosine',method='average'),no_plot=True)['leaves']
+                image = representation[agg_f].T[agg_s].T
+            except:
+                agg_f = dendrogram(linkage(representation,metric='cityblock',method='average'),no_plot=True)['leaves']
+                agg_s = dendrogram(linkage(representation.T,metric='cityblock',method='average'),no_plot=True)['leaves']
+                image = representation[agg_f].T[agg_s].T
 
         plt.figure(figsize=(10,10))
         plt.imshow(image,aspect='auto',cmap='bwr')
@@ -1772,7 +1787,7 @@ class Forest:
     def split_cluster_transition_matrix(self,depth=3):
 
         nodes = np.array(self.nodes(depth=depth))
-        labels = self.split_labels()
+        labels = self.split_labels(depth=depth)
         clusters = set(labels)
         transitions = np.zeros((len(clusters)+1,len(clusters)+1))
 
