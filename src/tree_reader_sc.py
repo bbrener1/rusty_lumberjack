@@ -523,9 +523,9 @@ class Braid:
             self.node = node
             self.features = np.array([f['name'] for f in braid_json['features']])
             self.feature_splits = braid_json['feature_splits']
+            self.split_flips = braid_json['split_flips']
             # self.samples = np.array([s['name'] for s in node_json['samples']])
             self.samples = self.node.samples
-            self.compound_values = np.array(braid_json['compound_values'])
             self.compound_split = braid_json['compound_split']
         except:
             print(braid_json)
@@ -542,22 +542,28 @@ class Braid:
 
         return np.exp(np.mean(np.log(ranked),axis=1))
 
-    def braid_scores(self):
-        scores = np.zeros(len(self.node.forest.samples))
-        sd = self.truth_dictionary.sample_dictionary
-        for score,sample in zip(self.compound_values,self.samples):
-            scores[sd[sample]] = score
-
-        return scores
+    # def braid_scores(self):
+    #     scores = np.zeros(len(self.node.forest.samples))
+    #     sd = self.truth_dictionary.sample_dictionary
+    #     for score,sample in zip(self.compound_values,self.samples):
+    #         scores[sd[sample]] = score
+    #
+    #     return scores
 
     def score_sample(self,sample):
         score = 0
-        for split in self.feature_splits:
+        for split,flip in zip(self.feature_splits,self.split_flips):
             try:
-                if sample[split['feature']['name']] <= split['value']:
-                    score -= 1
+                if flip:
+                    if sample[split['feature']['name']] <= split['value']:
+                        score += 1
+                    else:
+                        score -= 1
                 else:
-                    score += 1
+                    if sample[split['feature']['name']] <= split['value']:
+                        score -= 1
+                    else:
+                        score += 1
             except:
                 continue
         return score
