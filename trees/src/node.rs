@@ -529,7 +529,7 @@ impl Node {
 
         let mut stripped_children = Vec::new();
 
-        for child in self.children.into_iter() {
+        for child in self.children.into_iter().rev() {
             stripped_children.push(child.strip_consume())
         }
 
@@ -723,13 +723,13 @@ impl Node {
         }
         self.absolute_gains = Some(absolute_gains);
 
-        for child in self.children.iter_mut() {
+        for child in self.children.iter_mut().rev() {
             child.compute_absolute_gains(root_dispersions);
         }
     }
 
     pub fn root_absolute_gains(&mut self) {
-        for child in self.children.iter_mut() {
+        for child in self.children.iter_mut().rev() {
             child.compute_absolute_gains(&self.dispersions);
         }
     }
@@ -784,7 +784,7 @@ impl Node {
 
         let feature_encoding = self.feature_encoding(None).into_iter().map(|b| if b {1} else {0}).collect();
         let sample_encoding = self.sample_encoding(None).into_iter().map(|b| if b {1} else {0}).collect();
-        let children = self.children.into_iter().map(|c| c.compact()).collect();
+        let children = self.children.into_iter().rev().map(|c| c.compact()).collect();
         let mut braid = if self.braids.len() == (self.depth+1) {self.braids.last().map(|b| b.clone())} else {None};
         if braid.is_some() {
             braid.as_mut().unwrap().samples = vec![];
@@ -812,7 +812,7 @@ impl Node {
     pub fn nano_compact(self) -> NanoCompact {
 
         let sample_encoding = self.sample_encoding(None).into_iter().map(|b| if b {1} else {0}).collect();
-        let children = self.children.into_iter().map(|c| c.nano_compact()).collect();
+        let children = self.children.into_iter().rev().map(|c| c.nano_compact()).collect();
         let mut braid = if self.braids.len() == (self.depth+1) {self.braids.last().map(|b| b.clone())} else {None};
         if braid.is_some() {
             braid.as_mut().unwrap().samples = vec![];
@@ -951,7 +951,7 @@ impl StrippedNode {
             return vec![self]
         }
         else {
-            for child in self.children.iter_mut() {
+            for child in self.children.iter_mut().rev() {
                 output.extend(child.mut_crawl_to_leaves());
             }
         };
@@ -976,13 +976,13 @@ impl StrippedNode {
         }
         self.absolute_gains = Some(absolute_gains);
 
-        for child in self.children.iter_mut() {
+        for child in self.children.iter_mut().rev() {
             child.compute_absolute_gains(root_dispersions);
         }
     }
 
     pub fn root_absolute_gains(&mut self) {
-        for child in self.children.iter_mut() {
+        for child in self.children.iter_mut().rev() {
             child.compute_absolute_gains(&self.dispersions);
         }
     }
@@ -1093,7 +1093,7 @@ impl StrippedNode {
 
         let feature_encoding = self.feature_encoding(None).into_iter().map(|b| if b {1} else {0}).collect();
         let sample_encoding = self.sample_encoding(None).into_iter().map(|b| if b {1} else {0}).collect();
-        let children = self.children.into_iter().map(|c| c.compact()).collect();
+        let children = self.children.into_iter().rev().map(|c| c.compact()).collect();
         let mut braid = if self.braids.len() == (self.depth+1) {self.braids.last().map(|b| b.clone())} else {None};
         if braid.is_some() {
             braid.as_mut().unwrap().samples = vec![];
@@ -1121,7 +1121,7 @@ impl StrippedNode {
     pub fn nano_compact(self) -> NanoCompact {
 
         let sample_encoding = self.sample_encoding(None).into_iter().map(|b| if b {1} else {0}).collect();
-        let children = self.children.into_iter().map(|c| c.nano_compact()).collect();
+        let children = self.children.into_iter().rev().map(|c| c.nano_compact()).collect();
         let mut braid = if self.braids.len() == (self.depth+1) {self.braids.last().map(|b| b.clone())} else {None};
         if braid.is_some() {
             braid.as_mut().unwrap().samples = vec![];

@@ -1498,13 +1498,16 @@ class Forest:
             # feature_order = dendrogram(linkage(reduction.T+1,metric='cosine',method='average'),no_plot=True)['leaves']
             # image = reduction[split_order].T[feature_order].T
             try:
-                agg_f = dendrogram(linkage(representation,metric='cosine',method='average'),no_plot=True)['leaves']
-                agg_s = dendrogram(linkage(representation.T,metric='cosine',method='average'),no_plot=True)['leaves']
-                image = representation[agg_f].T[agg_s].T
+                agg_f = dendrogram(linkage(representation.T,metric='cosine',method='average'),no_plot=True)['leaves']
             except:
-                agg_f = dendrogram(linkage(representation,metric='cityblock',method='average'),no_plot=True)['leaves']
-                agg_s = dendrogram(linkage(representation.T,metric='cityblock',method='average'),no_plot=True)['leaves']
-                image = representation[agg_f].T[agg_s].T
+                agg_f = dendrogram(linkage(representation.T,metric='cityblock',method='average'),no_plot=True)['leaves']
+            try:
+                agg_s = dendrogram(linkage(representation,metric='cosine',method='average'),no_plot=True)['leaves']
+            except:
+                agg_s = dendrogram(linkage(representation,metric='cityblock',method='average'),no_plot=True)['leaves']
+
+            image = representation[agg_s].T[agg_f].T
+            image = representation[agg_s].T[agg_f].T
 
         plt.figure(figsize=(10,10))
         plt.imshow(image,aspect='auto',cmap='bwr')
@@ -1514,11 +1517,7 @@ class Forest:
 
             split_order = np.argsort(labels)
 
-            if metric is not None:
-                image = representation[split_order].T[split_order].T
-            else:
-                feature_order = dendrogram(linkage(representation.T+1,metric='cosine',method='average'),no_plot=True)['leaves']
-                image = representation[split_order].T[feature_order].T
+            image = representation[split_order].T[agg_f].T
             plt.figure(figsize=(10,10))
             plt.imshow(image,aspect='auto',cmap='bwr')
             plt.show()
