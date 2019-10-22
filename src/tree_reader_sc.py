@@ -527,6 +527,7 @@ class Braid:
             # self.samples = np.array([s['name'] for s in node_json['samples']])
             self.samples = self.node.samples
             self.compound_split = braid_json['compound_split']
+            self.compound_values = braid_json['compound_values']
         except:
             print(braid_json)
             raise Exception
@@ -542,13 +543,13 @@ class Braid:
 
         return np.exp(np.mean(np.log(ranked),axis=1))
 
-    # def braid_scores(self):
-    #     scores = np.zeros(len(self.node.forest.samples))
-    #     sd = self.truth_dictionary.sample_dictionary
-    #     for score,sample in zip(self.compound_values,self.samples):
-    #         scores[sd[sample]] = score
-    #
-    #     return scores
+    def braid_scores(self):
+        scores = np.zeros(len(self.node.forest.samples))
+        sd = self.truth_dictionary.sample_dictionary
+        for score,sample in zip(self.compound_values,self.samples):
+            scores[sd[sample]] = score
+
+        return scores
 
     def score_sample(self,sample):
         score = 0
