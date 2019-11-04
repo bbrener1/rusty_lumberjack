@@ -843,7 +843,7 @@ class Forest:
                 encoding[sample,i] = True
         return encoding
 
-    def node_representation(self,nodes=None,mode='gain',metric='jaccard',pca=False):
+    def node_representation(self,nodes=None,mode='gain',metric='jaccard',pca=0):
 
         if nodes is None:
             nodes = self.nodes()
@@ -864,8 +864,8 @@ class Forest:
             print("Median reduction")
             encoding = self.node_matrix(nodes)
 
-        if pca:
-            encoding = PCA(n_components=10).fit_transform(encoding)
+        if pca > 0:
+            encoding = PCA(n_components=pca).fit_transform(encoding)
 
         if metric is not None:
             representation = squareform(pdist(encoding,metric=metric))
