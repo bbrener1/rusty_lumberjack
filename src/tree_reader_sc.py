@@ -330,9 +330,9 @@ class Node:
     def feature(self):
 
         if self.split is not None:
-            return split.feature['name']
+            return self.split.feature['name']
         elif self.braid is not None:
-            return braid.features[0]
+            return self.braid.features[0]
         else:
             return None
 
@@ -1782,6 +1782,7 @@ class Forest:
 
         return f
 
+
 ########################################################################
 ########################################################################
 
@@ -2166,7 +2167,7 @@ class SampleCluster:
         self.forest = forest
 
     def median_feature_values(self):
-        return np.median(self.forest.counts[self.samples],axis=0)
+        return np.median(self.forest.output[self.samples],axis=0)
 
     def increased_features(self,n=50,plot=True):
         initial_medians = self.forest.weighted_node_vector_prediction([self.forest.prototype.root])
