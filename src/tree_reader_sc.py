@@ -1929,6 +1929,82 @@ class Forest:
 
         return tree
 
+    def sample_score_tree(self):
+
+        sample_scores = np.zeros((len(self.split_clusters),len(self.samples)))
+        sister_scores = np.zeros((len(self.split_clusters),len(self.samples)))
+
+        for i,split_cluster in enumerate(self.split_clusters):
+            sample_scores[i] = split_cluster.cell_counts()
+            sample_normalization = np.max(sample_scores[i])
+            sample_scores[i] *= (1./sample_normalization)
+            sister_scores[i] = split_cluster.absolute_sister_scores()
+            sister_normalization = np.max(sister_scores[i])
+            sister_scores[i] *= (1./sister_normalization)
+
+        print(sample_scores)
+        print(sister_scores)
+
+        distance_matrix = np.zeros((len(self.split_clusters),len(self.split_clusters)))
+
+        for i in range(len(self.split_clusters)):
+            print(i)
+            plt.figure()
+            plt.hist(np.abs(sister_scores[i]))
+            plt.show()
+            for j in range(len(self.split_clusters)):
+                # print("#####################################")
+                # print("#####################################")
+                # print("#####################################")
+                # print(j)
+                # print(list(np.abs(sister_scores[i] - sample_scores[j])))
+                # delta = np.sum(sister_scores[i] - sample_scores[j])
+                delta = np.sum(np.abs(sister_scores[i] - sample_scores[j]))
+                # delta = np.sum(np.power(sister_scores[i],2) - np.power(sample_scores[j],2))
+                # delta = np.sum(np.power(np.abs(sister_scores[i]) - sample_scores[j],2))
+                # delta = np.dot(np.abs(sister_scores[i]),sample_scores[j])
+                distance_matrix[i,j] = delta
+
+        # for i in range(len(self.split_clusters)):
+        #     distance_matrix[i,i] = float('inf')
+
+        print(distance_matrix)
+
+        # cluster_parents = np.argmin(distance_matrix,axis=0)
+        cluster_parents = np.array([np.argmin(x) for x in distance_matrix])
+        cluster_parents[0] = -1
+
+        print(cluster_parents)
+
+
+        # return cluster_parents
+        #
+        def rec_tree(cluster,parents):
+            output = [cluster,[]]
+            children = np.arange(len(parents))[parents==cluster]
+            for child in children:
+                output[1].append(rec_tree(child,parents))
+            return output
+
+        def reverse_tree(tree):
+            root = tree[0]
+            sub_trees = tree[1]
+            child_entries = {}
+            for sub_tree in sub_trees:
+                for child,path in reverse_tree(sub_tree).items():
+                    path.append(root)
+                    child_entries[child] = path
+            child_entries[root] = []
+            return child_entries
+
+        tree =  rec_tree(0,cluster_parents)
+        rtree = reverse_tree(tree)
+
+        self.likely_tree = tree
+        self.reverse_likely_tree = rtree
+
+        return tree
+
     def plot_tree_summary(self,n=3,type="ud",custom=None,labels=None,features=None,primary=True,secondary=False,figsize=(30,30)):
 
         def leaves(tree):
@@ -2590,6 +2666,19 @@ class NodeCluster:
         scores = (np.sum(own_encoding,axis=1) + (-1 * np.sum(sister_encoding,axis=1))) / own_encoding.shape[1]
 
         return scores
+
+    def absolute_sister_scores(self):
+
+        own = self.nodes
+        sisters = [sister for n in own for sister in [n.sister(),] if sister is not None]
+
+        own_encoding = self.forest.node_sample_encoding(own).astype(dtype=int)
+        sister_encoding = self.forest.node_sample_encoding(sisters).astype(dtype=int)
+
+        scores = (np.sum(own_encoding,axis=1) + np.sum(sister_encoding,axis=1)) / own_encoding.shape[1]
+
+        return scores
+
 
     def prerequisites(self):
         prerequisite_dictionary = {}
