@@ -507,6 +507,37 @@ class Node:
         else:
             return 0
 
+    def sample_cluster_means(self):
+
+        if self.cache:
+            if hasattr(self,'sample_cluster_cache'):
+                return self.sample_cluster_cache
+
+        sample_clusters = self.forest.sample_cluster_encoding[self.samples]
+        sample_cluster_means = np.mean(sample_clusters,axis=0)
+
+        if self.cache:
+            self.sample_cluster_cache = sample_cluster_means
+
+        return sample_cluster_means
+
+    def reset_cache(self):
+
+        possible_cache_del = [
+            lambda: del self.absolute_gain_cache,
+            lambda: del self.local_gain_cache,
+            lambda: del self.additive_cache,
+            lambda: del self.median_cache,
+            lambda: del self.dispersion_cache,
+            lambda: del self.mean_cache
+        ]
+
+        for cache_del in possible_cache_del:
+            try:
+                cache_del()
+            except:
+                continue
+    
     # def lr_encoding_vectors(self):
     #     left = np.zeros(len(self.forest.samples),dtype=bool)
     #     right = np.zeros(len(self.forest.samples),dtype=bool)
@@ -951,6 +982,10 @@ class Forest:
         for node in self.nodes():
             node.cache = value
 
+    def reset_cache(self):
+        for node in self.nodes():
+            node.reset_cache()
+
     def load(location, prefix="/run", ifh="/run.ifh",ofh='run.ofh',clusters='run.cluster',input="input.counts",output="output.counts",test="test.counts"):
 
         combined_tree_files = sorted(glob.glob(location + prefix + "*.compact"))
@@ -1006,13 +1041,13 @@ class Forest:
 ########################################################################
 ########################################################################
 
-    def sample_leaves(self,sample):
+    def predict_sample_leaves(self,sample):
         sample_leaves = []
         for tree in self.trees:
             sample_leaves.extend(tree.root.sample_leaves(sample))
         return sample_leaves
 
-    def sample_nodes(self,sample):
+    def predict_sample_nodes(self,sample):
         sample_nodes = []
         for tree in self.trees:
             sample_nodes.extend(tree.root.sample_nodes(sample))
@@ -1112,15 +1147,23 @@ class Forest:
         plt.hist(self.feature_weight_matrix(forest_leaves).flatten(),bins=50,log=True)
         plt.show()
 
+
     def predict_sample(self,sample):
 
-        leaves = self.sample_leaves(sample)
+        leaves = self.predict_sample_leaves(sample)
         consolidated_predictions = self.node_matrix(leaves)
         return np.mean(consolidated_predictions,axis=0)
 
+    def predict_sample_cluster(self,sample):
+        nodes = self.predict_sample_leaves(sample)
+        node_sample_means = np.array([node.sample_cluster_means() for node in nodes])
+        meta_mean = np.mean(node_sample_means,axis=0)
+        cluster = np.argmax(meta_mean)
+        return cluster
+
     def weighted_predict_sample(self,sample):
 
-        leaves = self.sample_leaves(sample)
+        leaves = self.predict_sample_leaves(sample)
         return self.weighted_node_vector_prediction(leaves)
 
     def weighted_node_vector_prediction(self,nodes):
@@ -1131,12 +1174,10 @@ class Forest:
 
         return single_prediction
 
-    def predict_matrix(self,matrix,features=None,samples=None,weighted=True):
+    def predict_matrix(self,matrix,features=None,weighted=True):
 
         if features is None:
             features = self.input_features
-        if samples is None:
-            samples = self.samples
 
         predictions = np.zeros((len(matrix),len(self.output_features)))
 
@@ -1149,17 +1190,28 @@ class Forest:
 
         return predictions
 
+    def predict_matrix_clusters(self,matrix,samples=None):
+
+        predictions = np.zeros(len(matrix),dtype=int)
+
+        for i,row in enumerate(matrix):
+            sample = {feature:value for feature,value in zip(features,row)}
+            predictions[i] = self.predict_sample_cluster(sample)
+
+        return predictions
+
+
     def predict_vector_leaves(self,vector,features=None):
         if features is None:
             features = self.input_features
         sample = {feature:value for feature,value in zip(features,vector)}
-        return self.sample_leaves(sample)
+        return self.predict_sample_leaves(sample)
 
     def predict_vector_nodes(self,vector,features=None):
         if features is None:
             features = self.input_features
         sample = {feature:value for feature,value in zip(features,vector)}
-        return self.sample_nodes(sample)
+        return self.predict_sample_nodes(sample)
 
 
 ########################################################################
@@ -1174,6 +1226,22 @@ class Forest:
         nodes = self.nodes(depth=depth)
         return np.array([n.split_cluster for n in nodes])
 
+    def set_sample_labels(self,sample_labels):
+
+        cluster_set = set(sample_labels)
+        clusters = []
+        for cluster in cluster_set:
+            samples = np.arange(len(self.sample_labels))[self.sample_labels == cluster]
+            clusters.append(SampleCluster(self,samples,cluster))
+
+        self.sample_clusters = clusters
+
+        one_hot = np.array([sample_labels == x for x in set(sample_labels)])
+
+        self.sample_cluster_encoding = one_hot
+
+        self.sample_labels = np.array(sample_labels)
+
     def cluster_samples_simple(self,override=False,pca=False,*args,**kwargs):
 
         counts = self.output
@@ -1183,17 +1251,9 @@ class Forest:
             return self.sample_labels
         else:
             if pca:
-                self.sample_labels = np.array(sdg.fit_predict(PCA(n_components=10).fit_transform(counts),*args,**kwargs))
+                self.set_sample_labels(sdg.fit_predict(PCA(n_components=10).fit_transform(counts),*args,**kwargs))
             else:
-                self.sample_labels = np.array(sdg.fit_predict(counts,*args,**kwargs))
-
-        cluster_set = set(self.sample_labels)
-        clusters = []
-        for cluster in cluster_set:
-            cells = np.arange(len(self.sample_labels))[self.sample_labels == cluster]
-            clusters.append(SampleCluster(self,cells,cluster))
-
-        self.sample_clusters = clusters
+                self.set_sample_labels(sdg.fit_predict(counts,*args,**kwargs))
 
         return self.sample_labels
 
@@ -1206,15 +1266,7 @@ class Forest:
         if hasattr(self,'sample_clusters') and not override:
             print("Clustering has already been done")
         else:
-            self.sample_labels = np.array(sdg.fit_predict(encoding,*args,**kwargs))
-
-        cluster_set = set(self.sample_labels)
-        clusters = []
-        for cluster in cluster_set:
-            cells = np.arange(len(self.sample_labels))[self.sample_labels == cluster]
-            clusters.append(SampleCluster(self,cells,cluster))
-
-        self.sample_clusters = clusters
+            self.set_sample_labels(sdg.fit_predict(encoding,*args,**kwargs))
 
         return self.sample_labels
 
@@ -1227,15 +1279,7 @@ class Forest:
             print("Clustering has already been done")
             return self.sample_labels
         else:
-            self.sample_labels = np.array(sdg.fit_predict(coocurrence,precomputed=True,*args,**kwargs))
-
-        cluster_set = set(self.sample_labels)
-        clusters = []
-        for cluster in cluster_set:
-            cells = np.arange(len(self.sample_labels))[self.sample_labels == cluster]
-            clusters.append(SampleCluster(self,cells,cluster))
-
-        self.sample_clusters = clusters
+            self.set_sample_labels(sdg.fit_predict(coocurrence,precomputed=True,*args,**kwargs))
 
         return self.sample_labels
 
@@ -1421,9 +1465,9 @@ class Forest:
 
         labels = np.zeros(len(nodes)).astype(dtype=int)
 
-        representation = self.node_representation(nodes,mode=mode,metric=metric,pca=pca)
+        representation = self.node_representation(nodes,mode=mode,metric=None,pca=pca)
 
-        labels[stem_mask] = 1 + np.array(sdg.fit_predict(representation[stem_mask],*args,**kwargs))
+        labels[stem_mask] = 1 + np.array(sdg.fit_predict(representation[stem_mask],metric=metric,*args,**kwargs))
 
         for node,label in zip(nodes,labels):
             node.set_split_cluster(label)
@@ -1525,6 +1569,7 @@ class Forest:
     def reset_clusters(self):
         try:
             del self.sample_clusters
+            del self.sample_cluster_encoding
             del self.sample_labels
         except:
             pass
@@ -1540,7 +1585,6 @@ class Forest:
                 del node.split_cluster
             if hasattr(node,'leaf_cluster'):
                 del node.leaf_cluster
-
 
 
 ########################################################################
@@ -1959,14 +2003,15 @@ class Forest:
                 # print(j)
                 # print(list(np.abs(sister_scores[i] - sample_scores[j])))
                 # delta = np.sum(sister_scores[i] - sample_scores[j])
-                delta = np.sum(np.abs(sister_scores[i] - sample_scores[j]))
-                # delta = np.sum(np.power(sister_scores[i],2) - np.power(sample_scores[j],2))
+                # delta = np.sum(np.abs(sister_scores[i] - sample_scores[j]))
+                delta = np.sum(np.sqrt(np.abs(sister_scores[i] - sample_scores[j])))
                 # delta = np.sum(np.power(np.abs(sister_scores[i]) - sample_scores[j],2))
+                # delta = np.sum(np.power(sister_scores[i],2) - np.power(sample_scores[j],2))
                 # delta = np.dot(np.abs(sister_scores[i]),sample_scores[j])
                 distance_matrix[i,j] = delta
 
-        # for i in range(len(self.split_clusters)):
-        #     distance_matrix[i,i] = float('inf')
+        for i in range(len(self.split_clusters)):
+            distance_matrix[i,i] = float('inf')
 
         print(distance_matrix)
 
@@ -2183,18 +2228,9 @@ class Forest:
         leaf_split_cluster_cell_scores = np.array([c.cell_counts() for c in leaf_split_clusters])
         sample_labels = np.array([np.argmax(leaf_split_cluster_cell_scores[:,i]) for i in range(len(self.samples))])
 
-        self.sample_labels = sample_labels
+        self.set_sample_labels(sample_labels)
 
-        sample_clusters = []
-        cluster_set = set(sample_labels)
-
-        for cluster in cluster_set:
-            cells = np.arange(len(self.sample_labels))[self.sample_labels == cluster]
-            sample_clusters.append(SampleCluster(self,cells,cluster))
-
-        print([c.id for c in leaf_split_clusters])
-
-        self.sample_clusters = sample_clusters
+        print([c.id for c in self.split_clusters])
 
         return self.sample_labels
 
