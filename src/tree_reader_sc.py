@@ -523,21 +523,21 @@ class Node:
 
     def reset_cache(self):
 
-        possible_cache_del = [
-            lambda: del self.absolute_gain_cache,
-            lambda: del self.local_gain_cache,
-            lambda: del self.additive_cache,
-            lambda: del self.median_cache,
-            lambda: del self.dispersion_cache,
-            lambda: del self.mean_cache
+        possible_caches = [
+            "absolute_gain_cache",
+            "local_gain_cache",
+            "additive_cache",
+            "median_cache",
+            "dispersion_cache",
+            "mean_cache",
         ]
 
-        for cache_del in possible_cache_del:
+        for cache in possible_caches:
             try:
-                cache_del()
+                delattr(self,cache)
             except:
                 continue
-    
+
     # def lr_encoding_vectors(self):
     #     left = np.zeros(len(self.forest.samples),dtype=bool)
     #     right = np.zeros(len(self.forest.samples),dtype=bool)
