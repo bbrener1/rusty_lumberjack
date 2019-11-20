@@ -427,8 +427,9 @@ impl Parameters {
                         }
                     }
                     else if !supress_warnings {
-                        eprintln!("Warning, detected unexpected argument:{}. Ignoring, press enter to continue, or CTRL-C to stop. Were you trying to input multiple arguments? Only some options take multiple arguments. Watch out for globs(*, also known as wild cards), these count as multiple arguments!",arg);
-                        stdin().read_line(&mut String::new());
+                        // eprintln!("Warning, detected unexpected argument:{}. Ignoring, press enter to continue, or CTRL-C to stop. Were you trying to input multiple arguments? Only some options take multiple arguments. Watch out for globs(*, also known as wild cards), these count as multiple arguments!",arg);
+                        // stdin().read_line(&mut String::new());
+                        panic!(format!("Unexpected argument:{}",arg));
                     }
                 }
 
