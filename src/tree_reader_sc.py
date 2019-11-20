@@ -166,6 +166,11 @@ class Node:
             self.mean_cache = means
         return means
 
+    def feature_mean(self,feature):
+        fi = self.forest.truth_dictionary.feature_dictionary[feature]
+        values = [self.forest.output[s,fi] for s in self.samples]
+        return np.mean(values)
+
     def dispersions(self):
         if self.cache:
             if hasattr(self,'dispersion_cache'):
@@ -214,6 +219,24 @@ class Node:
         if self.cache:
             self.additive_cache = additive
         return additive
+
+    def feature_additive(self,feature):
+        fi = self.forest.truth_dictionary.feature_dictionary[feature]
+        own_value = self.feature_median(feature)
+        if self.parent is not None:
+            parent_value = self.parent.feature_median(feature)
+        else:
+            parent_value = 0.
+        return own_value - parent_value
+
+    def feature_additive_mean(self,feature):
+        fi = self.forest.truth_dictionary.feature_dictionary[feature]
+        own_value = self.feature_mean(feature)
+        if self.parent is not None:
+            parent_value = self.parent.feature_mean(feature)
+        else:
+            parent_value = 0.
+        return own_value - parent_value
 
     def leaves(self):
 
@@ -513,8 +536,8 @@ class Node:
             if hasattr(self,'sample_cluster_cache'):
                 return self.sample_cluster_cache
 
-        sample_clusters = self.forest.sample_cluster_encoding[self.samples]
-        sample_cluster_means = np.mean(sample_clusters,axis=0)
+        sample_clusters = self.forest.sample_cluster_encoding.T[self.samples].T
+        sample_cluster_means = np.mean(sample_clusters,axis=1)
 
         if self.cache:
             self.sample_cluster_cache = sample_cluster_means
@@ -874,7 +897,7 @@ class Forest:
                 encoding[sample,i] = True
         return encoding
 
-    def node_representation(self,nodes=None,mode='gain',metric='jaccard',pca=0):
+    def node_representation(self,nodes=None,mode='gain',metric=None,pca=0):
 
         if nodes is None:
             nodes = self.nodes()
@@ -882,7 +905,7 @@ class Forest:
         if mode == 'gain':
             print("Gain reduction")
             encoding = self.local_gain_matrix(nodes).T
-        if mode == 'additive':
+        elif mode == 'additive':
             print("Additive reduction")
             encoding = self.additive_matrix(nodes).T
         elif mode == 'sample':
@@ -891,9 +914,14 @@ class Forest:
         elif mode == 'sister':
             print("Sister reduction")
             encoding = self.node_sister_encoding(nodes).T
-        else:
+        elif mode == 'median' or mode == 'medians':
             print("Median reduction")
             encoding = self.node_matrix(nodes)
+        elif mode == 'weights':
+            print("Weight reduction")
+            encoding = self.weight_matrix(nodes)
+        else:
+            raise Exception()
 
         if pca > 0:
             encoding = PCA(n_components=pca).fit_transform(encoding)
@@ -952,6 +980,17 @@ class Forest:
             gains[:,i] = node.additive_gains()
         return gains
 
+    def node_matrix(self,nodes):
+        predictions = np.zeros((len(nodes),len(self.output_features)))
+        for i,node in enumerate(nodes):
+            predictions[i] = node.medians()
+        return predictions
+
+    def weight_matrix(self,nodes):
+        weights = np.zeros((len(nodes),len(self.output_features)))
+        for i,node in enumerate(nodes):
+            weights[i] = node.weights
+        return weights
 
 ########################################################################
 ########################################################################
@@ -1029,6 +1068,19 @@ class Forest:
 
         return first_forest
 
+    def add_output_feature(self,feature_values,feature_name=None):
+
+        if feature_name is None:
+            feature_name = str(len(self.output_features))
+
+        feature_index = len(self.output_features)
+
+        self.output_features = np.concatenate([self.output_features,np.array([feature_name,])])
+        self.output = np.concatenate([self.output,np.array([feature_values,]).T],axis=1)
+        self.truth_dictionary.feature_dictionary[feature_name] = feature_index
+
+        for node in self.nodes():
+            node.weights = np.append(node.weights,1.)
 
 ########################################################################
 ########################################################################
@@ -1062,12 +1114,6 @@ class Forest:
                 encoding[leaf.index,i] = True
         return encoding
 
-    def node_matrix(self,nodes):
-        predictions = np.zeros((len(nodes),len(self.output_features)))
-        for i,node in enumerate(nodes):
-            predictions[i] = node.medians()
-        return predictions
-
     def feature_weight_matrix(self,nodes):
         fd = self.truth_dictionary.feature_dictionary
         weights = np.zeros((len(nodes),len(fd)))
@@ -1075,78 +1121,144 @@ class Forest:
             weights[i] = node.weights
         return weights
 
-    def nodes_predict_feature(self,nodes,feature):
+    def nodes_median_predict_feature(self,nodes,feature):
         predictions = []
         for node in nodes:
             predictions.append(node.feature_median(feature))
         return predictions
+
+    def nodes_weighted_median_predict_feature(self,nodes,feature):
+        predictions = []
+        for node in nodes:
+            predictions.append(node.feature_median(feature))
+        fi = self.truth_dictionary.feature_dictionary[feature]
+        weights = []
+        for node in nodes:
+            weights.append(node.weights[fi])
+        return predictions,weights
+
+    def nodes_additive_predict_feature(self,nodes,feature):
+        predictions = []
+        for node in nodes:
+            predictions.append(node.feature_additive(feature))
+        fi = self.truth_dictionary.feature_dictionary[feature]
+        weights = []
+        for node in nodes:
+            weights.append(node.weights[fi])
+        return predictions,weights
+
+    def nodes_mean_additive_predict_feature(self,nodes,feature):
+        predictions = []
+        for node in nodes:
+            predictions.append(node.feature_additive_mean(feature))
+        fi = self.truth_dictionary.feature_dictionary[feature]
+        weights = []
+        for node in nodes:
+            weights.append(node.weights[fi])
+        return predictions,weights
 
     def set_feature_weights(self,nodes,weights,feature):
         feature_index = self.truth_dictionary.feature_dictionary[feature]
         for node,weight in zip(nodes,weights):
             node.weights[feature_index] = weight
 
-    def weigh_leaves(self,positive=True):
 
-        forest_leaves = self.leaves()
-        leaf_sample_encoding = self.node_sample_encoding(forest_leaves).astype(dtype=float)
-        raw_prediction_matrix = self.node_matrix(forest_leaves)
+    def weigh_leaves(self,positive=True,feature_slice=None):
 
-        for i,feature in enumerate(self.output_features):
+        if feature_slice is None:
+            features = self.output_features
+        else:
+            features = self.output_features[feature_slice]
+
+        median_representation = self.node_representation(self.leaves(), mode='median')
+
+        for i,feature in enumerate(features):
             print(f"{i}. Calculating weights for {feature}")
-            feature_index = self.truth_dictionary.feature_dictionary[feature]
-            leaf_predictions = raw_prediction_matrix[:,feature_index]
-            sample_prediction_encoding = leaf_sample_encoding.copy()
-            for i,prediction in enumerate(leaf_predictions):
-                sample_prediction_encoding[:,i] *= prediction
-
-            truth = self.output[:,feature_index]
-
-            weights = Ridge(alpha=5).fit(sample_prediction_encoding,truth).coef_
-            # weights = NMF().fit()
-
-
-            if positive:
-                weights[weights < 0] = 0
-
-            sum = np.sum(weights)
-
-            if sum > .01:
-                weights = weights / np.sum(weights)
-            else:
-                weights = np.ones(weights.shape)
-
-            # feature,weights = self.solve_linear((feature_index,feature,feature_leaf_sample_encoding,truth,positive))
-
-            # print("SOLVING WEIGHTS")
-            # print(feature)
-            # print(list(feature_leaf_indecies))
-            # print(list(leaf_feature_encoding[:,feature_index]))
-            # print(leaf_feature_indecies)
-            # print(leaf_feature_)
-            # print(list(feature_leaf_sample_encoding))
-            # print(feature_leaf_sample_encoding.shape)
-            # print(leaf_predictions)
-            # print(truth)
-            # print(weights)
-
-            self.set_feature_weights(forest_leaves,weights,feature)
-
-            # linear_problems.append((len(linear_problems),feature,feature_leaf_sample_encoding,truth))
-
-        # print("Linear problems formulated")
-        #
-        # for feature,weights in Pool().imap_unordered(self.solve_linear,local_generator,chunksize=1):
-        #     print("Solved weights:" + feature)
-        #     feature_index = self.truth_dictionary.feature_dictionary[feature]
-        #     feature_leaf_indecies = np.arange(len(forest_leaves))[leaf_feature_encoding[:,feature_index]]
-        #     feature_leaves = [forest_leaves[x] for x in feature_leaf_indecies]
-        #     self.set_feature_weights(feature_leaves,weights,feature)
+            self.weigh_feature_median(feature,positive=positive,representation=median_representation)
 
         plt.figure()
-        plt.hist(self.feature_weight_matrix(forest_leaves).flatten(),bins=50,log=True)
+        plt.hist(self.weight_matrix(self.leaves()).flatten(),bins=50,log=True)
         plt.show()
 
+    def weigh_nodes(self,positive=True,feature_slice=None):
+
+        if feature_slice is None:
+            features = self.output_features
+        else:
+            features = self.output_features[feature_slice]
+
+        additive_representation = self.node_representation(self.nodes(), mode='additive')
+
+        for i,feature in enumerate(features):
+            print(f"{i}. Calculating weights for {feature}")
+            self.weigh_feature(feature,positive=positive,representation=additive_representation)
+
+        plt.figure()
+        plt.hist(self.weight_matrix(self.nodes()).flatten(),bins=50,log=True)
+        plt.show()
+
+    def weigh_feature_additive(self,feature,positive=True,representation=None):
+
+        feature_index = self.truth_dictionary.feature_dictionary[feature]
+        nodes = self.nodes()
+
+        # nodes = self.leaves()
+        # raw_predictions = np.array(self.node_representation(mode='median'))
+        # raw_predictions = np.array([node.feature_mean(feature) for node in nodes])
+
+        if representation is None:
+            representation = self.node_representation(nodes,mode='additive')
+
+        raw_predictions = representation[:,feature_index]
+        # raw_predictions = self.node_representation(nodes,mode='additive')
+
+        node_encoding = self.node_sample_encoding(nodes).astype(dtype=float)
+
+        for i,prediction in enumerate(raw_predictions):
+            node_encoding[:,i] *= prediction
+
+        truth = self.output[:,feature_index]
+
+        weights = Ridge(alpha=5).fit(node_encoding,truth).coef_
+        # weights = NMF().fit()
+
+
+        if positive:
+            weights[weights < 0] = 0
+
+        self.set_feature_weights(nodes,weights,feature)
+
+
+    def weigh_feature_median(self,feature,positive=True,representation=None):
+
+        feature_index = self.truth_dictionary.feature_dictionary[feature]
+        nodes = self.leaves()
+
+        # nodes = self.leaves()
+        # raw_predictions = np.array(self.node_representation(mode='median'))
+        # raw_predictions = np.array([node.feature_mean(feature) for node in nodes])
+
+        if representation is None:
+            representation = self.node_representation(nodes,mode='median')
+
+        raw_predictions = representation[:,feature_index]
+        # raw_predictions = self.node_representation(nodes,mode='additive')
+
+        node_encoding = self.node_sample_encoding(nodes).astype(dtype=float)
+
+        for i,prediction in enumerate(raw_predictions):
+            node_encoding[:,i] *= prediction
+
+        truth = self.output[:,feature_index]
+
+        weights = Ridge(alpha=5).fit(node_encoding,truth).coef_
+        # weights = NMF().fit()
+
+
+        if positive:
+            weights[weights < 0] = 0
+
+        self.set_feature_weights(nodes,weights,feature)
 
     def predict_sample(self,sample):
 
@@ -1155,11 +1267,35 @@ class Forest:
         return np.mean(consolidated_predictions,axis=0)
 
     def predict_sample_cluster(self,sample):
-        nodes = self.predict_sample_leaves(sample)
-        node_sample_means = np.array([node.sample_cluster_means() for node in nodes])
-        meta_mean = np.mean(node_sample_means,axis=0)
-        cluster = np.argmax(meta_mean)
+
+        # nodes = self.predict_sample_nodes(sample)
+        # print('cluster predict debug')
+        # print(len(nodes))
+        # cluster_predictions = np.zeros(len(self.sample_clusters))
+        # for i,cluster in enumerate(self.sample_clusters):
+        #     predictions,weights = self.nodes_mean_additive_predict_feature(nodes,f"sample_cluster_{int(cluster.id)}")
+        #     # aggregate = np.sum(np.array(predictions) * np.array(weights)) / np.sum(weights)
+        #     aggregate = np.sum(np.array(predictions) * np.array(weights))
+        #     cluster_predictions[i] = aggregate
+        # # print(cluster_predictions)
+        # cluster = np.argmax(cluster_predictions)
+
+        leaves = self.predict_sample_leaves(sample)
+        cluster_predictions = np.zeros(len(self.sample_clusters))
+        for i,cluster in enumerate(self.sample_clusters):
+            predictions,weights = self.nodes_weighted_median_predict_feature(leaves,f"sample_cluster_{int(cluster.id)}")
+            # aggregate = np.sum(np.array(predictions) * np.array(weights)) / np.sum(weights)
+            aggregate = np.sum(np.array(predictions) * np.array(weights))
+            cluster_predictions[i] = aggregate
+        # print(cluster_predictions)
+        cluster = np.argmax(cluster_predictions)
+
         return cluster
+
+    def predict_sample_leaf_cluster(self,sample):
+        leaves = self.predict_sample_leaves(sample)
+        leaf_clusters = [l.leaf_cluster for l in leaves]
+        return np.mode(leaf_clusters)[0][0]
 
     def weighted_predict_sample(self,sample):
 
@@ -1190,11 +1326,15 @@ class Forest:
 
         return predictions
 
-    def predict_matrix_clusters(self,matrix,samples=None):
+    def predict_matrix_clusters(self,matrix,features=None):
+
+        if features is None:
+            features = self.input_features
 
         predictions = np.zeros(len(matrix),dtype=int)
 
         for i,row in enumerate(matrix):
+            print(i)
             sample = {feature:value for feature,value in zip(features,row)}
             predictions[i] = self.predict_sample_cluster(sample)
 
@@ -1228,19 +1368,23 @@ class Forest:
 
     def set_sample_labels(self,sample_labels):
 
+        self.sample_labels = np.array(sample_labels).astype(dtype=int)
+
         cluster_set = set(sample_labels)
         clusters = []
         for cluster in cluster_set:
             samples = np.arange(len(self.sample_labels))[self.sample_labels == cluster]
-            clusters.append(SampleCluster(self,samples,cluster))
+            clusters.append(SampleCluster(self,samples,int(cluster)))
 
         self.sample_clusters = clusters
 
-        one_hot = np.array([sample_labels == x for x in set(sample_labels)])
+        one_hot = np.array([sample_labels == x.id for x in clusters])
+
+        for i,cluster in enumerate(one_hot):
+            self.add_output_feature(cluster,feature_name=f"sample_cluster_{i}")
 
         self.sample_cluster_encoding = one_hot
 
-        self.sample_labels = np.array(sample_labels)
 
     def cluster_samples_simple(self,override=False,pca=False,*args,**kwargs):
 
@@ -1283,8 +1427,37 @@ class Forest:
 
         return self.sample_labels
 
+    def cluster_samples_leaf_cluster(self,override=False,*args,**kwargs):
+        leaves = self.leaves()
+        encoding = self.node_sample_encoding(leaves)
+        leaf_clusters = np.array([l.leaf_cluster for l in leaves])
 
-    def cluster_leaf_samples(self,type="fuzzy",override=False,*args,**kwargs):
+        sample_labels = [np.mode(leaf_clusters[mask])[0][0] for mask in encoding.T]
+
+        self.set_sample_labels(sample_labels)
+
+        return self.sample_labels
+
+
+    def set_leaf_labels(self,labels):
+
+        leaves = self.leaves()
+        self.leaf_labels = np.array(labels)
+
+        cluster_set = set(self.leaf_labels)
+
+        clusters = []
+
+        for cluster in cluster_set:
+            leaf_index = np.arange(len(self.leaf_labels))[self.leaf_labels == cluster]
+            clusters.append(NodeCluster(self,[leaves[i] for i in leaf_index],cluster))
+
+        self.leaf_clusters = clusters
+        for leaf,label in zip(leaves,self.leaf_labels):
+            leaf.leaf_cluster = label
+
+
+    def cluster_leaves_samples(self,override=False,*args,**kwargs):
 
         leaves = self.leaves()
         encoding = self.node_sample_encoding(leaves).T
@@ -1293,70 +1466,21 @@ class Forest:
             print("Clustering has already been done")
             return self.leaf_labels
         else:
-            self.leaf_labels = np.array(sdg.fit_predict(encoding,*args,**kwargs))
+            self.set_leaf_labels(sdg.fit_predict(encoding,*args,**kwargs))
 
-        cluster_set = set(self.leaf_labels)
-
-        clusters = []
-
-        for cluster in cluster_set:
-            leaf_index = np.arange(len(self.leaf_labels))[self.leaf_labels == cluster]
-            clusters.append(NodeCluster(self,[leaves[i] for i in leaf_index],cluster))
-
-        self.leaf_clusters = clusters
-        for leaf,label in zip(leaves,self.leaf_labels):
-            leaf.leaf_cluster = label
-            # leaf.set_cluster(label)
 
         return self.leaf_labels
 
-    def cluster_leaf_gains(self,type="fuzzy",override=False,*args,**kwargs):
+    def cluster_leaves_predictions(self,override=False,*args,**kwargs):
 
         leaves = self.leaves()
-        gains = self.absolute_gain_matrix(leaves)
+        predictions = self.node_representation(leaves,mode='median')
 
         if hasattr(self,'leaf_clusters') and not override:
             print("Clustering has already been done")
             return self.leaf_labels
         else:
-            self.leaf_labels = np.array(sdg.fit_predict(gains,*args,**kwargs))
-
-        cluster_set = set(self.leaf_labels)
-
-        clusters = []
-
-        for cluster in cluster_set:
-            leaf_index = np.arange(len(self.leaf_labels))[self.leaf_labels == cluster]
-            clusters.append(NodeCluster(self,[leaves[i] for i in leaf_index],cluster))
-
-        self.leaf_clusters = clusters
-        for leaf,label in zip(leaves,self.leaf_labels):
-            leaf.leaf_cluster = label
-
-        return self.leaf_labels
-
-    def cluster_leaf_predictions(self,override=False,*args,**kwargs):
-
-        leaves = self.leaves()
-        predictions = self.node_matrix(leaves)
-
-        if hasattr(self,'leaf_clusters') and not override:
-            print("Clustering has already been done")
-            return self.leaf_labels
-        else:
-            self.leaf_labels = np.array(sdg.fit_predict(predictions,*args,**kwargs))
-
-        cluster_set = set(self.leaf_labels)
-
-        clusters = []
-
-        for cluster in cluster_set:
-            leaf_index = np.arange(len(self.leaf_labels))[self.leaf_labels == cluster]
-            clusters.append(NodeCluster(self,[leaves[i] for i in leaf_index],cluster))
-
-        self.leaf_clusters = clusters
-        for leaf,label in zip(leaves,self.leaf_labels):
-            leaf.leaf_cluster = label
+            self.set_leaf_labels(sdg.fit_predict(predictions,*args,**kwargs))
 
         return self.leaf_labels
 
@@ -2235,14 +2359,14 @@ class Forest:
         return self.sample_labels
 
     def most_likely_sample_leaf_cluster(self,node_sample_encoding):
-        cluster_scores = np.zeros((node_sample_encoding.shape[1],len(self.split_clusters)))
-        for cluster in self.split_clusters:
-            cluster_mask = np.array([n.split_cluster == cluster.id for n in self.nodes()])
+        cluster_scores = np.zeros((node_sample_encoding.shape[0],len(self.leaf_clusters)))
+        for cluster in self.leaf_clusters:
+            cluster_mask = np.array([n.leaf_cluster == cluster.id for n in self.leaves()])
             print(cluster.id)
             print(cluster_mask)
             print(np.sum(cluster_mask))
-            for sample,sample_encoding in enumerate(node_sample_encoding.T):
-                cluster_scores[sample,cluster.id] = np.sum(np.logical_and(sample_encoding,cluster_mask).astype(dtype=int))
+            for sample,sample_encoding in enumerate(node_sample_encoding):
+                cluster_scores[sample,int(cluster.id)] = np.sum(np.logical_and(sample_encoding,cluster_mask).astype(dtype=int))
         plt.figure()
         plt.imshow(cluster_scores,aspect='auto',cmap='gray')
         plt.colorbar()

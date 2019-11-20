@@ -394,10 +394,10 @@ impl Parameters {
                 "-depth" => {
                     arg_struct.depth_cutoff = args.next().expect("Error processing depth").parse::<usize>().expect("Error parsing depth");
                 }
-                "-if" | "-in_features" | "-in_feature_subsample" | "-input_feature_subsample" => {
+                "-if" | "-ifs" | "-in_features" | "-in_feature_subsample" | "-input_feature_subsample" => {
                     arg_struct.input_features = args.next().expect("Error processing in feature arg").parse::<usize>().expect("Error in feature  arg");
                 },
-                "-of" | "-out_features" | "-out_feature_subsample" | "-output_feature_subsample" => {
+                "-of" | "-ofs" | "-out_features" | "-out_feature_subsample" | "-output_feature_subsample" => {
                     arg_struct.output_features = args.next().expect("Error processing out feature arg").parse::<usize>().expect("Error out feature arg");
                 },
                 "-fs" | "-feature_sub" | "-feature_subsample" | "-feature_subsamples" => {
