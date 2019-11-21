@@ -454,8 +454,8 @@ class Node:
 
         return nodes
 
-    # def tree_path_vector(self):
-    #     return np.array([0 if prerequisite[2] == '<' else 1 for prerequisite in self.prerequisites])
+    def tree_path_vector(self):
+        return np.array([0 if prerequisite[2] == '<' else 1 for prerequisite in self.prerequisites])
 
     def leaf_distances(self):
         leaves = self.leaves()
@@ -479,14 +479,6 @@ class Node:
         if self.parent is not None:
             self.parent.add_child_cluster(cluster,self.lr)
 
-    def find_cluster_divergence(self,cluster):
-        if self.parent is not None:
-            if cluster in self.parent.child_clusters[0] or cluster in self.parent.child_clusters[1]:
-                return self.parent
-            else:
-                return self.parent.find_cluster_divergence(cluster)
-        else:
-            return self
 
     def set_split_cluster(self,cluster):
         self.split_cluster = cluster
@@ -500,15 +492,6 @@ class Node:
         self.child_clusters[lr].append(cluster)
         if self.parent is not None:
             self.parent.add_child_cluster(cluster,self.lr)
-
-    def find_cluster_divergence(self,cluster):
-        if self.parent is not None:
-            if cluster in self.parent.child_clusters[0] or cluster in self.parent.child_clusters[1]:
-                return self.parent
-            else:
-                return self.parent.find_cluster_divergence(cluster)
-        else:
-            return self
 
     def l2_sum(self):
         counts = self.node_counts()
@@ -2839,6 +2822,35 @@ class NodeCluster:
 
         return scores
 
+    def dependence_scores(self):
+
+        total_nodes = self.forest.nodes()
+
+        cluster_nodes = self.nodes
+
+        cluster_children = [c for n in cluster_nodes for c in n.nodes()]
+        child_indices = set([n.index for n in cluster_children])
+        cluster_indices = set([n.index for n in cluster_nodes])
+        exclude_set = child_indices.union(cluster_indices)
+
+        external_nodes = [n for n in total_nodes if n.index not in child_indices]
+        external_indices = set([n.index for n in external_nodes])
+
+        child_frequency = np.zeros(len(self.forest.split_clusters))
+        external_frequency = np.zeros(len(self.forest.split_clusters))
+
+        for ci,cluster in enumerate(self.forest.split_clusters):
+            for node in cluster.nodes:
+                ni = node.index
+                if ni in child_indices:
+                    child_frequency[ci] += 1
+                if ni in external_indices:
+                    external_frequency[ci] += 1
+
+        # print(child_frequency)
+        # print(external_frequency)
+
+        return (np.array(child_frequency) + 1) / (np.array(external_frequency) + 1)
 
     def prerequisites(self):
         prerequisite_dictionary = {}
