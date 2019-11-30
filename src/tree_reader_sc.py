@@ -1969,6 +1969,142 @@ class Forest:
 
         return transitions
 
+
+    def relative_dependence_scores(self):
+
+        relative_dependence_scores = np.zeros((len(self.split_clusters),len(self.split_clusters)))
+
+        forest_nodes = self.nodes()
+
+        for ci,cluster in enumerate(self.split_clusters):
+
+            cluster_nodes = cluster.nodes
+
+            cluster_children = [c for n in cluster_nodes for c in n.nodes()]
+            child_indices = set([n.index for n in cluster_children])
+            cluster_indices = set([n.index for n in cluster_nodes])
+            exclude_set = child_indices.union(cluster_indices)
+
+            external_nodes = [n for n in forest_nodes if n.index not in child_indices]
+            external_indices = set([n.index for n in external_nodes])
+
+            child_frequency = np.zeros(len(self.split_clusters))
+            external_frequency = np.zeros(len(self.split_clusters))
+
+            for cj,other_cluster in enumerate(self.split_clusters):
+                for node in other_cluster.nodes:
+                    ni = node.index
+                    if ni in child_indices:
+                        child_frequency[cj] += 1
+                    if ni in external_indices:
+                        external_frequency[cj] += 1
+
+            child_nodes = np.sum(child_frequency)
+            external_nodes = np.sum(external_frequency)
+
+            total_frequency = child_frequency + external_frequency
+            total_nodes = child_nodes + external_nodes
+
+            # child_odds = (child_frequency+1)/(child_nodes+1)
+            # external_odds = (external_frequency+1)/(external_nodes+1)
+            # coverage_odds = (child_nodes + 1) /  (external_nodes + 1)
+            # total_odds = (child_frequency + external_frequency + 1) / (len(total_nodes) + 1)
+
+            # child_density = (child_frequency+1) / (child_nodes+1)
+            # total_density = (total_frequency+1) / (total_nodes+1)
+
+            relative_dependence = ((child_frequency +1) / (total_frequency + 1)) / ((child_nodes+1) / (total_nodes+1))
+            # relative_dependence = (child_frequency + 1) / (total_frequency + 1) / (child_nodes + 1)
+        #     relative_dependence = (child_odds / external_odds)
+        #     relative_dependence = (child_odds / external_odds) / coverage_odds
+        #     relative_dependence = child_density/total_density
+
+            relative_dependence_scores[ci] = relative_dependence
+
+        relative_dependence_scores = relative_dependence_scores - relative_dependence_scores.T
+
+        return relative_dependence_scores
+
+    def partial_dependence(self):
+        total_nodes = self.nodes()
+        path_matrix = np.zeros((len(self.split_clusters),len(total_nodes)))
+        for node in total_nodes:
+            path_matrix[node.split_cluster,node.index] = True
+            if hasattr(node,'split_cluster'):
+                for descendant in node.nodes():
+                    path_matrix[node.split_cluster,descendant.index] = True
+        path_covariance = np.cov(path_matrix)
+        precision = np.linalg.pinv(path_covariance)
+    #     return precision
+
+        precision_normalization = np.sqrt(np.outer(np.diag(precision),np.diag(precision)))
+        path_partials = precision / precision_normalization
+
+        path_partials[np.isnan(path_partials)] = 0
+        return path_partials
+
+    def directional_matrix(self):
+        mean_levels = np.array([c.mean_level() for c in self.split_clusters])
+        level_matrix = np.zeros((len(self.split_clusters),len(self.split_clusters)),dtype=bool)
+        for ci in range(len(self.split_clusters)):
+            level_matrix[ci] = mean_levels < mean_levels[ci]
+
+        return level_matrix.astype(dtype=float)
+
+    def dependence_tree(self):
+
+        dependence_scores = self.relative_dependence_scores()
+
+        clusters = list(range(dependence_scores.shape[0]))
+
+        proto_tree = [[] for cluster in clusters]
+
+        for cluster in clusters:
+            parent = np.argmin(dependence_scores[cluster])
+            proto_tree[parent].append(cluster)
+
+
+        print(f"Prototype:{proto_tree}")
+        print(f"Transitions:{transitions}")
+
+        tree = []
+
+        entry = np.argmax(transitions[-1])
+
+        def finite_tree(cluster,prototype,available):
+            print(cluster)
+            children = []
+            try:
+                available.remove(cluster)
+            except:
+                pass
+            for child in prototype[cluster]:
+                if child in available:
+                    available.remove(child)
+                    children.append(child)
+            return [cluster,[finite_tree(child,prototype,available) for child in children]]
+
+        def reverse_tree(tree):
+            root = tree[0]
+            sub_trees = tree[1]
+            child_entries = {}
+            for sub_tree in sub_trees:
+                for child,path in reverse_tree(sub_tree).items():
+                    path.append(root)
+                    child_entries[child] = path
+            child_entries[root] = []
+            return child_entries
+
+
+        tree = finite_tree(cluster=entry,prototype=proto_tree,available=clusters)
+        rtree = reverse_tree(tree)
+
+        self.likely_tree = tree
+        self.reverse_likely_tree = rtree
+
+        return tree
+
+
     def most_likely_tree(self,depth=3,transitions=None):
 
         if transitions is None:
