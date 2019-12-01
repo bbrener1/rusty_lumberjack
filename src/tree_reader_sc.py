@@ -2053,7 +2053,7 @@ class Forest:
 
     def dependence_tree(self):
 
-        dependence_scores = self.relative_dependence_scores()
+        dependence_scores = self.partial_dependence() * self.directional_matrix()
 
         clusters = list(range(dependence_scores.shape[0]))
 
@@ -2065,11 +2065,11 @@ class Forest:
 
 
         print(f"Prototype:{proto_tree}")
-        print(f"Transitions:{transitions}")
+        print(f"Dependence scores:{dependence_scores}")
 
         tree = []
 
-        entry = np.argmax(transitions[-1])
+        entry = 0
 
         def finite_tree(cluster,prototype,available):
             print(cluster)
