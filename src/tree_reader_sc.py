@@ -2041,6 +2041,7 @@ class Forest:
         path_partials = precision / precision_normalization
 
         path_partials[np.isnan(path_partials)] = 0
+
         return path_partials
 
     def directional_matrix(self):
@@ -2054,6 +2055,8 @@ class Forest:
     def dependence_tree(self):
 
         dependence_scores = self.partial_dependence() * self.directional_matrix()
+
+        self.dependence_scores = dependence_scores
 
         clusters = list(range(dependence_scores.shape[0]))
 
@@ -2412,7 +2415,7 @@ class Forest:
                     else:
                         cp = 1
 
-                    arrow_canvas.plot([center_x,child_center_x],[center_y,child_center_y],linewidth=cp*.1,transform=arrow_canvas.transAxes)
+                    arrow_canvas.plot([center_x,child_center_x],[center_y,child_center_y],linewidth=cp*.01,transform=arrow_canvas.transAxes)
 
         if secondary:
             # If we want to indicate secondary connections:
@@ -2436,9 +2439,16 @@ class Forest:
 
                         # And plot a line with a weight equivalent to the number of transitions
 
-                        cp = self.split_cluster_transitions[i,j]
+                        # cp = self.split_cluster_transitions[i,j]
+                        # total = np.sum(self.split_cluster_transitions[i])
+                        # arrow_canvas.plot([center_x,child_center_x],[center_y,child_center_y],alpha=min(1,cp/total*2),linewidth=(cp**2)*.01,transform=arrow_canvas.transAxes)
+
+                        ## Alternatively, plot a line with a weight equivalent to the partial correlation of split clusters:
+
+                        cp = self.dependence_scores[i,j]
                         total = np.sum(self.split_cluster_transitions[i])
                         arrow_canvas.plot([center_x,child_center_x],[center_y,child_center_y],alpha=min(1,cp/total*2),linewidth=(cp**2)*.01,transform=arrow_canvas.transAxes)
+
 
             return fig
 
@@ -2958,35 +2968,35 @@ class NodeCluster:
 
         return scores
 
-    def dependence_scores(self):
-
-        total_nodes = self.forest.nodes()
-
-        cluster_nodes = self.nodes
-
-        cluster_children = [c for n in cluster_nodes for c in n.nodes()]
-        child_indices = set([n.index for n in cluster_children])
-        cluster_indices = set([n.index for n in cluster_nodes])
-        exclude_set = child_indices.union(cluster_indices)
-
-        external_nodes = [n for n in total_nodes if n.index not in child_indices]
-        external_indices = set([n.index for n in external_nodes])
-
-        child_frequency = np.zeros(len(self.forest.split_clusters))
-        external_frequency = np.zeros(len(self.forest.split_clusters))
-
-        for ci,cluster in enumerate(self.forest.split_clusters):
-            for node in cluster.nodes:
-                ni = node.index
-                if ni in child_indices:
-                    child_frequency[ci] += 1
-                if ni in external_indices:
-                    external_frequency[ci] += 1
-
-        # print(child_frequency)
-        # print(external_frequency)
-
-        return (np.array(child_frequency) + 1) / (np.array(external_frequency) + 1)
+    # def dependence_scores(self):
+    #
+    #     total_nodes = self.forest.nodes()
+    #
+    #     cluster_nodes = self.nodes
+    #
+    #     cluster_children = [c for n in cluster_nodes for c in n.nodes()]
+    #     child_indices = set([n.index for n in cluster_children])
+    #     cluster_indices = set([n.index for n in cluster_nodes])
+    #     exclude_set = child_indices.union(cluster_indices)
+    #
+    #     external_nodes = [n for n in total_nodes if n.index not in child_indices]
+    #     external_indices = set([n.index for n in external_nodes])
+    #
+    #     child_frequency = np.zeros(len(self.forest.split_clusters))
+    #     external_frequency = np.zeros(len(self.forest.split_clusters))
+    #
+    #     for ci,cluster in enumerate(self.forest.split_clusters):
+    #         for node in cluster.nodes:
+    #             ni = node.index
+    #             if ni in child_indices:
+    #                 child_frequency[ci] += 1
+    #             if ni in external_indices:
+    #                 external_frequency[ci] += 1
+    #
+    #     # print(child_frequency)
+    #     # print(external_frequency)
+    #
+    #     return (np.array(child_frequency) + 1) / (np.array(external_frequency) + 1)
 
     def prerequisites(self):
         prerequisite_dictionary = {}
