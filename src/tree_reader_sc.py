@@ -1,5 +1,3 @@
-global sdg_path
-
 import matplotlib as mpl
 # COLOR = 'white'
 # BACKGROUND = 'black'
@@ -52,6 +50,8 @@ from scipy.cluster.hierarchy import dendrogram,linkage
 from multiprocessing import Pool
 
 import copy
+
+sdg_path = None
 
 try:
     sys.path.append("/Users/boris/haxx/python/smooth_density_graph")
