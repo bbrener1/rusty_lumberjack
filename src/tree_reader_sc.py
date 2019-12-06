@@ -61,7 +61,7 @@ sdg_path_found = False
 
 from pathlib import Path
 sdg_path = Path(__file__).parent.parent.absolute()
-sdg_path = sdg_path + "/smooth_density_graph/"
+sdg_path = str(sdg_path) + "/smooth_density_graph/"
 print(f"Attempting to locate Smooth Density Graph in {sdg_path}")
 sys.path.append(sdg_path)
 # sys.path.append("../smooth_density_graph/")
