@@ -53,30 +53,11 @@ import copy
 
 sdg_path_found = False
 
-# try:
-#     sys.path.append("/Users/boris/haxx/python/smooth_density_graph")
-#     sdg_path_found = True
-# except:
-#     pass
-
 from pathlib import Path
 sdg_path = Path(__file__).parent.parent.absolute()
 sdg_path = str(sdg_path) + "/smooth_density_graph/"
-print(f"Attempting to locate Smooth Density Graph in {sdg_path}")
+# print(f"Attempting to locate Smooth Density Graph in {sdg_path}")
 sys.path.append(sdg_path)
-# sys.path.append("../smooth_density_graph/")
-# try:
-#     from pathlib import Path
-#     sdg_path = Path(__file__).parent().absoltue()
-#     print(f"Attempting to locate Smooth Density Graph in {sdg_path}")
-#     sys.path.append(sdg_path)
-#     sdg_path_found = True
-    # sys.path.append("../smooth_density_graph/")
-# except:
-#     pass
-
-# if not sdg_path_found:
-#     raise Exception
 
 import smooth_density_graph as sdg
 
