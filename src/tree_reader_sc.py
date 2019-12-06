@@ -1,3 +1,5 @@
+global sdg_path
+
 import matplotlib as mpl
 # COLOR = 'white'
 # BACKGROUND = 'black'
@@ -57,7 +59,7 @@ except:
     pass
 try:
     from pathlib import Path
-    global sdg_path = Path(__file__).parent().absoltue()
+    sdg_path = Path(__file__).parent().absoltue()
     print(f"Attempting to locate Smooth Density Graph in {sdg_path}")
     sys.path.append(sdg_path)
     # sys.path.append("../smooth_density_graph/")
