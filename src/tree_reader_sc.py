@@ -60,7 +60,7 @@ except:
     pass
 
 from pathlib import Path
-sdg_path = Path(__file__).parent.parent.absoltue()
+sdg_path = Path(__file__).parent.parent.absolute()
 print(f"Attempting to locate Smooth Density Graph in {sdg_path}")
 sys.path.append(sdg_path)
 sdg_path_found = True
