@@ -303,7 +303,7 @@ class Node:
 
         ancestors = []
         if self.parent is not None:
-            ancestors.append(parent)
+            ancestors.append(self.parent)
             ancestors.extend(self.parent.ancestors())
         return ancestors
 
@@ -1110,6 +1110,12 @@ class Forest:
             predictions.append(node.feature_median(feature))
         return predictions
 
+    def nodes_mean_predict_feature(self,nodes,feature):
+        predictions = []
+        for node in nodes:
+            predictions.append(node.feature_mean(feature))
+        return predictions
+
     def nodes_weighted_median_predict_feature(self,nodes,feature):
         predictions = []
         for node in nodes:
@@ -1738,7 +1744,7 @@ class Forest:
 
         combined_coordinates[self.output.shape[0]:] = cluster_coordiantes
 
-        highlight = np.ones(combined_coordinates.shape[0])
+        highlight = np.ones(combined_coordinates.shape[0]) * 3
         highlight[len(self.sample_labels):] = [len(cluster.samples) for cluster in self.sample_clusters]
         # for i,cluster in enumerate(self.sample_clusters):
         #
@@ -1753,16 +1759,16 @@ class Forest:
         cluster_coordiantes = combined_coordinates[len(self.sample_labels):]
 
         if label:
-            f = plt.figure(figsize=(10,10))
-            plt.title("TSNE-Transformed Cell Coordinates")
+            f = plt.figure(figsize=(20,20))
+            plt.title("Cell Coordinates")
             plt.scatter(combined_coordinates[:,0],combined_coordinates[:,1],s=highlight,c=combined_labels,cmap='rainbow')
             for cluster,coordinates in zip(cluster_names,cluster_coordiantes):
                 plt.text(*coordinates,cluster,verticalalignment='center',horizontalalignment='center')
             plt.savefig("./tmp.delete.png",dpi=300)
         else:
-            f = plt.figure(figsize=(10,10))
-            plt.title("TSNE-Transformed Cell Coordinates")
-            plt.scatter(combined_coordinates[:len(self.samples),0],combined_coordinates[:len(self.samples),1],s=1,c=combined_labels[:len(self.samples)],cmap='rainbow')
+            f = plt.figure(figsize=(20,20))
+            plt.title("Cell Coordinates")
+            plt.scatter(combined_coordinates[:len(self.samples),0],combined_coordinates[:len(self.samples),1],s=3,c=combined_labels[:len(self.samples)],cmap='rainbow')
             plt.savefig("./tmp.delete.png",dpi=300)
         return f
 
@@ -1803,11 +1809,26 @@ class Forest:
 
         return f
 
-    def sample_cluster_coordinate_matrix(self):
-        coordinates = np.zeros((len(self.sample_clusters),len(self.features)))
+    def sample_cluster_feature_matrix(self,features=None):
+        if features is None:
+            features = self.output_features
+        coordinates = np.zeros((len(self.sample_clusters),len(features)))
         for i,sample_cluster in enumerate(self.sample_clusters):
-            coordinates[i] = sample_cluster.median_feature_values()
+            for j,feature in enumerate(features):
+                # coordinates[i,j] = sample_cluster.feature_median(feature)
+                coordinates[i,j] = sample_cluster.feature_mean(feature)
         return coordinates
+
+    def split_cluster_feature_matrix(self,features=None):
+        if features is None:
+            features = self.output_features
+        coordinates = np.zeros((len(self.split_clusters),len(features)))
+        for i,split_cluster in enumerate(self.split_clusters):
+            for j,feature in enumerate(features):
+                coordinates[i,j] = split_cluster.feature_mean(feature)
+        return coordinates
+
+
 
     def tsne(self,no_plot=False,pca=True,override=False,**kwargs):
         if not hasattr(self,'tsne_coordinates') or override:
@@ -1860,6 +1881,18 @@ class Forest:
 
         return self.umap_coordinates
 
+    def umap_encoding(self,no_plot=False,override=False,**kwargs):
+        if not hasattr(self,'umap_coordinates') or override:
+            self.umap_coordinates = UMAP().fit_transform(self.node_sample_encoding(self.leaves()))
+
+        if not no_plot:
+            plt.figure()
+            plt.title("UMAP-Transformed Cell Coordinates")
+            plt.scatter(self.umap_coordinates[:,0],self.umap_coordinates[:,1],s=.1,**kwargs)
+            plt.show()
+
+        return self.umap_coordinates
+
     def coordinates(self,type=None,scaled=True,**kwargs):
 
         if type is None:
@@ -1868,11 +1901,14 @@ class Forest:
             else:
                 type = 'tsne'
 
+        self.coordinate_type = type
+
         type_functions = {
             'tsne':self.tsne,
             'tsne_encoding': self.tsne_encoding,
             'pca': self.pca,
             'umap': self.umap,
+            'umap_encoding': self.umap_encoding,
         }
 
         coordinates = type_functions[type](**kwargs)
@@ -1889,37 +1925,36 @@ class Forest:
 
         f = self.plot_cell_clusters()
 
-        # most_likely_tree = self.most_likely_tree(depth=depth)
-        most_likely_tree = self.maximum_spanning_tree(depth=depth)
-
         def recursive_tree_plot(parent,children,figure,level=0):
-            print("Recursion debug")
-            print(f"p:{parent}")
-            print(f"c:{children}")
+            # print("Recursion debug")
+            # print(f"p:{parent}")
+            # print(f"c:{children}")
             pc = self.split_clusters[parent].coordinates()
             vectors = []
             for child,sub_children in children:
                 if child == len(self.split_clusters):
                     continue
                 cc = self.split_clusters[child].coordinates()
-                print("coordinates")
-                print(f"p{parent}:{pc}")
-                print(f"c{child}:{cc}")
+                # print("coordinates")
+                # print(f"p{parent}:{pc}")
+                # print(f"c{child}:{cc}")
                 # v = pc - cc
                 v = cc - pc
+                # print(f"v:{v}")
                 plt.figure(figure.number)
-                plt.arrow(pc[0],pc[1],v[0],v[1],width=(depth+1-level)*.3,length_includes_head=True)
+                # plt.arrow(pc[0],pc[1],v[0],v[1],width=(depth+1-level)*.3,length_includes_head=True)
+                plt.arrow(pc[0],pc[1],v[0],v[1],length_includes_head=True)
                 vectors.append((pc,v))
                 figure,cv = recursive_tree_plot(child,sub_children,figure,level=level+1)
                 vectors.extend(cv)
-            print("===============")
+            # print("===============")
             return figure,vectors
 
-        f,v = recursive_tree_plot(most_likely_tree[0],most_likely_tree[1],f)
-
-        plt.savefig("./tmp.delete.png",dpi=300)
-
-        return f,v
+        f,v = recursive_tree_plot(self.likely_tree[0],self.likely_tree[1],f)
+        #
+        # plt.savefig("./tmp.delete.png",dpi=300)
+        #
+        # return f,v
 
     def plot_braid_vectors(self):
 
@@ -2045,14 +2080,79 @@ class Forest:
         return path_partials
 
     def directional_matrix(self):
-        mean_levels = np.array([c.mean_level() for c in self.split_clusters])
-        level_matrix = np.zeros((len(self.split_clusters),len(self.split_clusters)),dtype=bool)
-        for ci in range(len(self.split_clusters)):
-            level_matrix[ci] = mean_levels < mean_levels[ci]
+        downstream_frequency = np.zeros((len(self.split_clusters),len(self.split_clusters)),dtype=int)
+        upstream_frequency = np.zeros((len(self.split_clusters),len(self.split_clusters)),dtype=int)
 
-        return level_matrix.astype(dtype=float)
+        for cluster in self.split_clusters:
+            children = cluster.children()
+
+            for child in children:
+                if hasattr(child,'split_cluster'):
+                    downstream_frequency[cluster.id,child.split_cluster] += 1
+
+            ancestors = cluster.ancestors()
+
+            for ancestor in ancestors:
+                if hasattr(ancestor,'split_cluster'):
+                    upstream_frequency[cluster.id,ancestor.split_cluster] += 1
+
+        direction = np.sign(upstream_frequency-downstream_frequency)
+        direction[direction < 0] = 0
+
+        return direction
+
+            # ancestors = cluster.ancestors()
+
+
+
+
+        # mean_levels = np.array([c.mean_level() for c in self.split_clusters])
+        # level_matrix = np.zeros((len(self.split_clusters),len(self.split_clusters)),dtype=bool)
+        # for ci in range(len(self.split_clusters)):
+        #     level_matrix[ci] = mean_levels < mean_levels[ci]
+        #
+        # return level_matrix.astype(dtype=float)
+
+    ###############
+    ##### Here we have several alternative methods for constructing the consensus tree.
+    ###############
+
+    ##### Most of them depend on these two helper methods that belong only in this scope
+
+    #### The finite tree method takes a prototype, which is a list of lists.
+    #### Each element in the list corresponds to which elements consider this element their parent
+
+    def finite_tree(cluster,prototype,available):
+        # print(cluster)
+        children = []
+        try:
+            available.remove(cluster)
+        except:
+            pass
+        for child in prototype[cluster]:
+            if child in available:
+                available.remove(child)
+                children.append(child)
+        return [cluster,[Forest.finite_tree(child,prototype,available) for child in children]]
+
+    def reverse_tree(tree):
+        root = tree[0]
+        sub_trees = tree[1]
+        child_entries = {}
+        for sub_tree in sub_trees:
+            for child,path in Forest.reverse_tree(sub_tree).items():
+                path.append(root)
+                child_entries[child] = path
+        child_entries[root] = []
+        return child_entries
+
+    ##### End helpers
+
+
 
     def dependence_tree(self):
+
+        ## This method constructs a tree based on partial correlations between the occurrences of split clusters in paths to forest leaves.
 
         dependence_scores = self.partial_dependence() * self.directional_matrix()
 
@@ -2066,41 +2166,14 @@ class Forest:
             parent = np.argmin(dependence_scores[cluster])
             proto_tree[parent].append(cluster)
 
-
         print(f"Prototype:{proto_tree}")
         print(f"Dependence scores:{dependence_scores}")
 
         tree = []
-
         entry = 0
 
-        def finite_tree(cluster,prototype,available):
-            print(cluster)
-            children = []
-            try:
-                available.remove(cluster)
-            except:
-                pass
-            for child in prototype[cluster]:
-                if child in available:
-                    available.remove(child)
-                    children.append(child)
-            return [cluster,[finite_tree(child,prototype,available) for child in children]]
-
-        def reverse_tree(tree):
-            root = tree[0]
-            sub_trees = tree[1]
-            child_entries = {}
-            for sub_tree in sub_trees:
-                for child,path in reverse_tree(sub_tree).items():
-                    path.append(root)
-                    child_entries[child] = path
-            child_entries[root] = []
-            return child_entries
-
-
-        tree = finite_tree(cluster=entry,prototype=proto_tree,available=clusters)
-        rtree = reverse_tree(tree)
+        tree = Forest.finite_tree(cluster=entry,prototype=proto_tree,available=clusters)
+        rtree = Forest.reverse_tree(tree)
 
         self.likely_tree = tree
         self.reverse_likely_tree = rtree
@@ -2127,36 +2200,10 @@ class Forest:
         print(f"Transitions:{transitions}")
 
         tree = []
-
         entry = np.argmax(transitions[-1])
 
-        def finite_tree(cluster,prototype,available):
-            print(cluster)
-            children = []
-            try:
-                available.remove(cluster)
-            except:
-                pass
-            for child in prototype[cluster]:
-                if child in available:
-                    available.remove(child)
-                    children.append(child)
-            return [cluster,[finite_tree(child,prototype,available) for child in children]]
-
-        def reverse_tree(tree):
-            root = tree[0]
-            sub_trees = tree[1]
-            child_entries = {}
-            for sub_tree in sub_trees:
-                for child,path in reverse_tree(sub_tree).items():
-                    path.append(root)
-                    child_entries[child] = path
-            child_entries[root] = []
-            return child_entries
-
-
-        tree = finite_tree(cluster=entry,prototype=proto_tree,available=clusters)
-        rtree = reverse_tree(tree)
+        tree = Forest.finite_tree(cluster=entry,prototype=proto_tree,available=clusters)
+        rtree = Forest.reverse_tree(tree)
 
         self.likely_tree = tree
         self.reverse_likely_tree = rtree
@@ -2167,15 +2214,7 @@ class Forest:
 
         distances = self.split_cluster_transition_matrix(depth=depth)
         distances[:,-1] = 0
-        # mst = scipy.sparse.csgraph.minimum_spanning_tree(-1*transitions).todense()*-1
-        # mst = np.array(mst)
 
-        # scores = np.array([c.cell_counts() for c in self.split_clusters[1:]])
-        # distances = squareform(pdist(scores,metric='euclidean'))
-        # distances = squareform(pdist(scores,metric='correlation'))
-        # distances[0] = 1.
-
-        # mst = np.array(scipy.sparse.csgraph.minimum_spanning_tree(distances).todense())
         mst = np.array(scipy.sparse.csgraph.minimum_spanning_tree(distances*-1).todense())*-1
 
         mst = np.maximum(mst,mst.T)
@@ -2200,19 +2239,9 @@ class Forest:
                     children.append(child)
             return [cluster,[finite_tree(child,available) for child in children]]
 
-        def reverse_tree(tree):
-            root = tree[0]
-            sub_trees = tree[1]
-            child_entries = {}
-            for sub_tree in sub_trees:
-                for child,path in reverse_tree(sub_tree).items():
-                    path.append(root)
-                    child_entries[child] = path
-            child_entries[root] = []
-            return child_entries
 
         tree = finite_tree(0,clusters)
-        rtree = reverse_tree(tree)
+        rtree = Forest.reverse_tree(tree)
 
         self.likely_tree = tree
         self.reverse_likely_tree = rtree
@@ -2277,19 +2306,9 @@ class Forest:
                 output[1].append(rec_tree(child,parents))
             return output
 
-        def reverse_tree(tree):
-            root = tree[0]
-            sub_trees = tree[1]
-            child_entries = {}
-            for sub_tree in sub_trees:
-                for child,path in reverse_tree(sub_tree).items():
-                    path.append(root)
-                    child_entries[child] = path
-            child_entries[root] = []
-            return child_entries
 
         tree =  rec_tree(0,cluster_parents)
-        rtree = reverse_tree(tree)
+        rtree = Forest.reverse_tree(tree)
 
         self.likely_tree = tree
         self.reverse_likely_tree = rtree
@@ -2305,7 +2324,6 @@ class Forest:
             if len(l) < 1:
                 l.append(tree[0])
             return l
-
 
         def levels(tree,level=0):
             l = []
@@ -2606,7 +2624,15 @@ class SampleCluster:
 
         return leaf_clusters,leaf_cluster_counts
 
+    def feature_median(self,feature):
+        fi = self.forest.truth_dictionary.feature_dictionary[feature]
+        vector = self.forest.output[self.samples][:,fi]
+        return np.median(vector)
 
+    def feature_mean(self,feature):
+        fi = self.forest.truth_dictionary.feature_dictionary[feature]
+        vector = self.forest.output[self.samples][:,fi]
+        return np.mean(vector)
 
 class NodeCluster:
 
@@ -2617,6 +2643,14 @@ class NodeCluster:
 
     def encoding(self):
         return self.forest.node_sample_encoding(self.nodes)
+
+    def children(self):
+
+        return [c for n in self.nodes for c in n.nodes()]
+
+    def ancestors(self):
+
+        return [a for n in self.nodes for a in n.ancestors()]
 
     def cluster_children(self,nodes=None,mode='gain',metric='cosine',pca=False,distance='cosine',**kwargs):
 
@@ -2891,13 +2925,16 @@ class NodeCluster:
     def coordinates(self,coordinates=None):
 
         if coordinates is None:
-            coordinates = self.forest.tsne(no_plot=True)
+            coordinates = self.forest.coordinates(no_plot=True)
 
         cell_scores = self.cell_scores()
         cell_scores = np.power(cell_scores,2)
         mean_coordinates = np.dot(cell_scores,coordinates) / np.sum(cell_scores)
 
         return mean_coordinates
+
+    def feature_mean(self,feature):
+        return np.mean(self.forest.nodes_mean_predict_feature(self.nodes,feature))
 
     def cell_cluster_frequency(self,plot=True):
         cell_cluster_labels = self.forest.sample_labels
