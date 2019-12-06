@@ -53,11 +53,11 @@ import copy
 
 sdg_path_found = False
 
-try:
-    sys.path.append("/Users/boris/haxx/python/smooth_density_graph")
-    sdg_path_found = True
-except:
-    pass
+# try:
+#     sys.path.append("/Users/boris/haxx/python/smooth_density_graph")
+#     sdg_path_found = True
+# except:
+#     pass
 
 from pathlib import Path
 sdg_path = Path(__file__).parent.parent.absolute()
