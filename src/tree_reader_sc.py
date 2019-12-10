@@ -1053,6 +1053,13 @@ class Forest:
 
     def add_output_feature(self,feature_values,feature_name=None):
 
+        self.reset_cache()
+
+        if hasattr(self,'added_features'):
+            self.added_features += 1
+        else:
+            self.added_features = 1
+
         if feature_name is None:
             feature_name = str(len(self.output_features))
 
@@ -1064,6 +1071,20 @@ class Forest:
 
         for node in self.nodes():
             node.weights = np.append(node.weights,1.)
+
+    def reset_output_featuers(self):
+
+        if hasattr(self,'added_features'):
+            if self.added_features > 0:
+                removed_features = self.output_features[-self.added_features:]
+                print(f"Removing:{removed_features}")
+                self.output = self.output[:,:-self.added_features]
+                self.output_features = self.output_features[:-self.added_features]
+                for node in self.nodes():
+                    node.weights = node.weights[:-self.added_features]
+                for f in removed_features:
+                    self.truth_dictionary.feature_dictionary.pop(f)
+                self.added_features = 0
 
 ########################################################################
 ########################################################################
@@ -1295,7 +1316,7 @@ class Forest:
         raw_predictions = self.node_matrix(nodes)
         feature_weight_matrix = self.feature_weight_matrix(nodes)
 
-        single_prediction = np.dot(raw_predictions,feature_weight_matrix) / np.sum(feature_weight_matrix,axis=0)
+        single_prediction = np.dot(raw_predictions,feature_weight_matrix.T) / np.sum(feature_weight_matrix,axis=0)
 
         return single_prediction
 
@@ -1377,24 +1398,33 @@ class Forest:
 
     def cluster_samples_simple(self,override=False,pca=False,*args,**kwargs):
 
+        if hasattr(self,'sample_labels'):
+            self.reset_sample_clusters()
+
         counts = self.output
 
         if hasattr(self,'sample_clusters') and not override:
             print("Clustering has already been done")
             return self.sample_labels
         else:
-            if pca:
-                self.set_sample_labels(sdg.fit_predict(PCA(n_components=10).fit_transform(counts),*args,**kwargs))
+            if pca is not False:
+                self.set_sample_labels(sdg.fit_predict(PCA(n_components=pca).fit_transform(counts),*args,**kwargs))
             else:
                 self.set_sample_labels(sdg.fit_predict(counts,*args,**kwargs))
 
         return self.sample_labels
 
 
-    def cluster_samples_encoding(self,override=False,*args,**kwargs):
+    def cluster_samples_encoding(self,override=False,pca=False,*args,**kwargs):
+
+        if hasattr(self,'sample_labels'):
+            self.reset_sample_clusters()
 
         leaves = self.leaves()
         encoding = self.node_sample_encoding(leaves)
+
+        if pca is not False:
+            encoding = PCA(n_components=pca).fit_transform(encoding)
 
         if hasattr(self,'sample_clusters') and not override:
             print("Clustering has already been done")
@@ -1404,6 +1434,10 @@ class Forest:
         return self.sample_labels
 
     def cluster_samples_coocurrence(self,override=False,*args,**kwargs):
+
+        if hasattr(self,'sample_labels'):
+            self.reset_sample_clusters()
+
         leaves = self.leaves()
         encoding = self.node_sample_encoding(leaves)
         coocurrence = coocurrence_matrix(encoding)
@@ -1417,6 +1451,10 @@ class Forest:
         return self.sample_labels
 
     def cluster_samples_leaf_cluster(self,override=False,*args,**kwargs):
+
+        if hasattr(self,'sample_labels'):
+            self.reset_sample_clusters()
+
         leaves = self.leaves()
         encoding = self.node_sample_encoding(leaves)
         leaf_clusters = np.array([l.leaf_cluster for l in leaves])
@@ -1679,25 +1717,44 @@ class Forest:
             plt.imshow(image,aspect='auto',cmap='bwr')
             plt.show()
 
-    def reset_clusters(self):
+    def reset_sample_clusters(self):
         try:
+            self.reset_output_featuers()
             del self.sample_clusters
             del self.sample_cluster_encoding
             del self.sample_labels
         except:
-            pass
+            print("No sample clusters")
+
+    def reset_split_clusters(self):
+        try:
+            del self.split_clusters
+            for node in self.nodes():
+                node.child_clusters = ([],[])
+                if hasattr(node,'split_cluster'):
+                    del node.split_cluster
+        except:
+            print("No split clusters")
+
+    def reset_leaf_clusters(self):
         try:
             del self.leaf_clusters
             del self.leaf_labels
+            for node in self.nodes():
+                if hasattr(node,'leaf_cluster'):
+                    del node.leaf_cluster
         except:
-            pass
+            print("No leaf clusters")
 
-        for node in self.nodes():
-            node.child_clusters = ([],[])
-            if hasattr(node,'split_cluster'):
-                del node.split_cluster
-            if hasattr(node,'leaf_cluster'):
-                del node.leaf_cluster
+
+    def reset_clusters(self):
+
+        self.reset_sample_clusters()
+        self.reset_split_clusters()
+        self.reset_leaf_clusters()
+
+
+
 
 
 ########################################################################
@@ -2394,6 +2451,9 @@ class Forest:
             if type == "features":
                 if i < len(self.split_clusters) and i !=0:
                     self.split_clusters[i].feature_panel(ax,features)
+            if type == "additive_features":
+                if i < len(self.split_clusters) and i !=0:
+                    self.split_clusters[i].additive_panel(ax,features)
             if type == "score":
                 if i < len(self.split_clusters) and i !=0:
                     self.split_clusters[i].score_panel(ax)
@@ -2633,6 +2693,7 @@ class SampleCluster:
         fi = self.forest.truth_dictionary.feature_dictionary[feature]
         vector = self.forest.output[self.samples][:,fi]
         return np.mean(vector)
+
 
 class NodeCluster:
 
@@ -2936,6 +2997,12 @@ class NodeCluster:
     def feature_mean(self,feature):
         return np.mean(self.forest.nodes_mean_predict_feature(self.nodes,feature))
 
+    def feature_additive(self,feature):
+        return np.mean(self.forest.nodes_additive_predict_feature(self.nodes,feature))
+
+    def feature_mean_additive(self,feature):
+        return np.mean(self.forest.nodes_mean_additive_predict_feature(self.nodes,feature))
+
     def cell_cluster_frequency(self,plot=True):
         cell_cluster_labels = self.forest.sample_labels
         cell_counts = self.cell_counts()
@@ -3139,19 +3206,28 @@ class NodeCluster:
 
     def feature_panel(self,ax,features,**kwargs):
 
-        fd = self.forest.truth_dictionary.feature_dictionary
-
-        panel_array = np.zeros(len(features))
+        panel_array = np.zeros((len(features),1))
 
         for i,feature in enumerate(features):
-            fi = fd[feature]
-            cells = self.cell_scores
-            feature_mean = (cells * self.forest.output_features[:,fi]) / np.sum(cells)
+            feature_mean = self.feature_mean(feature)
             panel_array[i] = feature_mean
 
         ax.imshow(panel_array,aspect='auto',**kwargs)
-        plt.xticks(np.arange(n),features,rotation='vertical')
+        plt.yticks(np.arange(len(features)),features,rotation='horizontal')
         return ax
+
+    def additive_panel(self,ax,features,**kwargs):
+
+        panel_array = np.zeros((len(features),1))
+
+        for i,feature in enumerate(features):
+            feature_additive = self.feature_additive(feature)
+            panel_array[i] = feature_additive
+
+        ax.imshow(panel_array,aspect='auto',**kwargs)
+        plt.yticks(np.arange(len(features)),features,rotation='horizontal')
+        return ax
+
 
     def custom_panel(self,ax,custom,labels=None,**kwargs):
 
