@@ -2513,7 +2513,7 @@ class Forest:
             cb = fig.colorbar(mpl.cm.ScalarMappable(norm=normalization, cmap=cmap),ax=fig.get_axes())
             print(f"colorbar:{cb}")
 
-        fig.tight_layout()
+        # fig.tight_layout()
 
         # Next we want to connect the nodes to their canonical children:
 
@@ -2756,6 +2756,15 @@ class NodeCluster:
         self.id = id
         self.nodes = nodes
         self.forest = forest
+
+    def name(self):
+        if hasattr(self,'stored_name'):
+            return self.stored_name
+        else:
+            return str(self.id)
+
+    def set_name(self,name):
+        self.stored_name = name
 
     def encoding(self):
         return self.forest.node_sample_encoding(self.nodes)
@@ -3266,8 +3275,7 @@ class NodeCluster:
         panel_array = np.zeros((len(features),1))
 
         for i,feature in enumerate(features):
-            feature_mean = self.feature_mean(feature)
-            panel_array[i] = feature_mean
+            panel_array[i] = self.feature_mean(feature)
 
         ax.imshow(panel_array,aspect='auto',**kwargs)
         plt.yticks(np.arange(len(features)),features,rotation='horizontal')
@@ -3278,15 +3286,52 @@ class NodeCluster:
         panel_array = np.zeros((len(features),1))
 
         for i,feature in enumerate(features):
-            feature_additive = self.feature_additive(feature)
-            panel_array[i] = feature_additive
+            panel_array[i] = self.feature_additive(feature)
 
         ## We have to normalize the array in order to show
 
         ax.imshow(panel_array,aspect='auto',**kwargs,cmap='bwr',)
-        plt.yticks(np.arange(len(features)),features,rotation='horizontal',horizontalalignment='left')
+        # plt.yticks(np.arange(len(features)),features,rotation='horizontal',horizontalalignment='left')
         return ax
 
+    def css_additive_panel(self,features):
+        panel_array = np.zeros(len(features))
+
+        for i,feature in enumerate(features):
+            panel_array[i] = self.feature_additive(feature)
+
+        header_string = """
+        <style>
+        .cluster-""" + str(self.id) + """-container {
+          display: grid;
+          grid-template-columns: auto auto;
+          grid-gap: 10px;
+          padding: 10px;
+        }
+        .feature_name {
+          grid-column_start:0;
+        }
+        .feature_value {
+          grid-column_start:1;
+        }
+        </style>
+        """
+
+        header_string = header_string + f"<h1>Cluster {self.name()}</h1>"
+
+        header_string = header_string + f"""
+        <div class="cluster-{self.id}-container">
+        """
+
+        for feature,feature_value in zip(features,panel_array):
+            feature_spec_string = f"""
+            <div class="feature_name">{feature}</div>
+            <div class="feature_value">{feature_value}</div>
+            """
+            header_string = header_string + feature_spec_string
+
+        header_string = header_string + "</div>"
+        return header_string
 
     def custom_panel(self,ax,custom,labels=None,**kwargs):
 
