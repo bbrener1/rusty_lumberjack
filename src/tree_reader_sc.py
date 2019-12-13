@@ -97,6 +97,7 @@ class Node:
         # Note the unpacking is recursive to maintain the tree structure
         # There are probably other ways to encode this like network connectivity
         # matrices but I think this leads to slightly more elegant structure.
+        # We got python, we might as well use it
 
         if len(node_json['children']) > 0:
             self.children.append(Node(node_json['children'][0],self.tree,self.forest,parent=self,lr=0,level=level+1,cache=cache))
@@ -136,12 +137,19 @@ class Node:
         return nodes
 
     def node_counts(self):
+
+        # Obtains the count matrix of samples belonging to this node
+        # Samples are in order they are in the node
+
         node_counts = np.zeros((len(self.samples),self.forest.output.shape[1]))
         for i,sample in enumerate(self.samples):
             node_counts[i] = self.forest.output[sample]
         return node_counts
 
     def medians(self):
+
+        # Medians of all features in this node. Relies on node_counts
+
         if self.cache:
             if hasattr(self,'median_cache'):
                 return self.median_cache
@@ -152,11 +160,18 @@ class Node:
         return medians
 
     def feature_median(self,feature):
+
+        # Median of a specific feature within this node.
+        # Much faster than getting the entire matrix, obviously, unless medians are cached
+
         fi = self.forest.truth_dictionary.feature_dictionary[feature]
         values = [self.forest.output[s,fi] for s in self.samples]
         return np.median(values)
 
     def means(self):
+
+        # Means of all features within this node. Relies on node_counts
+
         if self.cache:
             if hasattr(self,'mean_cache'):
                 return self.mean_cache
@@ -167,11 +182,20 @@ class Node:
         return means
 
     def feature_mean(self,feature):
+
+        # As above, mean of an individual feature within this node
+
         fi = self.forest.truth_dictionary.feature_dictionary[feature]
         values = [self.forest.output[s,fi] for s in self.samples]
         return np.mean(values)
 
     def dispersions(self):
+
+        # Dispersions of this node. Hardcoded for SSME at the moment.
+        # RECOMPUTED FROM SCRATCH. This SHOULD be mathematically equivalent to what
+        # rust computes, but this is NOT guaranteed.
+        # To do eventually: altered dispersion modes?
+
         if self.cache:
             if hasattr(self,'dispersion_cache'):
                 return self.dispersion_cache
@@ -182,6 +206,10 @@ class Node:
         return dispersions
 
     def absolute_gains(self):
+
+        # Gains in dispersion relative to the root of the tree this node belongs to.
+        # Only works if dispersions are of the summation type (eg sum of squared errors etc)
+
         if self.cache:
             if hasattr(self,'absolute_gain_cache'):
                 return self.absolute_gain_cache
@@ -193,6 +221,10 @@ class Node:
         return gains
 
     def local_gains(self):
+
+        ## Gains in dispersion relative to the parent node.
+        ## As above, only works for summation-type errors like SSME
+
         if self.cache:
             if hasattr(self,'local_gain_cache'):
                 return self.local_gain_cache
@@ -207,6 +239,14 @@ class Node:
         return gains
 
     def additive_gains(self):
+
+        ## What is the change in absolute values of medians of all features between parent node
+        ## and this node?
+
+        ## What the hell is this method? If you have a sample, and you have a number of nodes
+        ## FROM THE SAME TREE that this sample belongs to, then summing the additive gains of
+        ## all nodes produces a prediction for that sample.
+
         if self.cache:
             if hasattr(self,'additive_cache'):
                 return self.additive_cache
@@ -221,6 +261,9 @@ class Node:
         return additive
 
     def feature_additive(self,feature):
+
+        # Additive gains for a single feature. See additive_gains for explanation of additive gains
+
         fi = self.forest.truth_dictionary.feature_dictionary[feature]
         own_value = self.feature_median(feature)
         if self.parent is not None:
@@ -230,6 +273,10 @@ class Node:
         return own_value - parent_value
 
     def feature_additive_mean(self,feature):
+
+        ## Additive gains using means instead of medians. Alternative prediction mode.
+        ## MAY produce superior results for features of intermediate sparsity.
+
         fi = self.forest.truth_dictionary.feature_dictionary[feature]
         own_value = self.feature_mean(feature)
         if self.parent is not None:
@@ -253,6 +300,7 @@ class Node:
     def stems(self):
 
         # Obtains all stems belonging to this node
+        # (Stems are not roots and not leaves)
 
         stems = []
         for child in self.children:
@@ -311,6 +359,8 @@ class Node:
 
         # Levelizes this tree
 
+        # (Eg: a list of lists, list[x] corresponds to all descendent nodes from this one that are x levels down)
+
         levels = [[self]]
         for child in self.children:
             child_levels = child.nodes_by_level()
@@ -334,9 +384,15 @@ class Node:
         return child_proportions
 
     def sample_names(self):
+
+        # Returns formal names (if any) for samples in this node
+
         return [self.forest.samples[i] for i in self.samples]
 
     def prerequisite_levels(self):
+
+        # May be defunct if prerequisites are going by the wayside in favor of braids
+
         prerequisite_levels = []
         for child in self.children:
             prerequisite_levels.extend(child.prerequisite_levels())
@@ -344,6 +400,9 @@ class Node:
         return prerequisite_levels
 
     def braid_levels(self):
+
+        # Provides the braids that appear in the children of this node, paired to the level they occur at
+
         braid_levels = []
         for child in self.children:
             braid_levels.extend(child.braid_levels())
@@ -351,6 +410,8 @@ class Node:
         return braid_levels
 
     def feature(self):
+
+        # Best guess at the "split feature" of this node, if any
 
         if self.split is not None:
             return self.split.feature['name']
@@ -381,6 +442,9 @@ class Node:
         return d
 
     def trim(depth):
+
+        # NOT YET FULLY IMPLEMENTED
+
         all_children = self.nodes()
         keep_children = set(self.descend(depth))
         for child in all_children:
@@ -404,6 +468,9 @@ class Node:
 
 
     def sample_leaves(self,sample):
+
+        # Predictive method
+        # Finds the leaves that a given sample belongs to in this (sub) tree
 
         if hasattr(self,"braid"):
             if self.braid is not None:
@@ -434,6 +501,10 @@ class Node:
 
     def sample_nodes(self,sample):
 
+        # Predictive method
+
+        # Finds all nodes that a sample belongs to in this (sub) tree
+
         nodes = [self,]
 
         if self.braid is not None:
@@ -455,9 +526,16 @@ class Node:
         return nodes
 
     def tree_path_vector(self):
+
+        # Binary left-right encoding of the path to this node. Primarily for internal use
+        # May be defunct with prerequisite phaseout
+
         return np.array([0 if prerequisite[2] == '<' else 1 for prerequisite in self.prerequisites])
 
     def leaf_distances(self):
+
+        # Experimental, attempts to produce within-tree distances of one leaf to another
+
         leaves = self.leaves()
         distances = np.zeros((len(leaves),len(leaves)))
         for i in range(len(leaves)):
@@ -475,12 +553,20 @@ class Node:
         return distances
 
     def add_child_cluster(self,cluster,lr):
+
+        # Keeps track of clusters that occur among child nodes.
+        # Useful for calculating cluster-cluster tree distances
+        # Experimental
+
         self.child_clusters[lr].append(cluster)
         if self.parent is not None:
             self.parent.add_child_cluster(cluster,self.lr)
 
 
     def set_split_cluster(self,cluster):
+
+        # Sets the node split cluster
+
         self.split_cluster = cluster
         if self.parent is not None:
             self.parent.add_child_cluster(cluster,self.lr)
@@ -489,11 +575,17 @@ class Node:
                 descendant.split_cluster = cluster
 
     def add_child_cluster(self,cluster,lr):
+
+        # Adds a cluster to the child cluster information of this node
+
         self.child_clusters[lr].append(cluster)
         if self.parent is not None:
             self.parent.add_child_cluster(cluster,self.lr)
 
     def l2_sum(self):
+
+        # Descriptive but not currently in use
+
         counts = self.node_counts()
         medians = np.median(counts,axis=0)
         tile = np.tile(medians,(counts.shape[0],1))
@@ -501,6 +593,9 @@ class Node:
         return np.sum(np.power(error,2))
 
     def l1_sum(self):
+
+        # Not currently in use (I think?)
+
         counts = self.node_counts()
         medians = np.median(counts,axis=0)
         tile = np.tile(medians,(counts.shape[0],1))
@@ -508,12 +603,19 @@ class Node:
         return np.sum(error)
 
     def l2_gain(self):
+
+        # Not currently in use
+
         if len(self.children) > 0:
             return self.l2_sum() - self.children[0].l2_sum() - self.children[1].l2_sum()
         else:
             return 0
 
     def sample_cluster_means(self):
+
+        # (roughly) provides the proportion of the samples in this node that belong to
+        # each sample cluster. Allows us to test if node clusters and sample clusters have a
+        # correspondence
 
         if self.cache:
             if hasattr(self,'sample_cluster_cache'):
@@ -528,6 +630,9 @@ class Node:
         return sample_cluster_means
 
     def reset_cache(self):
+
+        # Resets the cache values for various things.
+        # Save memory, avoid errors when you add/remove output features
 
         possible_caches = [
             "absolute_gain_cache",
@@ -939,6 +1044,10 @@ class Forest:
 
       # Methods for turning a set of nodes into an encoding matrix
       # For methods that turn nodes into float matrices see prediction
+
+      # Encoding matrices are boolean matrices, usually node x property
+      # Sample encoding matrix would be i,j, where i is ith node and j is whether
+      # sample j appears in that node
 
 ########################################################################
 ########################################################################
@@ -2374,6 +2483,9 @@ class Forest:
 
     def plot_tree_summary(self,n=3,type="ud",custom=None,labels=None,features=None,primary=True,cmap='viridis',secondary=False,figsize=(30,30)):
 
+        ## Helper methods:
+
+        ## Find the leaves of a tree
         def leaves(tree):
             l = []
             for child in tree[1]:
@@ -2382,6 +2494,7 @@ class Forest:
                 l.append(tree[0])
             return l
 
+        ## Find out how many levels are in this tree (eg its maximum depth)
         def levels(tree,level=0):
             l = []
             for child in tree[1]:
@@ -2398,8 +2511,9 @@ class Forest:
         arrow_canvas = fig.add_axes([0,0,1,1])
         arrow_canvas.axis('off')
 
+        # This function determines where to place everything, all coordinates are from 0 to 1, so are fractions of a canvas.
+        # The coordinates are placed in a list we pass to the function, because I didn't want to think about how to avoid doing this
         def recursive_axis_coordinates(tree,child_coordinates,limits=[0,1]):
-            # We will recursively construct the figure by placing panels of up/down genes
             [x,y] = limits
             child_width = 0
             # First we go lower in recursive layer and find how many children we need to account for from this leaf
@@ -2412,6 +2526,7 @@ class Forest:
             # print(f"x:{x},y:{y}")
             # print(f"{tree[0]}")
             # print(f"cw:{child_width}")
+
             # We have to place the current leaf at the average position of all leaves below
             padding = (child_width - width) / 2
             coordinates = [x + padding + (width * .1),y - (height * .9),width*.8,height*.8]
@@ -2466,15 +2581,7 @@ class Forest:
 
         from matplotlib.image import AxesImage
 
-        # print([c for c in fig.get_axes()])
-        # print([cc for c in fig.get_axes() for cc in c.get_children()])
-        # for object in [cc for c in fig.get_axes() for cc in c.get_children()]:
-        #     print(isinstance(object,AxesImage))
-        # print([type(cc) for c in fig.get_axes() for cc in c.get_children()])
-
         if any([isinstance(cc,AxesImage) for c in fig.get_axes() for cc in c.get_children()]):
-
-            print("AXES IMAGE FOUND")
 
             # We want a uniform normalization between all the panels
             # First we find the vmax and vmin values:
@@ -2508,7 +2615,7 @@ class Forest:
                         child.set_norm(normalization)
                         child.set_cmap(cmap)
 
-            ## Finally we create a colorbar that represents the unified view
+            ## Finally we create a colorbar that corresponds to the unified view
 
             cb = fig.colorbar(mpl.cm.ScalarMappable(norm=normalization, cmap=cmap),ax=fig.get_axes())
             print(f"colorbar:{cb}")
@@ -2589,6 +2696,7 @@ class Forest:
 
         #   recursive_axes(self.likely_tree,n=n)
         #   return fig
+
 
     def split_cluster_leaves(self):
         def tree_leaves(tree):
@@ -2777,39 +2885,71 @@ class NodeCluster:
 
         return [a for n in self.nodes for a in n.ancestors()]
 
-    def cluster_children(self,nodes=None,mode='gain',metric='cosine',pca=False,distance='cosine',**kwargs):
+    def braids(self):
+        return [node.braid for node in self.nodes if node.braid is not None]
 
-        print("Interpreting cluster children")
-        print(f"Cluster:{self.id}")
+    def parent_braids(self):
+        return [node.parent.braid for node in self.nodes if node.parent is not None if node.parent.braid is not None]
 
-        children = []
-        for node in self.nodes:
-            children.extend(node.children)
+    def parent_cluster(self):
+        try:
+            return self.forest.split_clusters[self.forest.reverse_likely_tree[self.id][0]]
+        except:
+            return self
+    def weighted_feature_predictions(self):
+        return self.forest.weighted_node_vector_prediction(self.nodes)
 
-        print(f"Child nodes:{len(children)}")
+    def changed_absolute_root(self,n=50,plot=True):
+        root = [self.forest.prototype.root,]
+        ordered_features,ordered_difference = self.forest.node_change_absolute(root,self.nodes)
+        return ordered_features,ordered_difference
 
-        child_representation = self.forest.node_representation(children,mode=mode,metric=metric,pca=pca)
+    def changed_absolute(self,n=50,plot=True):
+        parents = [n.parent for n in self.nodes if n.parent is not None]
+        ordered_features,ordered_difference = self.forest.node_change_absolute(parents,self.nodes)
+        return ordered_features,ordered_difference
 
-        child_labels = len(self.forest.split_clusters) + Forest.sdg_cluster_representation(child_representation,distance=distance,**kwargs)
+    def changed_log_fold(self,n=50,plot=True):
+        parents = [n.parent for n in self.nodes if n.parent is not None]
+        ordered_features,ordered_difference = self.forest.node_change_log_fold(parents,self.nodes)
+        return ordered_features,ordered_difference
 
-        self.forest.plot_representation(child_representation,labels=child_labels,mode=mode,metric=metric,pca=pca)
+    def logistic_sister(self,n=50,plot=True):
+        sisters = [n.sister() for n in self.nodes]
+        ordered_features,ordered_difference = self.forest.node_change_logistic(sisters,self.nodes)
+        return ordered_features,ordered_difference
 
-        for child,label in zip(children,child_labels):
-            child.set_split_cluster(label)
+    def coordinates(self,coordinates=None):
 
-        cluster_set = set(child_labels)
+        if coordinates is None:
+            coordinates = self.forest.coordinates(no_plot=True)
 
-        print(f"New clusters: {cluster_set}")
+        cell_scores = self.cell_scores()
+        cell_scores = np.power(cell_scores,2)
+        mean_coordinates = np.dot(cell_scores,coordinates) / np.sum(cell_scores)
 
-        clusters = []
+        return mean_coordinates
 
-        for cluster in cluster_set:
-            split_indices = np.arange(len(children))[child_labels == cluster]
-            clusters.append(NodeCluster(self.forest,[children[i] for i in split_indices],cluster))
+    def feature_mean(self,feature):
+        return np.mean(self.forest.nodes_mean_predict_feature(self.nodes,feature))
 
-        self.forest.split_clusters.extend(clusters)
+    # def feature_additive(self,feature):
+    #     return np.mean(self.forest.nodes_additive_predict_feature(self.nodes,feature))
+    def feature_additive(self,feature):
+        return np.mean([n.feature_additive(feature) for n in self.nodes])
 
-        return clusters
+    def feature_mean_additive(self,feature):
+        return np.mean(self.forest.nodes_mean_additive_predict_feature(self.nodes,feature))
+
+    def feature_means(self,features):
+        return np.array([self.feature_mean(feature) for feature in features])
+
+    def feature_additives(self,features):
+        return np.array([self.feature_additive(feature) for feature in features])
+
+    def feature_mean_additives(self,features):
+        return np.array([self.feature_mean_additive(feature) for feature in features])
+
 
     def mean_absolute_feature_gains(self):
         mean_gains = np.zeros(len(self.forest.features))
@@ -2925,17 +3065,6 @@ class NodeCluster:
 
         plt.show()
 
-    def braids(self):
-        return [node.braid for node in self.nodes if node.braid is not None]
-
-    def parent_braids(self):
-        return [node.parent.braid for node in self.nodes if node.parent is not None if node.parent.braid is not None]
-
-    def parent_cluster(self):
-        try:
-            return self.forest.split_clusters[self.forest.reverse_likely_tree[self.id][0]]
-        except:
-            return self
 
     def braid_scores(self):
 
@@ -3047,27 +3176,6 @@ class NodeCluster:
             plt.show()
         return ax
 
-    def coordinates(self,coordinates=None):
-
-        if coordinates is None:
-            coordinates = self.forest.coordinates(no_plot=True)
-
-        cell_scores = self.cell_scores()
-        cell_scores = np.power(cell_scores,2)
-        mean_coordinates = np.dot(cell_scores,coordinates) / np.sum(cell_scores)
-
-        return mean_coordinates
-
-    def feature_mean(self,feature):
-        return np.mean(self.forest.nodes_mean_predict_feature(self.nodes,feature))
-
-    # def feature_additive(self,feature):
-    #     return np.mean(self.forest.nodes_additive_predict_feature(self.nodes,feature))
-    def feature_additive(self,feature):
-        return np.mean([n.feature_additive(feature) for n in self.nodes])
-
-    def feature_mean_additive(self,feature):
-        return np.mean(self.forest.nodes_mean_additive_predict_feature(self.nodes,feature))
 
     def cell_cluster_frequency(self,plot=True):
         cell_cluster_labels = self.forest.sample_labels
@@ -3211,29 +3319,6 @@ class NodeCluster:
     # def mean_feature_predictions(self):
     #     return self.forest.weighted_node_prediction(self.nodes)
 
-    def weighted_feature_predictions(self):
-        return self.forest.weighted_node_vector_prediction(self.nodes)
-
-    def changed_absolute_root(self,n=50,plot=True):
-        root = [self.forest.prototype.root,]
-        ordered_features,ordered_difference = self.forest.node_change_absolute(root,self.nodes)
-        return ordered_features,ordered_difference
-
-    def changed_absolute(self,n=50,plot=True):
-        parents = [n.parent for n in self.nodes if n.parent is not None]
-        ordered_features,ordered_difference = self.forest.node_change_absolute(parents,self.nodes)
-        return ordered_features,ordered_difference
-
-    def changed_log_fold(self,n=50,plot=True):
-        parents = [n.parent for n in self.nodes if n.parent is not None]
-        ordered_features,ordered_difference = self.forest.node_change_log_fold(parents,self.nodes)
-        return ordered_features,ordered_difference
-
-    def logistic_sister(self,n=50,plot=True):
-        sisters = [n.sister() for n in self.nodes]
-        ordered_features,ordered_difference = self.forest.node_change_logistic(sisters,self.nodes)
-        return ordered_features,ordered_difference
-
     def plot_changed(self,n=50,plot=True):
         parents = [n.parent for n in self.nodes if n.parent is not None]
 
@@ -3270,6 +3355,7 @@ class NodeCluster:
         ax.set_yticks([])
         return ax
 
+
     def feature_panel(self,ax,features,**kwargs):
 
         panel_array = np.zeros((len(features),1))
@@ -3294,44 +3380,6 @@ class NodeCluster:
         # plt.yticks(np.arange(len(features)),features,rotation='horizontal',horizontalalignment='left')
         return ax
 
-    def css_additive_panel(self,features):
-        panel_array = np.zeros(len(features))
-
-        for i,feature in enumerate(features):
-            panel_array[i] = self.feature_additive(feature)
-
-        header_string = """
-        <style>
-        .cluster-""" + str(self.id) + """-container {
-          display: grid;
-          grid-template-columns: auto auto;
-          grid-gap: 10px;
-          padding: 10px;
-        }
-        .feature_name {
-          grid-column_start:0;
-        }
-        .feature_value {
-          grid-column_start:1;
-        }
-        </style>
-        """
-
-        header_string = header_string + f"<h1>Cluster {self.name()}</h1>"
-
-        header_string = header_string + f"""
-        <div class="cluster-{self.id}-container">
-        """
-
-        for feature,feature_value in zip(features,panel_array):
-            feature_spec_string = f"""
-            <div class="feature_name">{feature}</div>
-            <div class="feature_value">{feature_value}</div>
-            """
-            header_string = header_string + feature_spec_string
-
-        header_string = header_string + "</div>"
-        return header_string
 
     def custom_panel(self,ax,custom,labels=None,**kwargs):
 
@@ -3399,6 +3447,40 @@ class NodeCluster:
         text_rectangle(ax,str(np.around(self.mean_population(),decimals=1)),[.62,.3,.33,.06],no_warp=True,linewidth=0)
 
         return ax
+
+    def cluster_children(self,nodes=None,mode='gain',metric='cosine',pca=False,distance='cosine',**kwargs):
+
+        print("Interpreting cluster children")
+        print(f"Cluster:{self.id}")
+
+        children = []
+        for node in self.nodes:
+            children.extend(node.children)
+
+        print(f"Child nodes:{len(children)}")
+
+        child_representation = self.forest.node_representation(children,mode=mode,metric=metric,pca=pca)
+
+        child_labels = len(self.forest.split_clusters) + Forest.sdg_cluster_representation(child_representation,distance=distance,**kwargs)
+
+        self.forest.plot_representation(child_representation,labels=child_labels,mode=mode,metric=metric,pca=pca)
+
+        for child,label in zip(children,child_labels):
+            child.set_split_cluster(label)
+
+        cluster_set = set(child_labels)
+
+        print(f"New clusters: {cluster_set}")
+
+        clusters = []
+
+        for cluster in cluster_set:
+            split_indices = np.arange(len(children))[child_labels == cluster]
+            clusters.append(NodeCluster(self.forest,[children[i] for i in split_indices],cluster))
+
+        self.forest.split_clusters.extend(clusters)
+
+        return clusters
 
 
 ################################
@@ -3647,6 +3729,38 @@ def count_list_elements(elements):
             dict[element] = 0
         dict[element] += 1
     return dict
+
+def generate_feature_value_html(features,values,normalization=None,cmap=None):
+
+    if cmap is None:
+        from matplotlib.cm import get_cmap
+        cmap = get_cmap('viridis')
+
+    html_elements = [
+        "<table>",
+        "<style>","th,td {padding:5px;border-bottom:1px solid #ddd;}","</style>",
+        "<tr>",
+        "<th>","Features","</th>",
+        "<th>","Values","</th>",
+        "</tr>",
+    ]
+    for feature,value in zip(features,values):
+        value_color_tag = ""
+        if normalization is not None:
+            normed_value = normalization(value)
+            r,g,b,a = cmap(normed_value)
+            r,g,b,a = r*100,g*100,b*100,a*100
+            value_color_tag = f'style="background-color:rgba({r}%,{g}%,{b}%,50%);"'
+        feature_elements = f"""
+            <tr>
+                <td>{feature}</td>
+                <td {value_color_tag}>{value}</td>
+            </td>
+        """
+        html_elements.append(feature_elements)
+
+    html_elements.append("</table>")
+    return "".join(html_elements)
 
 def text_rectangle(ax,text,rect,no_warp=True,color=None,edgecolor='b',linewidth=3,**kwargs):
 
