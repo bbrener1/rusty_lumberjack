@@ -1425,7 +1425,7 @@ class Forest:
         raw_predictions = self.node_matrix(nodes)
         feature_weight_matrix = self.feature_weight_matrix(nodes)
 
-        single_prediction = np.dot(raw_predictions,feature_weight_matrix.T) / np.sum(feature_weight_matrix,axis=0)
+        single_prediction = np.sum(raw_predictions * feature_weight_matrix,axis=0) / np.sum(feature_weight_matrix,axis=0)
 
         return single_prediction
 
@@ -1619,7 +1619,6 @@ class Forest:
             self.set_leaf_labels(sdg.fit_predict(predictions,*args,**kwargs))
 
         return self.leaf_labels
-
 
     def node_change_absolute(self,nodes1,nodes2):
         # First we obtain the medians for the nodes in question
@@ -2881,6 +2880,10 @@ class NodeCluster:
 
         return [c for n in self.nodes for c in n.nodes()]
 
+    def parents(self):
+
+        return [n.parent for n in self.nodes if n.parent is not None]
+
     def ancestors(self):
 
         return [a for n in self.nodes for a in n.ancestors()]
@@ -2899,20 +2902,27 @@ class NodeCluster:
     def weighted_feature_predictions(self):
         return self.forest.weighted_node_vector_prediction(self.nodes)
 
-    def changed_absolute_root(self,n=50,plot=True):
+    def changed_absolute_root(self):
         root = [self.forest.prototype.root,]
         ordered_features,ordered_difference = self.forest.node_change_absolute(root,self.nodes)
         return ordered_features,ordered_difference
 
-    def changed_absolute(self,n=50,plot=True):
+    def changed_absolute(self):
         parents = [n.parent for n in self.nodes if n.parent is not None]
         ordered_features,ordered_difference = self.forest.node_change_absolute(parents,self.nodes)
         return ordered_features,ordered_difference
 
-    def changed_log_fold(self,n=50,plot=True):
+    def changed_log_fold(self):
         parents = [n.parent for n in self.nodes if n.parent is not None]
         ordered_features,ordered_difference = self.forest.node_change_log_fold(parents,self.nodes)
         return ordered_features,ordered_difference
+
+    def ranked_additive(self):
+        additive = self.forest.node_representation(self.nodes,mode='additive')
+        mean_additive = np.mean(additive,axis=0)
+        sort = np.argsort(mean_additive)
+        return self.forest.output_features[sort],mean_additive[sort]
+
 
     def logistic_sister(self,n=50,plot=True):
         sisters = [n.sister() for n in self.nodes]
@@ -2950,6 +2960,37 @@ class NodeCluster:
     def feature_mean_additives(self,features):
         return np.array([self.feature_mean_additive(feature) for feature in features])
 
+    def mean_level(self):
+        return np.mean([n.level for n in self.nodes])
+
+    def mean_population(self):
+        return np.mean([len(n.samples) for n in self.nodes])
+
+    def cell_scores(self):
+        cluster_encoding = self.encoding()
+        return np.sum(cluster_encoding,axis=1) / (cluster_encoding.shape[1] + 1)
+
+    def cell_counts(self):
+        encoding = self.encoding()
+        return np.sum(encoding,axis=1)
+
+    def sister_scores(self):
+        own = self.nodes
+        sisters = [sister for n in own for sister in [n.sister(),] if sister is not None]
+        own_encoding = self.forest.node_sample_encoding(own).astype(dtype=int)
+        sister_encoding = self.forest.node_sample_encoding(sisters).astype(dtype=int)
+        scores = (np.sum(own_encoding,axis=1) + (-1 * np.sum(sister_encoding,axis=1))) / own_encoding.shape[1]
+
+        return scores
+
+    def absolute_sister_scores(self):
+        own = self.nodes
+        sisters = [sister for n in own for sister in [n.sister(),] if sister is not None]
+        own_encoding = self.forest.node_sample_encoding(own).astype(dtype=int)
+        sister_encoding = self.forest.node_sample_encoding(sisters).astype(dtype=int)
+        scores = (np.sum(own_encoding,axis=1) + np.sum(sister_encoding,axis=1)) / own_encoding.shape[1]
+
+        return scores
 
     def mean_absolute_feature_gains(self):
         mean_gains = np.zeros(len(self.forest.features))
@@ -2986,84 +3027,124 @@ class NodeCluster:
 
         return sorted_features,sorted_gains
 
-    def biological_cluster_summary(self):
-        levels = [node.level for node in self.nodes]
+    def html_cluster_summary(self,n=20):
 
-        fig = plt.figure(figsize=(20,10))
+        # Create a temp directory for storing summary info
 
-        # fig.suptitle(f"Summary of Leaf Cluster {self.id}")
+        import tempfile as tmp
 
-        ax_levels = fig.add_axes([.875,.025,.1,.2])
-        ax_levels.set_title("Leaf Levels")
-        ax_levels.set_ylabel("Frequency")
-        ax_levels.hist(levels)
+        tmp_dir = tmp.TemporaryDirectory()
+        location = tmp_dir.name + "/"
 
-        leaf_size = [len(node.samples) for node in self.nodes]
+        # We copy over the html template for the summary:
 
-        ax_leaf_size = fig.add_axes([.875,.275,.1,.2])
-        ax_leaf_size.set_title("Leaf Sizes")
-        ax_leaf_size.hist(leaf_size)
-        ax_leaf_size.set_ylabel("Frequency")
+        import shutil
+        shutil.copyfile('../cluster_summary_template.html',location+"cluster_summary_template.html")
 
-        ordered_features,ordered_difference = self.changed_absolute_root()
+        # Now we need to dump some summary information in that directory
 
-        range = max(np.abs(np.min(ordered_difference.flatten())),np.max(ordered_difference)) * 1.1
+        changed_features,change_fold = self.changed_log_fold()
 
-        ax_downregulated = fig.add_axes([.025,.775,.2,.2])
-        ax_downregulated.set_title("Downregulated Genes",fontsize=20)
-        ax_downregulated.set_ylabel("Mean downregulation (Log TPM)",fontsize=10)
-        ax_downregulated.bar(np.arange(10),ordered_difference[:10])
-        ax_downregulated.set_ylim(-range,range)
-        ax_downregulated.set_xticks(np.arange(10))
-        ax_downregulated.set_xticklabels(ordered_features[:10],rotation=45,verticalalignment='top',horizontalalignment='right',fontsize=12)
+        print(changed_features)
+        print(change_fold)
 
-        ax_upregulated = fig.add_axes([.25,.775,.2,.2])
-        ax_upregulated.set_title("Upregulated Genes",fontsize=20)
-        ax_upregulated.set_ylabel("Mean upregulation (Log TPM)",labelpad=10,fontsize=10)
-        ax_upregulated.yaxis.set_label_position('right')
-        ax_upregulated.bar(np.arange(10),ordered_difference[-10:])
-        ax_upregulated.set_ylim(-range,range)
-        ax_upregulated.set_xticks(np.arange(10))
-        ax_upregulated.set_xticklabels(ordered_features[-10:],rotation=45,verticalalignment='top',horizontalalignment='right',fontsize=12)
+        with open(location+"upregulated",'w') as upregulated_file:
+            html_str = generate_feature_value_html(changed_features[-n:],change_fold[-n:],cmap='bwr')
 
-        ordered_prerequisites,prerequisite_counts = self.prerequisite_frequency(plot=False)
+        with open(location+"downregulated",'w') as downregulated_file:
+            html_str = generate_feature_value_html(changed_features[:n],change_fold[:n],cmap='bwr')
 
-        ax_prerequisites = fig.add_axes([.025,.41,.45,.2])
-        ax_prerequisites.set_title("Prerequisites By Frequency",fontsize=20)
-        ax_prerequisites.bar(np.arange(10),prerequisite_counts[-10:])
-        ax_prerequisites.set_ylabel("Frequency",fontsize=15)
-        ax_prerequisites.set_xticks(np.arange(10))
-        ax_prerequisites.set_xticklabels(ordered_prerequisites[-10:],rotation=45,verticalalignment='top',horizontalalignment='right',fontsize=12)
+        forest_coordinates = self.forest.coordinates()
+        sister_scores = self.sister_scores()
+        plt.figure()
+        plt.scatter(forest_coordinates[:,0],forest_coordinates[:,1],c=sister_scores,cmap='bwr')
+        plt.savefig(location+"sister_map.png")
 
-        cell_clusters,cell_cluster_frequency = self.cell_cluster_frequency(plot=False)
+        # Finally we ask the OS to open the html file.
+        # os.system(f'open {location + "cluster_summary_template.html"}')
+        from subprocess import run
+        run(["open",location + "cluster_summary_template.html"])
 
-        ax_cluster_frequency = fig.add_axes([.025,.025,.45,.2])
-        ax_cluster_frequency.set_title("Leaf Cluster/Cell Cluster Relation",fontsize=20)
-        ax_cluster_frequency.bar(np.arange(len(cell_clusters)),cell_cluster_frequency)
-        ax_cluster_frequency.set_xticks(np.arange(len(cell_clusters)))
-        ax_cluster_frequency.set_xticklabels(cell_clusters,fontsize=15)
-        ax_cluster_frequency.set_xlabel("Cell Clusters",fontsize=15)
-        ax_cluster_frequency.set_ylabel("Frequency",fontsize=15)
+        pass
 
-        prereqs = self.average_prereq_freq_level(plot=False)
-
-        prereqs = [prereq for prereq in prereqs if prereq[0][:2] != "CG"]
-        prereqs = sorted(prereqs,key=lambda prereq: prereq[1][1])[::-1]
-
-        prereq_features = [prereq[0] for prereq in prereqs]
-        prereq_levels = [prereq[1][0] for prereq in prereqs]
-        prereq_frequencies = [prereq[1][1] * 10 for prereq in prereqs]
-
-        ax_path = fig.add_axes([.6,.025,.2,.95])
-        ax_path.set_title(f"The Path to Cluster {self.id}",fontsize=20)
-        ax_path.scatter(prereq_levels[:50],np.arange(49,-1,-1),s=prereq_frequencies[:50])
-        ax_path.set_xlabel("Average Level of Decision",fontsize=15)
-        # ax_path.set_xlim(max(prereq_levels[:20])*1.1,-0.01)
-        ax_path.set_yticks(np.arange(49,-1,-1))
-        ax_path.set_yticklabels(prereq_features[:50],fontsize=14)
-        # ax_path.grid(axis='y')
-
-        plt.show()
+    # def biological_cluster_summary(self):
+    #     levels = [node.level for node in self.nodes]
+    #
+    #     fig = plt.figure(figsize=(20,10))
+    #
+    #     # fig.suptitle(f"Summary of Leaf Cluster {self.id}")
+    #
+    #     ax_levels = fig.add_axes([.875,.025,.1,.2])
+    #     ax_levels.set_title("Leaf Levels")
+    #     ax_levels.set_ylabel("Frequency")
+    #     ax_levels.hist(levels)
+    #
+    #     leaf_size = [len(node.samples) for node in self.nodes]
+    #
+    #     ax_leaf_size = fig.add_axes([.875,.275,.1,.2])
+    #     ax_leaf_size.set_title("Leaf Sizes")
+    #     ax_leaf_size.hist(leaf_size)
+    #     ax_leaf_size.set_ylabel("Frequency")
+    #
+    #     ordered_features,ordered_difference = self.changed_absolute_root()
+    #
+    #     range = max(np.abs(np.min(ordered_difference.flatten())),np.max(ordered_difference)) * 1.1
+    #
+    #     ax_downregulated = fig.add_axes([.025,.775,.2,.2])
+    #     ax_downregulated.set_title("Downregulated Genes",fontsize=20)
+    #     ax_downregulated.set_ylabel("Mean downregulation (Log TPM)",fontsize=10)
+    #     ax_downregulated.bar(np.arange(10),ordered_difference[:10])
+    #     ax_downregulated.set_ylim(-range,range)
+    #     ax_downregulated.set_xticks(np.arange(10))
+    #     ax_downregulated.set_xticklabels(ordered_features[:10],rotation=45,verticalalignment='top',horizontalalignment='right',fontsize=12)
+    #
+    #     ax_upregulated = fig.add_axes([.25,.775,.2,.2])
+    #     ax_upregulated.set_title("Upregulated Genes",fontsize=20)
+    #     ax_upregulated.set_ylabel("Mean upregulation (Log TPM)",labelpad=10,fontsize=10)
+    #     ax_upregulated.yaxis.set_label_position('right')
+    #     ax_upregulated.bar(np.arange(10),ordered_difference[-10:])
+    #     ax_upregulated.set_ylim(-range,range)
+    #     ax_upregulated.set_xticks(np.arange(10))
+    #     ax_upregulated.set_xticklabels(ordered_features[-10:],rotation=45,verticalalignment='top',horizontalalignment='right',fontsize=12)
+    #
+    #     # ordered_prerequisites,prerequisite_counts = self.prerequisite_frequency(plot=False)
+    #     #
+    #     # ax_prerequisites = fig.add_axes([.025,.41,.45,.2])
+    #     # ax_prerequisites.set_title("Prerequisites By Frequency",fontsize=20)
+    #     # ax_prerequisites.bar(np.arange(10),prerequisite_counts[-10:])
+    #     # ax_prerequisites.set_ylabel("Frequency",fontsize=15)
+    #     # ax_prerequisites.set_xticks(np.arange(10))
+    #     # ax_prerequisites.set_xticklabels(ordered_prerequisites[-10:],rotation=45,verticalalignment='top',horizontalalignment='right',fontsize=12)
+    #
+    #     cell_clusters,cell_cluster_frequency = self.cell_cluster_frequency(plot=False)
+    #
+    #     ax_cluster_frequency = fig.add_axes([.025,.025,.45,.2])
+    #     ax_cluster_frequency.set_title("Leaf Cluster/Cell Cluster Relation",fontsize=20)
+    #     ax_cluster_frequency.bar(np.arange(len(cell_clusters)),cell_cluster_frequency)
+    #     ax_cluster_frequency.set_xticks(np.arange(len(cell_clusters)))
+    #     ax_cluster_frequency.set_xticklabels(cell_clusters,fontsize=15)
+    #     ax_cluster_frequency.set_xlabel("Cell Clusters",fontsize=15)
+    #     ax_cluster_frequency.set_ylabel("Frequency",fontsize=15)
+    #
+    #     # prereqs = self.average_prereq_freq_level(plot=False)
+    #     #
+    #     # prereqs = [prereq for prereq in prereqs if prereq[0][:2] != "CG"]
+    #     # prereqs = sorted(prereqs,key=lambda prereq: prereq[1][1])[::-1]
+    #     #
+    #     # prereq_features = [prereq[0] for prereq in prereqs]
+    #     # prereq_levels = [prereq[1][0] for prereq in prereqs]
+    #     # prereq_frequencies = [prereq[1][1] * 10 for prereq in prereqs]
+    #     #
+    #     # ax_path = fig.add_axes([.6,.025,.2,.95])
+    #     # ax_path.set_title(f"The Path to Cluster {self.id}",fontsize=20)
+    #     # ax_path.scatter(prereq_levels[:50],np.arange(49,-1,-1),s=prereq_frequencies[:50])
+    #     # ax_path.set_xlabel("Average Level of Decision",fontsize=15)
+    #     # # ax_path.set_xlim(max(prereq_levels[:20])*1.1,-0.01)
+    #     # ax_path.set_yticks(np.arange(49,-1,-1))
+    #     # ax_path.set_yticklabels(prereq_features[:50],fontsize=14)
+    #     # # ax_path.grid(axis='y')
+    #
+    #     plt.show()
 
 
     def braid_scores(self):
@@ -3098,17 +3179,6 @@ class NodeCluster:
             if feature not in features:
                 features[feature] = 0
             features[feature] += 1
-            # for feature in braid.features:
-            #     if feature not in features:
-            #         features[feature] = 0
-            #     features[feature] += 1
-
-        # braid_scores = self.braid_scores()
-
-        # for feature in features.keys():
-        #     feature_index = self.forest.truth_dictionary.feature_dictionary[feature]
-        #     feature_values = self.forest.output[:,feature_index]
-            # features[feature] *= np.sign(scipy.stats.spearmanr(feature_values,braid_scores)[0])
 
         return features
 
@@ -3196,17 +3266,6 @@ class NodeCluster:
         return cell_clusters,cluster_counts
 
 
-    def cell_counts(self):
-        encoding = self.encoding()
-        return np.sum(encoding,axis=1)
-
-    def mean_level(self):
-
-        return np.mean([n.level for n in self.nodes])
-
-    def mean_population(self):
-
-        return np.mean([len(n.samples) for n in self.nodes])
 
     def plot_cell_counts(self,**kwargs):
         counts = self.cell_counts()
@@ -3215,36 +3274,7 @@ class NodeCluster:
         plt.colorbar()
         plt.show()
 
-    def cell_scores(self):
-        # forest_encoding = self.forest.node_sample_encoding(self.forest.nodes())
-        # cluster_encoding = self.encoding()
-        # return np.sum(cluster_encoding,axis=1) / np.sum(forest_encoding,axis=1)
-        cluster_encoding = self.encoding()
-        return np.sum(cluster_encoding,axis=1) / (cluster_encoding.shape[1] + 1)
 
-    def sister_scores(self):
-
-        own = self.nodes
-        sisters = [sister for n in own for sister in [n.sister(),] if sister is not None]
-
-        own_encoding = self.forest.node_sample_encoding(own).astype(dtype=int)
-        sister_encoding = self.forest.node_sample_encoding(sisters).astype(dtype=int)
-
-        scores = (np.sum(own_encoding,axis=1) + (-1 * np.sum(sister_encoding,axis=1))) / own_encoding.shape[1]
-
-        return scores
-
-    def absolute_sister_scores(self):
-
-        own = self.nodes
-        sisters = [sister for n in own for sister in [n.sister(),] if sister is not None]
-
-        own_encoding = self.forest.node_sample_encoding(own).astype(dtype=int)
-        sister_encoding = self.forest.node_sample_encoding(sisters).astype(dtype=int)
-
-        scores = (np.sum(own_encoding,axis=1) + np.sum(sister_encoding,axis=1)) / own_encoding.shape[1]
-
-        return scores
 
     # def dependence_scores(self):
     #
@@ -3357,25 +3387,13 @@ class NodeCluster:
 
 
     def feature_panel(self,ax,features,**kwargs):
-
-        panel_array = np.zeros((len(features),1))
-
-        for i,feature in enumerate(features):
-            panel_array[i] = self.feature_mean(feature)
-
+        panel_array = self.feature_means(features)
         ax.imshow(panel_array,aspect='auto',**kwargs)
         plt.yticks(np.arange(len(features)),features,rotation='horizontal')
         return ax
 
     def additive_panel(self,ax,features,**kwargs):
-
-        panel_array = np.zeros((len(features),1))
-
-        for i,feature in enumerate(features):
-            panel_array[i] = self.feature_additive(feature)
-
-        ## We have to normalize the array in order to show
-
+        panel_array = self.feature_additives(features)
         ax.imshow(panel_array,aspect='auto',**kwargs,cmap='bwr',)
         # plt.yticks(np.arange(len(features)),features,rotation='horizontal',horizontalalignment='left')
         return ax
@@ -3732,9 +3750,16 @@ def count_list_elements(elements):
 
 def generate_feature_value_html(features,values,normalization=None,cmap=None):
 
-    if cmap is None:
-        from matplotlib.cm import get_cmap
-        cmap = get_cmap('viridis')
+    if not isinstance(cmap,mpl.colors.Colormap):
+        try:
+            matplotlib.cm.get_cmap(cmap)
+        except:
+            from matplotlib.cm import get_cmap
+            cmap = get_cmap('viridis')
+    if normalization is None:
+        from matplotlib.colors import SymLogNorm,DivergingNorm
+        normalization = DivergingNorm(0)
+        # normalization = SymLogNorm(linthresh=.05)
 
     html_elements = [
         "<table>",
