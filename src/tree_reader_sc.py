@@ -3033,8 +3033,7 @@ class NodeCluster:
 
         import tempfile as tmp
 
-        tmp_dir = tmp.TemporaryDirectory()
-        location = tmp_dir.name + "/"
+        location = "../html/"
 
         # We copy over the html template for the summary:
 
@@ -3048,11 +3047,13 @@ class NodeCluster:
         print(changed_features)
         print(change_fold)
 
-        with open(location+"upregulated",'w') as upregulated_file:
+        with open(location+"upregulated.html",'w') as upregulated_file:
             html_str = generate_feature_value_html(changed_features[-n:],change_fold[-n:],cmap='bwr')
+            upregulated_file.write(html_str)
 
-        with open(location+"downregulated",'w') as downregulated_file:
+        with open(location+"downregulated.html",'w') as downregulated_file:
             html_str = generate_feature_value_html(changed_features[:n],change_fold[:n],cmap='bwr')
+            downregulated_file.write(html_str)
 
         forest_coordinates = self.forest.coordinates()
         sister_scores = self.sister_scores()
