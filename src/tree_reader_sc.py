@@ -3027,46 +3027,102 @@ class NodeCluster:
 
         return sorted_features,sorted_gains
 
-    def html_cluster_summary(self,n=20):
+    def html_header(self):
+        elements = [
+            '<h1 style="text-align:center;">',
+            "Split Cluster ",
+            str(self.name()),
+            "</h1>"
+        ]
+        return "".join(elements)
 
-        # Create a temp directory for storing summary info
+    def json_cluster_summary(self,n=20):
 
-        import tempfile as tmp
+        import json
 
-        location = "../html/"
+        attributes = {}
 
         # We copy over the html template for the summary:
+        location = "../html/"
 
         import shutil
-        shutil.copyfile('../cluster_summary_template.html',location+"cluster_summary_template.html")
+        shutil.copyfile('../cluster_summary_template_js.html',location+"cluster_summary_template_js.html")
 
         # Now we need to dump some summary information in that directory
 
         changed_features,change_fold = self.changed_log_fold()
 
-        print(changed_features)
-        print(change_fold)
+        attributes['cluster_name'] = self.name()
+        attributes['upregulated_html'] = generate_feature_value_html(reversed(changed_features[-n:]),reversed(change_fold[-n:]),cmap='bwr')
+        attributes['downregulated_html'] = generate_feature_value_html(reversed(changed_features[:n]),reversed(change_fold[:n]),cmap='bwr')
 
-        with open(location+"upregulated.html",'w') as upregulated_file:
-            html_str = generate_feature_value_html(changed_features[-n:],change_fold[-n:],cmap='bwr')
-            upregulated_file.write(html_str)
+        with open(location+"cluster_summary_template_js.html",'a') as html_file:
+            json_string = f"""<div id="json_string"><!-- {json.dumps(attributes)} --></div>"""
+            html_file.write(json_string)
 
-        with open(location+"downregulated.html",'w') as downregulated_file:
-            html_str = generate_feature_value_html(changed_features[:n],change_fold[:n],cmap='bwr')
-            downregulated_file.write(html_str)
+        # And here we generate all the appropriate images
 
         forest_coordinates = self.forest.coordinates()
         sister_scores = self.sister_scores()
         plt.figure()
+        plt.title("Distribution of Samples In This Cluster (Red) vs Its Sisters (Blue)")
         plt.scatter(forest_coordinates[:,0],forest_coordinates[:,1],c=sister_scores,cmap='bwr')
+        plt.colorbar()
+        plt.ylabel("tSNE Coordinates (AU)")
+        plt.xlabel("tSNE Coordinates (AU)")
         plt.savefig(location+"sister_map.png")
 
         # Finally we ask the OS to open the html file.
         # os.system(f'open {location + "cluster_summary_template.html"}')
         from subprocess import run
-        run(["open",location + "cluster_summary_template.html"])
+        run(["open",location + "cluster_summary_template_js.html"])
 
         pass
+
+    #
+    # def html_cluster_summary(self,n=20):
+    #
+    #     # Create a temp directory for storing summary info
+    #
+    #     import tempfile as tmp
+    #
+    #     location = "../html/"
+    #
+    #     # We copy over the html template for the summary:
+    #
+    #     import shutil
+    #     shutil.copyfile('../cluster_summary_template_js.html',location+"cluster_summary_template_js.html")
+    #
+    #     # Now we need to dump some summary information in that directory
+    #
+    #     changed_features,change_fold = self.changed_log_fold()
+    #
+    #     print(changed_features)
+    #     print(change_fold)
+    #
+    #     with open(location+"cluster_name.html",'w') as cname:
+    #         cname.write(self.html_header())
+    #
+    #     with open(location+"upregulated.html",'w') as upregulated_file:
+    #         html_str = generate_feature_value_html(reversed(changed_features[-n:]),reversed(change_fold[-n:]),cmap='bwr')
+    #         upregulated_file.write(html_str)
+    #
+    #     with open(location+"downregulated.html",'w') as downregulated_file:
+    #         html_str = generate_feature_value_html(reversed(changed_features[:n]),reversed(change_fold[:n]),cmap='bwr')
+    #         downregulated_file.write(html_str)
+    #
+    #     forest_coordinates = self.forest.coordinates()
+    #     sister_scores = self.sister_scores()
+    #     plt.figure()
+    #     plt.scatter(forest_coordinates[:,0],forest_coordinates[:,1],c=sister_scores,cmap='bwr')
+    #     plt.savefig(location+"sister_map.png")
+    #
+    #     # Finally we ask the OS to open the html file.
+    #     # os.system(f'open {location + "cluster_summary_template.html"}')
+    #     from subprocess import run
+    #     run(["open",location + "cluster_summary_template_js.html"])
+    #
+    #     pass
 
     # def biological_cluster_summary(self):
     #     levels = [node.level for node in self.nodes]
@@ -3763,7 +3819,7 @@ def generate_feature_value_html(features,values,normalization=None,cmap=None):
         # normalization = SymLogNorm(linthresh=.05)
 
     html_elements = [
-        "<table>",
+        '<table width="100%">',
         "<style>","th,td {padding:5px;border-bottom:1px solid #ddd;}","</style>",
         "<tr>",
         "<th>","Features","</th>",

@@ -1,0 +1,62 @@
+<!-- Template for cluster summary -->
+<head>
+  <style>
+  .header {
+    text-align:center;
+    width: 100%;
+  }
+  .feature_container {
+    display:grid;
+    width:100%;
+    grid-template-columns: auto auto;
+  }
+  .feature_frame {
+    border:none;
+    width:100%;
+    height:100%;
+  }
+  .sister_score {
+    width:80%;
+    margin-left: auto;
+    margin-right: auto;
+
+  }
+  </style>
+  <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.4.1/jquery.min.js"></script>
+  <!-- <script src="jquery.min.js"></script> -->
+  <script>
+  // window.onload = insertElements();
+  $(document).ready(function(){
+    // console.log($("#json_string"));
+    // console.log($("#json_string")[0]);
+    let raw_comment = $("#json_string")[0].innerHTML.slice(4,-3);
+    let attributes = JSON.parse(raw_comment);
+    $("#clusterHeader").append(attributes.cluster_name);
+    $("#upregulatedFeatures").append(attributes.upregulated_html);
+    $("#downregulatedFeatures").append(attributes.downregulated_html);
+    console.log(attributes);
+
+  })
+  </script>
+</head>
+<body>
+  <h1 id="clusterHeader" class="header" >Split Cluster </h1>
+  <div class="feature_container">
+    <div width="50%">
+      <h2> Upregulated Features </h2>
+      <div id="upregulatedFeatures" class="feature_frame"></div>
+    </div>
+    <div width="50%">
+      <h2> Downregulated Features </h2>
+      <div id="downregulatedFeatures" class="feature_frame"></div>
+    </div>
+  </div>
+
+
+  <div >
+    <h2 style="text-align:center;"> Sister Scores </h2>
+    <img class="sister_score" src="sister_map.png" />
+  </div>
+
+  <div id="childListing">Children</div>
+</body>
