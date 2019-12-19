@@ -1,26 +1,55 @@
 <!-- Template for cluster summary -->
 <head>
   <style>
-  .header {
-    text-align:center;
-    width: 100%;
-  }
-  .feature_container {
-    display:grid;
-    width:100%;
-    grid-template-columns: auto auto;
-  }
-  .feature_frame {
-    border:none;
-    width:100%;
-    height:100%;
-  }
-  .sister_score {
-    width:80%;
-    margin-left: auto;
-    margin-right: auto;
-
-  }
+    * {
+      box-sizing:border-box;
+    }
+    h1,h2 {
+      /* background-color:#e6ffe6; */
+      text-align:center;
+    }
+    body {
+      font-family:Helvetica,sans-serif;
+    }
+    .header, .feature_container,.sister_panel,.relatives {
+      margin:1%;
+      padding:2%;
+      box-sizing:border-box;
+      border-left:5px solid green;
+      box-shadow: 2px 2px 5px gray;
+    }
+    .header {
+      text-align:center;
+      width: 98%;
+    }
+    .feature_container {
+      display:grid;
+      width:98%;
+      grid-template-columns: auto auto;
+    }
+    .feature_frame {
+      box-sizing:border-box;
+      padding:2%;
+      width:100%;
+      height:100%;
+    }
+    .sister_panel {
+      float:left;
+      width:73%;
+    }
+    .sister_score {
+      display:block;
+      width:80%;
+      margin-left: auto;
+      margin-right: auto;
+    }
+    .relatives {
+      float:left;
+      width:23%;
+    }
+    .relative {
+      padding-left:10%;
+    }
   </style>
   <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.4.1/jquery.min.js"></script>
   <!-- <script src="jquery.min.js"></script> -->
@@ -34,6 +63,9 @@
     $("#clusterHeader").append(attributes.cluster_name);
     $("#upregulatedFeatures").append(attributes.upregulated_html);
     $("#downregulatedFeatures").append(attributes.downregulated_html);
+    $("#childListing").append(attributes.children)
+    $("#siblingListing").append(attributes.siblings)
+    $("#parent").append(attributes.parent)
     console.log(attributes);
 
   })
@@ -53,10 +85,20 @@
   </div>
 
 
-  <div >
+  <div class="sister_panel">
     <h2 style="text-align:center;"> Sister Scores </h2>
     <img class="sister_score" src="sister_map.png" />
   </div>
 
-  <div id="childListing">Children</div>
+  <div class="relatives">
+    <h2> Relatives </h2>
+    <div>
+      <h3> Parent </h3>
+      <div id="parent" class="relative"></div>
+      <h3>Children</h3>
+      <div id="childListing" class="relative"></div>
+      <h3> Siblings </h3>
+      <div id="siblingListing" class="relative"></div>
+    </div>
+  </div>
 </body>
