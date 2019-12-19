@@ -3229,18 +3229,9 @@ class NodeCluster:
             html_file.write(json_string)
 
         # And here we generate all the appropriate images
+        # This function puts the sister score image in the appropriate location (we discard its return string, not relevant here)
 
-        from matplotlib.colors import DivergingNorm
-
-        forest_coordinates = self.forest.coordinates()
-        sister_scores = self.sister_scores()
-        plt.figure()
-        plt.title("Distribution of Samples \nIn This Cluster (Red) vs Its Sisters (Blue)")
-        plt.scatter(forest_coordinates[:,0],forest_coordinates[:,1],c=sister_scores,norm=DivergingNorm(0),cmap='bwr')
-        plt.colorbar()
-        plt.ylabel("tSNE Coordinates (AU)")
-        plt.xlabel("tSNE Coordinates (AU)")
-        plt.savefig(location+"sister_map.png")
+        self.html_sister_scores()
 
         # Finally we ask the OS to open the html file.
         # os.system(f'open {location + "cluster_summary_template.html"}')
@@ -3256,7 +3247,16 @@ class NodeCluster:
             html = f"<!--{html}-->"
         return html
 
+    def html_feature_additives(self,features,comment=True):
+        feature_values = self.feature_additives(features)
+        html = generate_feature_value_html(features,feature_values)
+        if comment:
+            html = f"<!--{html}-->"
+        return html
+
     def html_sister_scores(self,comment=True):
+
+        from matplotlib.colors import DivergingNorm
 
         location = self.html_directory()
 
@@ -3270,7 +3270,7 @@ class NodeCluster:
         plt.xlabel("tSNE Coordinates (AU)")
         plt.savefig(location+"sister_map.png")
 
-        html = f'<img class="sister_score" src="{location + 'sister_map.png'}" />'
+        html = f'<img class="sister_score" src="{location + "sister_map.png"}" />'
 
         if comment:
             html = f"<!--{html}-->"
