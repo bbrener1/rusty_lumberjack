@@ -3195,14 +3195,20 @@ class NodeCluster:
 
         return sorted_features,sorted_gains
 
+    def html_directory(self):
+        location = "../html/" + str(self.id) + "/"
+        if not os.path.exists(location):
+            os.makedirs(location)
+        return location
+
     def json_cluster_summary(self,n=20):
 
         import json
 
         attributes = {}
 
+        location = self.html_directory()
         # We copy over the html template for the summary:
-        location = "../html/"
 
         import shutil
         shutil.copyfile('../cluster_summary_template_js.html',location+"cluster_summary_template_js.html")
@@ -3243,6 +3249,34 @@ class NodeCluster:
 
         pass
 
+    def html_feature_means(self,features,comment=True):
+        feature_values = self.feature_means(features)
+        html = generate_feature_value_html(features,feature_values)
+        if comment:
+            html = f"<!--{html}-->"
+        return html
+
+    def html_sister_scores(self,comment=True):
+
+        location = self.html_directory()
+
+        forest_coordinates = self.forest.coordinates()
+        sister_scores = self.sister_scores()
+        plt.figure()
+        plt.title("Distribution of Samples \nIn This Cluster (Red) vs Its Sisters (Blue)")
+        plt.scatter(forest_coordinates[:,0],forest_coordinates[:,1],c=sister_scores,norm=DivergingNorm(0),cmap='bwr')
+        plt.colorbar()
+        plt.ylabel("tSNE Coordinates (AU)")
+        plt.xlabel("tSNE Coordinates (AU)")
+        plt.savefig(location+"sister_map.png")
+
+        html = f'<img class="sister_score" src="{location + 'sister_map.png'}" />'
+
+        if comment:
+            html = f"<!--{html}-->"
+
+        return html
+
 
     def braid_scores(self):
 
@@ -3266,6 +3300,7 @@ class NodeCluster:
         braided_scores = np.mean(braid_matrix)
 
         return braided_scores
+
 
     def braid_features(self):
 
