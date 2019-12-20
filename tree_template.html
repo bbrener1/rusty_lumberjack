@@ -1,12 +1,19 @@
 <head>
   <style>
     .node_container {
+      z-index:1;
+      background: white;
+      opacity: 1;
       border: 1px solid gray;
+    }
+    .connection {
+      stroke:black;
+      z-index:-1;
     }
   </style>
   <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.4.1/jquery.min.js"></script>
   <script>
-    $(document).ready(function(){insertCoordinates()});
+    $(document).ready(function(){insertCoordinates();insertPrimaryConnections();});
 
     function insertCoordinates() {
       let raw_comment = $("#tree_coordinates")[0].innerHTML.slice(4,-3);
@@ -27,6 +34,35 @@
         $("#treeContainer").append(node_html);
       }
     }
+
+    function insertPrimaryConnections() {
+      let raw_comment = $("#primary_connections")[0].innerHTML.slice(4,-3);
+      let connections = JSON.parse(raw_comment);
+      console.log(connections);
+      let connection_string = "";
+      for (c of connections) {
+        let [x,y,cx,cy,t] = c.map(function (x){return 100*x});
+        let coordinate_spec =
+        `
+        x1="${x}%"
+        y1="${100-y}%"
+        x2="${cx}%"
+        y2="${100-cy}%"
+        `;
+        // let line_html = `<line class="connection" ${coordinate_spec}></line>`;
+        let style_spec =
+        `
+        stroke-width:${t/10000}px;
+        `;
+        let line_html = `<line class="connection" ${coordinate_spec} style="${style_spec}"></line>`;
+        connection_string = connection_string + line_html;
+        // $("#lineContainer").append(line_html);
+
+      }
+      let svg_string = `<svg id="lineContainer" height="100%" width="100%">${connection_string}</svg>`;
+      $("#treeContainer").append(svg_string);
+    }
+
   </script>
 </head>
 <body>

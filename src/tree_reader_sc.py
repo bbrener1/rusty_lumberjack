@@ -2696,7 +2696,7 @@ class Forest:
     #     #   recursive_axes(self.likely_tree,n=n)
     #     #   return fig
 
-    def html_tree_summary(self,n=3,type="ud",custom=None,labels=None,features=None,primary=True,cmap='viridis',secondary=False,figsize=(30,30)):
+    def html_tree_summary(self,n=3,type="ud",custom=None,labels=None,features=None,primary=True,cmap='viridis',secondary=True,figsize=(30,30)):
 
         from json import dumps as jsn_dumps
 
@@ -2771,7 +2771,7 @@ class Forest:
         # Finally, we append to the template to pass on the information
 
         with open(location + "tree_template.html",'a') as jd:
-            jd.write(html_string)
+            jd.write(coordinate_html)
 
         # Next we want to calculate the connections between each node:
 
@@ -2830,7 +2830,8 @@ class Forest:
                     # We scroll through every element in the split cluster transition
                     # matrix
 
-                    if self.split_cluster_transitions[i,j] > 0:
+                    # if self.split_cluster_transitions[i,j] > 0:
+                    if self.dependence_scores[i,j] < 0:
 
                         # If the transitions are non-zero we obtain the coordinates
 
