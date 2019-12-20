@@ -1,0 +1,35 @@
+<head>
+  <style>
+    .node_container {
+      border: 1px solid gray;
+    }
+  </style>
+  <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.4.1/jquery.min.js"></script>
+  <script>
+    $(document).ready(function(){insertCoordinates()});
+
+    function insertCoordinates() {
+      let raw_comment = $("#tree_coordinates")[0].innerHTML.slice(4,-3);
+      let tree_coordinates = JSON.parse(raw_comment);
+      console.log(tree_coordinates);
+      for (let [index,node] of tree_coordinates) {
+        let [left,bottom,width,height] = node.map(function (x) {return x*100});
+        console.log(`Node : ${[left,bottom,width,height]}`);
+        let style_spec =
+          `
+            position:absolute;
+            bottom:${bottom}%;
+            left:${left}%;
+            width:${width}%;
+            height:${height}%;
+          `
+        let node_html = `<div id="${index}" class="node_container" style="${style_spec}">${index}</div>`;
+        $("#treeContainer").append(node_html);
+      }
+    }
+  </script>
+</head>
+<body>
+  <div id="treeContainer">
+  </div>
+</body>
