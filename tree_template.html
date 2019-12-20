@@ -1,5 +1,13 @@
 <head>
   <style>
+    #treeContainer {
+      display:inline;
+      position:absolute;
+      top:0px;
+      left:0px;
+      width:3000px;
+      height:2000px;
+    }
     .node_container {
       z-index:1;
       background: white;
@@ -13,9 +21,13 @@
   </style>
   <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.4.1/jquery.min.js"></script>
   <script>
-    $(document).ready(function(){insertCoordinates();insertPrimaryConnections();});
+    $(document).ready(
+      function() {
+        insertNodes();
+        insertConnections();
+      });
 
-    function insertCoordinates() {
+    function insertNodes() {
       let raw_comment = $("#tree_coordinates")[0].innerHTML.slice(4,-3);
       let tree_coordinates = JSON.parse(raw_comment);
       console.log(tree_coordinates);
@@ -35,8 +47,8 @@
       }
     }
 
-    function insertPrimaryConnections() {
-      let raw_comment = $("#primary_connections")[0].innerHTML.slice(4,-3);
+    function insertConnections() {
+      let raw_comment = $("#connections")[0].innerHTML.slice(4,-3);
       let connections = JSON.parse(raw_comment);
       console.log(connections);
       let connection_string = "";
@@ -63,9 +75,10 @@
       $("#treeContainer").append(svg_string);
     }
 
+
   </script>
 </head>
 <body>
-  <div id="treeContainer">
+  <div id="treeContainer" width="3000px" height="2000px">
   </div>
 </body>

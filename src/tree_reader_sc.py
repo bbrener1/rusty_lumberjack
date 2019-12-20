@@ -2786,6 +2786,7 @@ class Forest:
 
         flat_tree = flatten_tree(self.likely_tree)
 
+        # Then we insert connections:
 
         if primary:
 
@@ -2812,14 +2813,14 @@ class Forest:
                     primary_connections.append([center_x,center_y,child_center_x,child_center_y,cp])
 
             primary_connection_json = jsn_dumps(primary_connections)
-            primary_connection_html = f'<div id="primary_connections"><!--{primary_connection_json}--></div>'
+            primary_connection_html = f'<div id="connections"><!--{primary_connection_json}--></div>'
 
             # Again, we append to the template to pass on the information
 
             with open(location + "tree_template.html",'a') as jd:
                 jd.write(primary_connection_html)
 
-        if secondary:
+        elif secondary:
 
             # If we want to indicate secondary connections:
             secondary_connections = []
@@ -2854,12 +2855,14 @@ class Forest:
                         secondary_connections.append([center_x,center_y,child_center_x,child_center_y,cp])
 
             secondary_connection_json = jsn_dumps(secondary_connections)
-            secondary_connection_html = f'<div id="secondary_connections"><!--{secondary_connection_json}--></div>'
+            secondary_connection_html = f'<div id="connections"><!--{secondary_connection_json}--></div>'
 
             # Finally, we append to the template to pass on the information
 
             with open(location + "tree_template.html",'a') as jd:
                 jd.write(secondary_connection_html)
+        else:
+            raise Exception("Pick a connectivity!")
 
         from subprocess import run
         run(["open",location + "tree_template.html"])
