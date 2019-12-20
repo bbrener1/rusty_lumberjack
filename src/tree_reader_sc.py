@@ -2698,6 +2698,13 @@ class Forest:
 
     def html_tree_summary(self,n=3,type="ud",custom=None,labels=None,features=None,primary=True,cmap='viridis',secondary=False,figsize=(30,30)):
 
+        from json import dumps as jsn_dumps
+
+        location = "../html/"
+
+        from shutil import copyfile
+        copyfile("../tree_template.html",location + "tree_template.html")
+
         ## Helper methods:
 
         ## Find the leaves of a tree
@@ -2755,10 +2762,20 @@ class Forest:
         recursive_axis_coordinates(self.likely_tree,coordinates)
         coordinates = sorted(coordinates,key=lambda x: x[0])
 
+        # Now we have to create an HTML-ish string in order to pass this information on to
+        # the javascript without reading local files (siiigh)
 
-        # fig.tight_layout()
+        coordinate_json_string = jsn_dumps(coordinates)
+        coordinate_html = f'<div id="tree_coordinates"><!--{coordinate_json_string}--></div>'
 
-        # Next we want to connect the nodes to their canonical children:
+        # Finally, we append to the template to pass on the information
+
+        with open(location + "tree_template.html",'a') as jd:
+            jd.write(html_string)
+
+        # Next we want to calculate the connections between each node:
+
+        # First we flatten the tree:
 
         def flatten_tree(tree):
             flat = []
@@ -2769,10 +2786,13 @@ class Forest:
 
         flat_tree = flatten_tree(self.likely_tree)
 
+
         if primary:
 
             # print(f"Coordinates:{coordinates}")
             # print(f"Flat tree:{flat_tree}")
+
+            primary_connections = []
 
             for i,children in flat_tree:
                 x,y,w,h = coordinates[i][1]
@@ -2789,16 +2809,26 @@ class Forest:
                     else:
                         cp = 1
 
-                    arrow_canvas.plot([center_x,child_center_x],[center_y,child_center_y],linewidth=cp*.01,transform=arrow_canvas.transAxes)
+                    primary_connections.append([center_x,center_y,child_center_x,child_center_y,cp])
+
+            primary_connection_json = jsn_dumps(primary_connections)
+            primary_connection_html = f'<div id="primary_connections"><!--{primary_connection_json}--></div>'
+
+            # Again, we append to the template to pass on the information
+
+            with open(location + "tree_template.html",'a') as jd:
+                jd.write(primary_connection_html)
 
         if secondary:
+
             # If we want to indicate secondary connections:
+            secondary_connections = []
+
             for i in range(len(self.split_clusters)):
                 for j in range(len(self.split_clusters)):
-                    # if j not in flat_tree[i][1]:
 
-                        # We scroll through every element in the split cluster transition
-                        # matrix
+                    # We scroll through every element in the split cluster transition
+                    # matrix
 
                     if self.split_cluster_transitions[i,j] > 0:
 
@@ -2820,18 +2850,18 @@ class Forest:
                         ## Alternatively, plot a line with a weight equivalent to the partial correlation of split clusters:
 
                         cp = self.dependence_scores[i,j]
-                        arrow_canvas.plot([center_x,child_center_x],[center_y,child_center_y],alpha=min(1,cp),linewidth=cp,transform=arrow_canvas.transAxes)
+                        secondary_connections.append([center_x,center_y,child_center_x,child_center_y,cp])
 
-                        # total = np.sum(self.split_cluster_transitions[i])
-                        # arrow_canvas.plot([center_x,child_center_x],[center_y,child_center_y],alpha=min(1,cp/total*2),linewidth=(cp**2)*.01,transform=arrow_canvas.transAxes)
+            secondary_connection_json = jsn_dumps(secondary_connections)
+            secondary_connection_html = f'<div id="secondary_connections"><!--{secondary_connection_json}--></div>'
 
+            # Finally, we append to the template to pass on the information
 
-            return fig
+            with open(location + "tree_template.html",'a') as jd:
+                jd.write(secondary_connection_html)
 
-        #   print(f"N DEBUG TOP:{n}")
-
-        #   recursive_axes(self.likely_tree,n=n)
-        #   return fig
+        from subprocess import run
+        run(["open",location + "tree_template.html"])
 
 
     def split_cluster_leaves(self):
@@ -3203,15 +3233,15 @@ class NodeCluster:
 
     def json_cluster_summary(self,n=20):
 
-        import json
+        from json import dumps as jsn_dumps
 
         attributes = {}
 
         location = self.html_directory()
         # We copy over the html template for the summary:
 
-        import shutil
-        shutil.copyfile('../cluster_summary_template_js.html',location+"cluster_summary_template_js.html")
+        from shutil import copyfile
+        copyfile('../cluster_summary_template_js.html',location+"cluster_summary_template_js.html")
 
         # Now we need to dump some summary information in that directory
 
@@ -3225,7 +3255,7 @@ class NodeCluster:
         attributes['siblings'] = ", ".join([s.name() for s in self.sibling_clusters()])
 
         with open(location+"cluster_summary_template_js.html",'a') as html_file:
-            json_string = f"""<div id="json_string"><!-- {json.dumps(attributes)} --></div>"""
+            json_string = f"""<div id="json_string"><!-- {jsn_dumps(attributes)} --></div>"""
             html_file.write(json_string)
 
         # And here we generate all the appropriate images
