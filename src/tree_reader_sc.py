@@ -1164,13 +1164,14 @@ class Forest:
 
         self.reset_cache()
 
-        if hasattr(self,'added_features'):
-            self.added_features += 1
-        else:
-            self.added_features = 1
+        if not hasattr(self,'core_output_features'):
+            self.core_output_features = len(self.output_features)
 
         if feature_name is None:
             feature_name = str(len(self.output_features))
+
+        if feature_name in self.truth_dictionary.feature_dictionary.keys():
+            raise Exception("REPEAT FEATURE")
 
         feature_index = len(self.output_features)
 
@@ -1181,19 +1182,32 @@ class Forest:
         for node in self.nodes():
             node.weights = np.append(node.weights,1.)
 
+    def remove_output_feature(self,feature):
+
+        if feature not in self.truth_dictionary.feature_dictionary.keys():
+            raise Exception("Feature not found")
+
+        self.reset_cache()
+
+        feature_index = self.truth_dictionary.feature_dictionary[feature]
+
+        self.output_features = np.delete(self.output_features,feature_index)
+        self.output = np.delete(self.output,feature_index,1)
+        for node in self.nodes():
+            node.weights = np.delete(node.weights,feature_index)
+
+        new_feature_dictionary = {f:i for i,f in enumerate(self.output_features)}
+        self.truth_dictionary.feature_dictionary = new_feature_dictionary
+
+
     def reset_output_featuers(self):
 
-        if hasattr(self,'added_features'):
-            if self.added_features > 0:
-                removed_features = self.output_features[-self.added_features:]
+        if hasattr(self,'core_output_features'):
+            if self.core_output_features < len(self.output_features):
+                removed_features = self.output_features[self.core_output_features:]
                 print(f"Removing:{removed_features}")
-                self.output = self.output[:,:-self.added_features]
-                self.output_features = self.output_features[:-self.added_features]
-                for node in self.nodes():
-                    node.weights = node.weights[:-self.added_features]
-                for f in removed_features:
-                    self.truth_dictionary.feature_dictionary.pop(f)
-                self.added_features = 0
+                for feature in removed_features:
+                    self.remove_output_feature(feature)
 
 ########################################################################
 ########################################################################
@@ -1507,7 +1521,7 @@ class Forest:
 
     def cluster_samples_simple(self,override=False,pca=False,*args,**kwargs):
 
-        if hasattr(self,'sample_labels'):
+        if hasattr(self,'sample_labels') and override:
             self.reset_sample_clusters()
 
         counts = self.output
@@ -1526,7 +1540,7 @@ class Forest:
 
     def cluster_samples_encoding(self,override=False,pca=False,*args,**kwargs):
 
-        if hasattr(self,'sample_labels'):
+        if hasattr(self,'sample_labels') and override:
             self.reset_sample_clusters()
 
         leaves = self.leaves()
@@ -1544,7 +1558,7 @@ class Forest:
 
     def cluster_samples_coocurrence(self,override=False,*args,**kwargs):
 
-        if hasattr(self,'sample_labels'):
+        if hasattr(self,'sample_labels') and override:
             self.reset_sample_clusters()
 
         leaves = self.leaves()
@@ -1561,7 +1575,7 @@ class Forest:
 
     def cluster_samples_leaf_cluster(self,override=False,*args,**kwargs):
 
-        if hasattr(self,'sample_labels'):
+        if hasattr(self,'sample_labels') and override:
             self.reset_sample_clusters()
 
         leaves = self.leaves()
@@ -1827,7 +1841,8 @@ class Forest:
 
     def reset_sample_clusters(self):
         try:
-            self.reset_output_featuers()
+            for i in range(len(self.sample_clusters)):
+                self.remove_output_feature(f'sample_cluster_{i}')
             del self.sample_clusters
             del self.sample_cluster_encoding
             del self.sample_labels
@@ -3544,7 +3559,7 @@ class NodeCluster:
         return ordered_features,ordered_difference
 
     def score_panel(self,ax):
-        coordinates = self.forest.coordinates(type='tsne',no_plot=True)
+        coordinates = self.forest.coordinates(no_plot=True)
         scores = self.cell_scores()
         ax.scatter(coordinates[:,0],coordinates[:,1],c=scores)
         ax.set_xticks([])
