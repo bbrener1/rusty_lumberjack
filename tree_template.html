@@ -28,10 +28,8 @@
       });
 
     function insertNodes() {
-      let raw_comment = $("#tree_coordinates")[0].innerHTML.slice(4,-3);
-      let tree_coordinates = JSON.parse(raw_comment);
-      console.log(tree_coordinates);
-      for (let [index,node] of tree_coordinates) {
+      console.log(treeCoordinates);
+      for (let [index,node] of treeCoordinates) {
         let [left,bottom,width,height] = node.map(function (x) {return x*100});
         console.log(`Node : ${[left,bottom,width,height]}`);
         let style_spec =
@@ -47,9 +45,15 @@
       }
     }
 
+    function decorateNodes() {
+      for ((i,node) in $("node_container").entries()) {
+        console.log(node)
+        console.log($(`summary_${i}`)) 
+        // node.append('<img src=""')
+      }
+    }
+
     function insertConnections() {
-      let raw_comment = $("#connections")[0].innerHTML.slice(4,-3);
-      let connections = JSON.parse(raw_comment);
       console.log(connections);
       let connection_string = "";
       for (c of connections) {

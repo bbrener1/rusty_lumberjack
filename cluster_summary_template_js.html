@@ -58,11 +58,9 @@
   $(document).ready(function(){
     // console.log($("#json_string"));
     // console.log($("#json_string")[0]);
-    let raw_comment = $("#json_string")[0].innerHTML.slice(4,-3);
-    let attributes = JSON.parse(raw_comment);
-    $("#clusterHeader").append(attributes.cluster_name);
-    $("#upregulatedFeatures").append(attributes.upregulated_html);
-    $("#downregulatedFeatures").append(attributes.downregulated_html);
+    $("#clusterHeader").append(attributes.clusterName);
+    $("#upregulatedFeatures").append(attributes.upregulatedHtml);
+    $("#downregulatedFeatures").append(attributes.downregulatedHtml);
     $("#childListing").append(attributes.children)
     $("#siblingListing").append(attributes.siblings)
     $("#parent").append(attributes.parent)

@@ -2711,7 +2711,7 @@ class Forest:
     #     #   recursive_axes(self.likely_tree,n=n)
     #     #   return fig
 
-    def html_tree_summary(self,n=3,type="ud",custom=None,labels=None,features=None,primary=True,cmap='viridis',secondary=True,figsize=(30,30)):
+    def html_tree_summary(self,n=3,mode="ud",custom=None,labels=None,features=None,primary=True,cmap='viridis',secondary=True,figsize=(30,30)):
 
         from json import dumps as jsn_dumps
 
@@ -2720,164 +2720,174 @@ class Forest:
         from shutil import copyfile
         copyfile("../tree_template.html",location + "tree_template.html")
 
-        ## Helper methods:
-
-        ## Find the leaves of a tree
-        def leaves(tree):
-            l = []
-            for child in tree[1]:
-                l.extend(leaves(child))
-            if len(l) < 1:
-                l.append(tree[0])
-            return l
-
-        ## Find out how many levels are in this tree (eg its maximum depth)
-        def levels(tree,level=0):
-            l = []
-            for child in tree[1]:
-                l.extend(levels(child,level=level+1))
-            l.append(level)
-            return l
-
-        # First we compute the width/height of the individual cells
-        width = 1/len(leaves(self.likely_tree))
-        height = 1/(max(levels(self.likely_tree)) + 1)
+        with open(location + "tree_template.html",'a') as html_report:
 
 
 
-        # This function determines where to place everything, all coordinates are from 0 to 1, so are fractions of a canvas.
-        # The coordinates are placed in a list we pass to the function, because I didn't want to think about how to avoid doing this
-        def recursive_axis_coordinates(tree,child_coordinates,limits=[0,1]):
-            [x,y] = limits
-            child_width = 0
-            # First we go lower in recursive layer and find how many children we need to account for from this leaf
-            for child in tree[1]:
-                cw = recursive_axis_coordinates(child,child_coordinates,[x+child_width,y-(height)])
-                child_width += cw
-            if child_width == 0:
-                child_width = width
-            # print("Recursive tree debug")
-            # print(f"x:{x},y:{y}")
-            # print(f"{tree[0]}")
-            # print(f"cw:{child_width}")
+            ## Helper methods:
 
-            # We have to place the current leaf at the average position of all leaves below
-            padding = (child_width - width) / 2
-            coordinates = [x + padding + (width * .1),y - (height * .9),width*.8,height*.8]
-            # print(f"coordinates:{coordinates}")
+            ## Find the leaves of a tree
+            def leaves(tree):
+                l = []
+                for child in tree[1]:
+                    l.extend(leaves(child))
+                if len(l) < 1:
+                    l.append(tree[0])
+                return l
 
-            child_coordinates.append([tree[0],coordinates])
-            return child_width
+            ## Find out how many levels are in this tree (eg its maximum depth)
+            def levels(tree,level=0):
+                l = []
+                for child in tree[1]:
+                    l.extend(levels(child,level=level+1))
+                l.append(level)
+                return l
 
-            return child_coordinates
+            # First we compute the width/height of the individual cells
+            width = 1/len(leaves(self.likely_tree))
+            height = 1/(max(levels(self.likely_tree)) + 1)
 
-        ## Here we actually call the recursive function
 
-        coordinates = []
-        recursive_axis_coordinates(self.likely_tree,coordinates)
-        coordinates = sorted(coordinates,key=lambda x: x[0])
 
-        # Now we have to create an HTML-ish string in order to pass this information on to
-        # the javascript without reading local files (siiigh)
+            # This function determines where to place everything, all coordinates are from 0 to 1, so are fractions of a canvas.
+            # The coordinates are placed in a list we pass to the function, because I didn't want to think about how to avoid doing this
+            def recursive_axis_coordinates(tree,child_coordinates,limits=[0,1]):
+                [x,y] = limits
+                child_width = 0
+                # First we go lower in recursive layer and find how many children we need to account for from this leaf
+                for child in tree[1]:
+                    cw = recursive_axis_coordinates(child,child_coordinates,[x+child_width,y-(height)])
+                    child_width += cw
+                if child_width == 0:
+                    child_width = width
+                # print("Recursive tree debug")
+                # print(f"x:{x},y:{y}")
+                # print(f"{tree[0]}")
+                # print(f"cw:{child_width}")
 
-        coordinate_json_string = jsn_dumps(coordinates)
-        coordinate_html = f'<div id="tree_coordinates"><!--{coordinate_json_string}--></div>'
+                # We have to place the current leaf at the average position of all leaves below
+                padding = (child_width - width) / 2
+                coordinates = [x + padding + (width * .1),y - (height * .9),width*.8,height*.8]
+                # print(f"coordinates:{coordinates}")
 
-        # Finally, we append to the template to pass on the information
+                child_coordinates.append([int(tree[0]),coordinates])
+                return child_width
 
-        with open(location + "tree_template.html",'a') as jd:
-            jd.write(coordinate_html)
+                return child_coordinates
 
-        # Next we want to calculate the connections between each node:
+            ## Here we actually call the recursive function
 
-        # First we flatten the tree:
+            coordinates = []
+            recursive_axis_coordinates(self.likely_tree,coordinates)
+            coordinates = list(sorted(coordinates,key=lambda x: x[0]))
 
-        def flatten_tree(tree):
-            flat = []
-            for child in tree[1]:
-                flat.extend(flatten_tree(child))
-            flat.append([tree[0],[c[0] for c in tree[1]]])
-            return flat
+            # Now we have to create an HTML-ish string in order to pass this information on to
+            # the javascript without reading local files (siiigh)
 
-        flat_tree = flatten_tree(self.likely_tree)
-
-        # Then we insert connections:
-
-        if primary:
-
-            # print(f"Coordinates:{coordinates}")
-            # print(f"Flat tree:{flat_tree}")
-
-            primary_connections = []
-
-            for i,children in flat_tree:
-                x,y,w,h = coordinates[i][1]
-                center_x = x + (w * .5)
-                center_y = y + (h * .5)
-                for ci in children:
-                    cx,cy,cw,ch = coordinates[ci][1]
-                    child_center_x = cx + (cw/2)
-                    child_center_y = cy + (ch/2)
-
-                    # We would like to set the arrow thickness to be proportional to the mean population of the child
-                    if ci < len(self.split_clusters):
-                        cp = self.split_clusters[ci].mean_population()
-                    else:
-                        cp = 1
-
-                    primary_connections.append([center_x,center_y,child_center_x,child_center_y,cp])
-
-            primary_connection_json = jsn_dumps(primary_connections)
-            primary_connection_html = f'<div id="connections"><!--{primary_connection_json}--></div>'
-
-            # Again, we append to the template to pass on the information
-
-            with open(location + "tree_template.html",'a') as jd:
-                jd.write(primary_connection_html)
-
-        elif secondary:
-
-            # If we want to indicate secondary connections:
-            secondary_connections = []
-
-            for i in range(len(self.split_clusters)):
-                for j in range(len(self.split_clusters)):
-
-                    # We scroll through every element in the split cluster transition
-                    # matrix
-
-                    # if self.split_cluster_transitions[i,j] > 0:
-                    if self.dependence_scores[i,j] < 0:
-
-                        # If the transitions are non-zero we obtain the coordinates
-
-                        x,y,w,h = coordinates[i][1]
-                        center_x = x + (width * .5)
-                        center_y = y + (height * .5)
-                        cx,cy,cw,ch = coordinates[j][1]
-                        child_center_x = cx + (cw/2)
-                        child_center_y = cy + (height/2)
-
-                        # And plot a line with a weight equivalent to the number of transitions
-
-                        # cp = self.split_cluster_transitions[i,j]
-                        # total = np.sum(self.split_cluster_transitions[i])
-                        # arrow_canvas.plot([center_x,child_center_x],[center_y,child_center_y],alpha=min(1,cp/total*2),linewidth=(cp**2)*.01,transform=arrow_canvas.transAxes)
-
-                        ## Alternatively, plot a line with a weight equivalent to the partial correlation of split clusters:
-
-                        cp = self.dependence_scores[i,j]
-                        secondary_connections.append([center_x,center_y,child_center_x,child_center_y,cp])
-
-            secondary_connection_json = jsn_dumps(secondary_connections)
-            secondary_connection_html = f'<div id="connections"><!--{secondary_connection_json}--></div>'
+            coordinate_json_string = jsn_dumps(coordinates)
+            coordinate_html = f'<script> let treeCoordinates = {coordinate_json_string};</script>'
 
             # Finally, we append to the template to pass on the information
 
-            with open(location + "tree_template.html",'a') as jd:
-                jd.write(secondary_connection_html)
-        else:
-            raise Exception("Pick a connectivity!")
+            html_report.write(coordinate_html)
+
+            # Next we want to calculate the connections between each node:
+
+            # First we flatten the tree:
+
+            def flatten_tree(tree):
+                flat = []
+                for child in tree[1]:
+                    flat.extend(flatten_tree(child))
+                flat.append([tree[0],[c[0] for c in tree[1]]])
+                return flat
+
+            flat_tree = flatten_tree(self.likely_tree)
+
+            # Then we insert connections:
+
+            if primary:
+
+                # print(f"Coordinates:{coordinates}")
+                # print(f"Flat tree:{flat_tree}")
+
+                primary_connections = []
+
+                for i,children in flat_tree:
+                    x,y,w,h = coordinates[i][1]
+                    center_x = x + (w * .5)
+                    center_y = y + (h * .5)
+                    for ci in children:
+                        cx,cy,cw,ch = coordinates[ci][1]
+                        child_center_x = cx + (cw/2)
+                        child_center_y = cy + (ch/2)
+
+                        # We would like to set the arrow thickness to be proportional to the mean population of the child
+                        if ci < len(self.split_clusters):
+                            cp = self.split_clusters[ci].mean_population()
+                        else:
+                            cp = 1
+
+                        primary_connections.append([center_x,center_y,child_center_x,child_center_y,cp])
+
+                primary_connection_json = jsn_dumps(primary_connections)
+                primary_connection_html = f'<script>let connections = {primary_connection_json};</script>'
+
+                # Again, we append to the template to pass on the information
+
+                html_report.write(primary_connection_html)
+
+            elif secondary:
+
+                # If we want to indicate secondary connections:
+                secondary_connections = []
+
+                for i in range(len(self.split_clusters)):
+                    for j in range(len(self.split_clusters)):
+
+                        # We scroll through every element in the split cluster transition
+                        # matrix
+
+                        # if self.split_cluster_transitions[i,j] > 0:
+                        if self.dependence_scores[i,j] < 0:
+
+                            # If the transitions are non-zero we obtain the coordinates
+
+                            x,y,w,h = coordinates[i][1]
+                            center_x = x + (width * .5)
+                            center_y = y + (height * .5)
+                            cx,cy,cw,ch = coordinates[j][1]
+                            child_center_x = cx + (cw/2)
+                            child_center_y = cy + (height/2)
+
+                            # And plot a line with a weight equivalent to the number of transitions
+
+                            # cp = self.split_cluster_transitions[i,j]
+                            # total = np.sum(self.split_cluster_transitions[i])
+                            # arrow_canvas.plot([center_x,child_center_x],[center_y,child_center_y],alpha=min(1,cp/total*2),linewidth=(cp**2)*.01,transform=arrow_canvas.transAxes)
+
+                            ## Alternatively, plot a line with a weight equivalent to the partial correlation of split clusters:
+
+                            cp = self.dependence_scores[i,j]
+                            secondary_connections.append([center_x,center_y,child_center_x,child_center_y,cp])
+
+                secondary_connection_json = jsn_dumps(secondary_connections)
+                secondary_connection_html = f'<script> let connections = {secondary_connection_json}</script>'
+
+                # Finally, we append to the template to pass on the information
+
+                html_report.write(secondary_connection_html)
+
+            else:
+                raise Exception("Pick a connectivity!")
+
+            # Now we need to loop over available clusters to place the cluster decorations into the template
+
+            for cluster in self.split_clusters:
+                cluster_summary_html = cluster.json_cluster_summary_html("summary_" + str(cluster.id))
+                html_report.write(cluster_summary_html)
+
+
 
         from subprocess import run
         run(["open",location + "tree_template.html"])
@@ -3250,60 +3260,72 @@ class NodeCluster:
             os.makedirs(location)
         return location
 
-    def json_cluster_summary(self,n=20):
+    def json_cluster_summary_html(self,varname,n=20,features=None):
+
+        # Summarizes the cluster in a json format, primarily for use in html summary documents
+        # then returns the object wrapped in a
 
         from json import dumps as jsn_dumps
 
         attributes = {}
 
-        location = self.html_directory()
-        # We copy over the html template for the summary:
-
-        from shutil import copyfile
-        copyfile('../cluster_summary_template_js.html',location+"cluster_summary_template_js.html")
-
-        # Now we need to dump some summary information in that directory
-
         changed_features,change_fold = self.changed_log_fold()
 
-        attributes['cluster_name'] = self.name()
-        attributes['upregulated_html'] = generate_feature_value_html(reversed(changed_features[-n:]),reversed(change_fold[-n:]),cmap='bwr')
-        attributes['downregulated_html'] = generate_feature_value_html(reversed(changed_features[:n]),reversed(change_fold[:n]),cmap='bwr')
+        attributes['clusterName'] = self.name()
+        attributes['clusterId'] = self.id
+        attributes['upregulatedHtml'] = generate_feature_value_html(reversed(changed_features[-n:]),reversed(change_fold[-n:]),cmap='bwr')
+        attributes['downregulatedHtml'] = generate_feature_value_html(reversed(changed_features[:n]),reversed(change_fold[:n]),cmap='bwr')
         attributes['children'] = ", ".join([c.name() for c in self.child_clusters()])
         attributes['parent'] = self.parent_cluster().name()
         attributes['siblings'] = ", ".join([s.name() for s in self.sibling_clusters()])
 
-        with open(location+"cluster_summary_template_js.html",'a') as html_file:
-            json_string = f"""<div id="json_string"><!-- {jsn_dumps(attributes)} --></div>"""
-            html_file.write(json_string)
+        if features is not None:
 
-        # And here we generate all the appropriate images
+            specified_feature_mask = [f in features for f in changed_features]
+            specified_features = changed_features[specified_feature_mask]
+            specified_feature_changes = change_fold[specified_feature_mask]
+
+            attributes['specifiedHtml'] = generate_feature_value_html(specified_features,specified_feature_changes,cmap='bwr')
+
+        return f'<script>let {varname} = {jsn_dumps(attributes)};</script>'
+
+    def html_cluster_summary(self,n=20):
+
+        location = self.html_directory()
+
+        # First we read in the template (TO DO improve safety)
+        html_string = open("../cluster_summary_template_js.html",'r').read()
+
+        # Reading the file in allows us to both write a summary file somewhere appropriate and return an html string in case we want to do something else
+
         # This function puts the sister score image in the appropriate location (we discard its return string, not relevant here)
 
         self.html_sister_scores()
 
-        # Finally we ask the OS to open the html file.
-        # os.system(f'open {location + "cluster_summary_template.html"}')
+        with open(location+"cluster_summary_template_js.html",'w') as html_file:
+            json_string = self.json_cluster_summary("attributes",n=n)
+            html_string = html_string + json_string
+            html_file.write(json_string)
+
+        # We ask the OS to open the html file.
         from subprocess import run
         run(["open",location + "cluster_summary_template_js.html"])
 
-        pass
+        # Finally we return the HTML string
+        # CAUTION, this contains the whole template file, so it has a bunch of javascript in it.
+        return html_string
 
-    def html_feature_means(self,features,comment=True):
+    def html_feature_means(self,features):
         feature_values = self.feature_means(features)
         html = generate_feature_value_html(features,feature_values)
-        if comment:
-            html = f"<!--{html}-->"
         return html
 
-    def html_feature_additives(self,features,comment=True):
+    def html_feature_additives(self,features):
         feature_values = self.feature_additives(features)
         html = generate_feature_value_html(features,feature_values)
-        if comment:
-            html = f"<!--{html}-->"
         return html
 
-    def html_sister_scores(self,comment=True):
+    def html_sister_scores(self):
 
         from matplotlib.colors import DivergingNorm
 
@@ -3320,9 +3342,6 @@ class NodeCluster:
         plt.savefig(location+"sister_map.png")
 
         html = f'<img class="sister_score" src="{location + "sister_map.png"}" />'
-
-        if comment:
-            html = f"<!--{html}-->"
 
         return html
 
