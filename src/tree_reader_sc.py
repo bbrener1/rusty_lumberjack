@@ -2767,7 +2767,8 @@ class Forest:
 
                 # We have to place the current leaf at the average position of all leaves below
                 padding = (child_width - width) / 2
-                coordinates = [x + padding + (width * .1),y - (height * .9),width*.8,height*.8]
+                # coordinates = [x + padding + (width * .1),y - (height * .9),width*.8,height*.8]
+                coordinates = [x + padding + (width * .1),y - (height * .1),width*.8,height*.8]
                 # print(f"coordinates:{coordinates}")
 
                 child_coordinates.append([int(tree[0]),coordinates])
@@ -2816,7 +2817,7 @@ class Forest:
                 for i,children in flat_tree:
                     x,y,w,h = coordinates[i][1]
                     center_x = x + (w * .5)
-                    center_y = y + (h * .5)
+                    center_y = y - (h * .5)
                     for ci in children:
                         cx,cy,cw,ch = coordinates[ci][1]
                         child_center_x = cx + (cw/2)
@@ -2855,7 +2856,7 @@ class Forest:
 
                             x,y,w,h = coordinates[i][1]
                             center_x = x + (width * .5)
-                            center_y = y + (height * .5)
+                            center_y = y - (height * .5)
                             cx,cy,cw,ch = coordinates[j][1]
                             child_center_x = cx + (cw/2)
                             child_center_y = cy + (height/2)
@@ -2884,7 +2885,8 @@ class Forest:
             # Now we need to loop over available clusters to place the cluster decorations into the template
 
             for cluster in self.split_clusters:
-                cluster_summary_html = cluster.json_cluster_summary_html("summary_" + str(cluster.id))
+                cluster_summary_json = cluster.json_cluster_summary()
+                cluster_summary_html = f'<script> summaries["cluster_{cluster.id}"] = {cluster_summary_json};</script>'
                 html_report.write(cluster_summary_html)
 
 
@@ -3260,7 +3262,7 @@ class NodeCluster:
             os.makedirs(location)
         return location
 
-    def json_cluster_summary_html(self,varname,n=20,features=None):
+    def json_cluster_summary(self,n=20,features=None):
 
         # Summarizes the cluster in a json format, primarily for use in html summary documents
         # then returns the object wrapped in a
@@ -3271,8 +3273,8 @@ class NodeCluster:
 
         changed_features,change_fold = self.changed_log_fold()
 
-        attributes['clusterName'] = self.name()
-        attributes['clusterId'] = self.id
+        attributes['clusterName'] = str(self.name())
+        attributes['clusterId'] = int(self.id)
         attributes['upregulatedHtml'] = generate_feature_value_html(reversed(changed_features[-n:]),reversed(change_fold[-n:]),cmap='bwr')
         attributes['downregulatedHtml'] = generate_feature_value_html(reversed(changed_features[:n]),reversed(change_fold[:n]),cmap='bwr')
         attributes['children'] = ", ".join([c.name() for c in self.child_clusters()])
@@ -3287,7 +3289,7 @@ class NodeCluster:
 
             attributes['specifiedHtml'] = generate_feature_value_html(specified_features,specified_feature_changes,cmap='bwr')
 
-        return f'<script>let {varname} = {jsn_dumps(attributes)};</script>'
+        return jsn_dumps(attributes)
 
     def html_cluster_summary(self,n=20):
 
@@ -3303,7 +3305,7 @@ class NodeCluster:
         self.html_sister_scores()
 
         with open(location+"cluster_summary_template_js.html",'w') as html_file:
-            json_string = self.json_cluster_summary("attributes",n=n)
+            json_string = js_wrap("attributes",self.json_cluster_summary(n=n))
             html_string = html_string + json_string
             html_file.write(json_string)
 
@@ -3987,6 +3989,9 @@ def generate_feature_value_html(features,values,normalization=None,cmap=None):
 
     html_elements.append("</table>")
     return "".join(html_elements)
+
+def js_wrap(name,content):
+    return f"<script> let {name} = {content};</script>"
 
 def text_rectangle(ax,text,rect,no_warp=True,color=None,edgecolor='b',linewidth=3,**kwargs):
 

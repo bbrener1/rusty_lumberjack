@@ -18,6 +18,9 @@
       stroke:black;
       z-index:-1;
     }
+    .sister_map {
+      width:100%;
+    }
   </style>
   <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.4.1/jquery.min.js"></script>
   <script>
@@ -25,6 +28,7 @@
       function() {
         insertNodes();
         insertConnections();
+        decorateNodes();
       });
 
     function insertNodes() {
@@ -38,7 +42,7 @@
             bottom:${bottom}%;
             left:${left}%;
             width:${width}%;
-            height:${height}%;
+            // height:${height}%;
           `
         let node_html = `<div id="${index}" class="node_container" style="${style_spec}">${index}</div>`;
         $("#treeContainer").append(node_html);
@@ -46,11 +50,9 @@
     }
 
     function decorateNodes() {
-      for ((i,node) in $("node_container").entries()) {
-        console.log(node)
-        console.log($(`summary_${i}`)) 
-        // node.append('<img src=""')
-      }
+      $(".node_container").each(function (index,node) {
+        node.innerHTML = `<img class="sister_map" src="./${index}/sister_map.png"/>`
+      });
     }
 
     function insertConnections() {
@@ -83,6 +85,9 @@
   </script>
 </head>
 <body>
+  <script>
+    let summaries = {};
+  </script>
   <div id="treeContainer" width="3000px" height="2000px">
   </div>
 </body>
