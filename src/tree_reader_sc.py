@@ -2382,7 +2382,7 @@ class Forest:
         tree = []
         entry = np.argmax(transitions[-1])
 
-        tree = Forest.finite_tree(cluster=entry,prototype=proto_tree,available=clusters)
+        tree = Forest.finite_tree(cluster=entry,prototype=proto_tree[:-1],available=clusters)
         rtree = Forest.reverse_tree(tree)
 
         self.likely_tree = tree
@@ -2751,12 +2751,12 @@ class Forest:
 
             # This function determines where to place everything, all coordinates are from 0 to 1, so are fractions of a canvas.
             # The coordinates are placed in a list we pass to the function, because I didn't want to think about how to avoid doing this
-            def recursive_axis_coordinates(tree,child_coordinates,limits=[0,1]):
+            def recursive_axis_coordinates(tree,child_coordinates,limits=[0,0]):
                 [x,y] = limits
                 child_width = 0
                 # First we go lower in recursive layer and find how many children we need to account for from this leaf
                 for child in tree[1]:
-                    cw = recursive_axis_coordinates(child,child_coordinates,[x+child_width,y-(height)])
+                    cw = recursive_axis_coordinates(child,child_coordinates,[x+child_width,y+(height)])
                     child_width += cw
                 if child_width == 0:
                     child_width = width
@@ -2768,7 +2768,7 @@ class Forest:
                 # We have to place the current leaf at the average position of all leaves below
                 padding = (child_width - width) / 2
                 # coordinates = [x + padding + (width * .1),y - (height * .9),width*.8,height*.8]
-                coordinates = [x + padding + (width * .1),y - (height * .1),width*.8,height*.8]
+                coordinates = [x + padding + (width * .1),y + (height * .1),width*.8,height*.8]
                 # print(f"coordinates:{coordinates}")
 
                 child_coordinates.append([int(tree[0]),coordinates])
@@ -2817,7 +2817,7 @@ class Forest:
                 for i,children in flat_tree:
                     x,y,w,h = coordinates[i][1]
                     center_x = x + (w * .5)
-                    center_y = y - (h * .5)
+                    center_y = y + (h * .5)
                     for ci in children:
                         cx,cy,cw,ch = coordinates[ci][1]
                         child_center_x = cx + (cw/2)
@@ -3110,6 +3110,7 @@ class NodeCluster:
             return children
 
         indices = traverse(self.forest.likely_tree)
+        print(indices)
         return [self.forest.split_clusters[i] for i in indices]
 
     def sibling_clusters(self):
@@ -3126,6 +3127,7 @@ class NodeCluster:
             return siblings
 
         indices = traverse(self.forest.likely_tree)
+        print(indices)
         return [self.forest.split_clusters[i] for i in indices]
 
     def weighted_feature_predictions(self):
