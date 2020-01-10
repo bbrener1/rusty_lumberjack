@@ -1,43 +1,43 @@
 <head>
   <style>
-    #treeContainer {
-      height:2000px;
-      width:3000px;
-      position:absolute;
-      min-width:100%;
-    }
-    .node_container {
-      z-index:1;
-      background: white;
-      opacity: 1;
-      border: 1px solid gray;
-      overflow:auto;
-      position:absolute;
-      width:300px;
-    }
-    .node_header{
-      float:left;
-      position:absolute;
-      padding:3%;
-      width:10%;
-      height:84%;
-      writing-mode:vertical-rl;
-      margin:auto;
-      text-align:center;
-      transform:rotate(180deg);
-    }
+      #treeContainer {
+        height:2000px;
+        width:3000px;
+        position:absolute;
+        min-width:100%;
+      }
+      .node_container {
+        z-index:1;
+        background: white;
+        opacity: 1;
+        border: 1px solid gray;
+        overflow:auto;
+        position:absolute;
+        width:300px;
+      }
+      .node_header{
+        float:left;
+        position:absolute;
+        padding:3%;
+        width:10%;
+        height:84%;
+        writing-mode:vertical-rl;
+        margin:auto;
+        text-align:center;
+        transform:rotate(180deg);
+      }
 
-    .connection {
-      stroke:black;
-      z-index:-1;
-    }
-    .sister_map {
-      float:right;
-      margin:auto;
-      height:100%;
-      max-width:84%;
-    }
-  </style>
+      .connection {
+        stroke:black;
+        z-index:-1;
+      }
+      .sister_map {
+        float:right;
+        margin:auto;
+        height:100%;
+        max-width:84%;
+      }
+    </style>
   <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.4.1/jquery.min.js"></script>
   <script>
     $(document).ready(
