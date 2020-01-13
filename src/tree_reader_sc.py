@@ -1753,7 +1753,7 @@ class Forest:
             split_index = np.arange(len(labels))[labels == cluster]
             clusters.append(NodeCluster(self,[nodes[i] for i in split_index],cluster))
 
-        split_order = np.argsort(labels)
+        # split_order = np.argsort(labels)
         # split_order = dendrogram(linkage(reduction,metric='cos',method='average'),no_plot=True)['leaves']
 
         self.split_clusters = clusters
@@ -1776,8 +1776,10 @@ class Forest:
     #
     #     child_labels = self.sdg_cluster_representation(child_representation,**kwargs)
     #
-    #     for child,label in zip(children,labels):
+    #     for child,label in zip(children,child_labels):
     #         child.set_split_cluster(label)
+    #
+    #     label_set = set(self.split_labels())
     #
     #     cluster_set = set(child_labels)
     #     clusters = []
@@ -1793,6 +1795,27 @@ class Forest:
     #     self.split_clusters = clusters
     #
     #     return clusters
+
+    def recursive_interpretation(self,cluster,mode='additive',**kwargs):
+
+        print(f"Subclustering {cluster.name()}")
+        cluster_nodes = cluster.nodes
+
+        children = [child for node in cluster_nodes for child in node.children]
+        print(f"{len(children)} children")
+
+        child_representation = self.node_representation(children,mode=mode)
+        child_labels = sdg.fit_predict(child_representation,**kwargs).astype(dtype=int) + len(self.split_clusters)
+        new_labels = set(child_labels)
+
+        for child,label in zip(children,child_labels):
+            child.set_split_cluster(label)
+
+        for new_label in new_labels:
+            print(new_label)
+            cluster_nodes = [c for c in children if hasattr(c,'split_cluster') if c.split_cluster == new_label]
+            self.split_clusters.append(NodeCluster(self,cluster_nodes,new_label))
+
 
     def create_root_cluster(self):
 
@@ -2161,7 +2184,7 @@ class Forest:
 
         nodes = np.array(self.nodes(depth=depth))
         labels = self.split_labels(depth=depth)
-        clusters = set(labels)
+        clusters = [cluster.id for cluster in self.split_clusters]
         transitions = np.zeros((len(clusters)+1,len(clusters)+1))
 
         for cluster in clusters:
@@ -2303,7 +2326,8 @@ class Forest:
     #### Each element in the list corresponds to which elements consider this element their parent
 
     def finite_tree(cluster,prototype,available):
-        # print(cluster)
+        print(cluster)
+        print(prototype)
         children = []
         try:
             available.remove(cluster)
@@ -2368,21 +2392,25 @@ class Forest:
 
         transitions[np.identity(transitions.shape[0]).astype(dtype=bool)] = 0
 
-        clusters = list(range(transitions.shape[0]))
+        clusters = [cluster.id for cluster in self.split_clusters]
 
         proto_tree = [[] for cluster in clusters]
 
         for cluster in clusters:
-            parent = np.argmax(transitions[:,cluster])
+            parent = np.argmax(transitions[:-1,cluster])
             proto_tree[parent].append(cluster)
 
+        print(f"Clusters:{clusters}")
         print(f"Prototype:{proto_tree}")
+        print(f"Prototype length:{len(proto_tree)}")
         print(f"Transitions:{transitions}")
+        print(f"Transition mtx shape: {transitions.shape}")
 
         tree = []
-        entry = np.argmax(transitions[-1])
+        # entry = np.argmax(transitions[-1])
+        entry = 0
 
-        tree = Forest.finite_tree(cluster=entry,prototype=proto_tree[:-1],available=clusters)
+        tree = Forest.finite_tree(cluster=entry,prototype=proto_tree,available=clusters)
         rtree = Forest.reverse_tree(tree)
 
         self.likely_tree = tree
@@ -3320,7 +3348,7 @@ class NodeCluster:
         with open(location+"cluster_summary_template_js.html",'w') as html_file:
             json_string = js_wrap("attributes",self.json_cluster_summary(n=n))
             html_string = html_string + json_string
-            html_file.write(json_string)
+            html_file.write(html_string)
 
         if plot:
             # We ask the OS to open the html file.

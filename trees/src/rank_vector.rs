@@ -821,28 +821,28 @@ impl<T: Borrow<[Node]> + BorrowMut<[Node]> + Index<usize,Output=Node> + IndexMut
 
     pub fn ordered_sme(&mut self,draw_order: &[usize], drop_set: &HashSet<usize>) -> Vec<f64> {
 
-        unimplemented!();
+        // unimplemented!();
 
-        // for dropped_sample in drop_set {
-        //     self.pop(*dropped_sample);
-        // }
-        //
-        // let mut smes = Vec::with_capacity(draw_order.len());
-        // let mut total_values = self.len();
-        //
-        // let mut running_median = self.median();
-        //
-        // for (i,draw) in draw_order.iter().enumerate() {
-        //     let sig = running_median * (total_values / 2) as f64;
-        //     let left = (sig - self.sums[0]);
-        //     let right = (self.sums[1] - sig);
-        //     smes.push(left + right);
-        //     self.mpop(*draw);
-        //     running_median = self.median();
-        //     total_values -= 1;
-        // };
-        //
-        // smes
+        for dropped_sample in drop_set {
+            self.pop(*dropped_sample);
+        }
+
+        let mut smes = Vec::with_capacity(draw_order.len());
+        let mut total_values = self.len();
+
+        let mut running_median = self.median();
+
+        for (i,draw) in draw_order.iter().enumerate() {
+            let sig = running_median * (total_values / 2) as f64;
+            let left = (sig - self.sums[0]);
+            let right = (self.sums[1] - sig);
+            smes.push(left + right);
+            self.mpop(*draw);
+            running_median = self.median();
+            total_values -= 1;
+        };
+
+        smes
 
         //
         // for dropped_sample in drop_set {
