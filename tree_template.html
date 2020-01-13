@@ -2,9 +2,11 @@
   <style>
       #treeContainer {
         height:2000px;
-        width:3000px;
+        width:2000px;
         position:absolute;
-        min-width:100%;
+        min-width:60%;
+        max-width:100%;
+        min-height:100%;
       }
       .node_container {
         z-index:1;
@@ -13,8 +15,20 @@
         border: 1px solid gray;
         overflow:auto;
         position:absolute;
-        width:300px;
+        max-width:300px;
+
       }
+
+      .node_container:hover {
+        /* height:500px;
+        width:800px;
+        max-width:800px;
+        max-height:500px; */
+
+        transform: scale(2);
+        z-index:2;
+      }
+
       .node_header{
         float:left;
         position:absolute;
@@ -49,15 +63,19 @@
 
     function insertNodes() {
       console.log(treeCoordinates);
-      for (let [index,node] of treeCoordinates) {
-        let [top,left,height,width] = node.map(function (x) {return x*100});
-        console.log(`Node : ${[top,left,height,width]}`);
+      let [height,width] = treeCoordinates[0];
+      width *= 100;
+      height *= 100;
+      let style_string = `<style>.node_container {width:${width}%;height:${height}%;}</style>`;
+      $("head").append(style_string);
+      console.log([width,height,]);
+      for (let [index,node] of treeCoordinates.slice(1)) {
+        let [top,left] = node.map(function (x) {return x*100});
+        console.log(`Node : ${[top,left]}`);
         let style_spec =
           `
             top:${top}%;
             left:${left}%;
-            width:${width}%;
-            height:${height}%;
           `
           // `
           //   top:${top}%;

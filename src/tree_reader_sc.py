@@ -2713,11 +2713,21 @@ class Forest:
 
     def html_tree_summary(self,n=3,mode="ud",custom=None,labels=None,features=None,primary=True,cmap='viridis',secondary=True,figsize=(30,30)):
 
+        from shutil import copyfile,rmtree
+        from os import makedirs
         from json import dumps as jsn_dumps
 
+        # First we'd like to make sure we are operating from scratch in the html directory:
+
+        location = "../"
+        rmtree(location + "/html")
+        makedirs(location + "/html/")
         location = "../html/"
 
-        from shutil import copyfile
+        for split_cluster in self.split_clusters:
+            print(f"Summarizing:{split_cluster.name()}")
+            split_cluster.html_cluster_summary(n=n,plot=False)
+
         copyfile("../tree_template.html",location + "tree_template.html")
 
         with open(location + "tree_template.html",'a') as html_report:
@@ -2767,8 +2777,7 @@ class Forest:
 
                 # We have to place the current leaf at the average position of all leaves below
                 padding = (child_width - width) / 2
-                # coordinates = [x + padding + (width * .1),y - (height * .9),width*.8,height*.8]
-                coordinates = [x + padding + (width * .1),y + (height * .1),width*.8,height*.8]
+                coordinates = [x + padding + (width * .1),y + (height * .1)]
                 # print(f"coordinates:{coordinates}")
 
                 child_coordinates.append([int(tree[0]),coordinates])
@@ -2778,9 +2787,11 @@ class Forest:
 
             ## Here we actually call the recursive function
 
-            coordinates = []
+            coordinates = [[width,height],]
             recursive_axis_coordinates(self.likely_tree,coordinates)
-            coordinates = list(sorted(coordinates,key=lambda x: x[0]))
+            coordinates[1:] = list(sorted(coordinates[1:],key=lambda x: x[0]))
+
+
 
             # Now we have to create an HTML-ish string in order to pass this information on to
             # the javascript without reading local files (siiigh)
@@ -2815,13 +2826,13 @@ class Forest:
                 primary_connections = []
 
                 for i,children in flat_tree:
-                    x,y,w,h = coordinates[i][1]
-                    center_x = x + (w * .5)
-                    center_y = y + (h * .5)
+                    x,y = coordinates[1:][i][1]
+                    center_x = x + (width * .5)
+                    center_y = y + (height * .5)
                     for ci in children:
-                        cx,cy,cw,ch = coordinates[ci][1]
-                        child_center_x = cx + (cw/2)
-                        child_center_y = cy + (ch/2)
+                        cx,cy = coordinates[1:][ci][1]
+                        child_center_x = cx + (width/2)
+                        child_center_y = cy + (height/2)
 
                         # We would like to set the arrow thickness to be proportional to the mean population of the child
                         if ci < len(self.split_clusters):
@@ -2854,11 +2865,11 @@ class Forest:
 
                             # If the transitions are non-zero we obtain the coordinates
 
-                            x,y,w,h = coordinates[i][1]
+                            x,y = coordinates[1:][i][1]
                             center_x = x + (width * .5)
                             center_y = y - (height * .5)
-                            cx,cy,cw,ch = coordinates[j][1]
-                            child_center_x = cx + (cw/2)
+                            cx,cy = coordinates[1:][j][1]
+                            child_center_x = cx + (width/2)
                             child_center_y = cy + (height/2)
 
                             # And plot a line with a weight equivalent to the number of transitions
@@ -3293,7 +3304,7 @@ class NodeCluster:
 
         return jsn_dumps(attributes)
 
-    def html_cluster_summary(self,n=20):
+    def html_cluster_summary(self,n=20,plot=True):
 
         location = self.html_directory()
 
@@ -3311,9 +3322,10 @@ class NodeCluster:
             html_string = html_string + json_string
             html_file.write(json_string)
 
-        # We ask the OS to open the html file.
-        from subprocess import run
-        run(["open",location + "cluster_summary_template_js.html"])
+        if plot:
+            # We ask the OS to open the html file.
+            from subprocess import run
+            run(["open",location + "cluster_summary_template_js.html"])
 
         # Finally we return the HTML string
         # CAUTION, this contains the whole template file, so it has a bunch of javascript in it.
