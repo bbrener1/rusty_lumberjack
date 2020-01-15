@@ -71,18 +71,21 @@ def save_trees(location,input_counts,output_counts=None,test_counts=None,ifh=Non
     inner_fit(input_counts,output_counts,location,ifh=(location + "tmp.ifh"),ofh=(location+"tmp.ofh"),lrg_mem=lrg_mem,**kwargs)
 
 
-def fit(input_counts,output_counts=None,test_counts=None,ifh=None,ofh=None,header=None,backtrace=False,lrg_mem=None,**kwargs):
+def fit(input_counts,output_counts=None,test_counts=None,ifh=None,ofh=None,header=None,backtrace=False,lrg_mem=None,location=None,**kwargs):
 
     if output_counts is None:
         output_counts = input_counts
 
-    print("Setting context")
+    tmp_dir = None
+    if location is None:
 
-    print("Input:" + str(input_counts.shape))
-    print("Output:" + str(output_counts.shape))
+        print("Setting context")
 
-    tmp_dir = tmp.TemporaryDirectory()
-    location = tmp_dir.name + "/"
+        print("Input:" + str(input_counts.shape))
+        print("Output:" + str(output_counts.shape))
+
+        tmp_dir = tmp.TemporaryDirectory()
+        location = tmp_dir.name + "/"
 
     save_trees(tmp_dir.name + "/",input_counts=input_counts,output_counts=output_counts,test_counts=test_counts,ifh=ifh,ofh=ofh,header=header,lrg_mem=lrg_mem,**kwargs)
 
@@ -100,7 +103,8 @@ def fit(input_counts,output_counts=None,test_counts=None,ifh=None,ofh=None,heade
 
     forest = tr.Forest.load(location,prefix="tmp",ifh="tmp.ifh",ofh="tmp.ofh",clusters="tmp.clusters",input="input.counts",output="output.counts",test="test.counts")
 
-    tmp_dir.cleanup()
+    if tmp_dir is not None:
+        tmp_dir.cleanup()
 
     return forest
 #

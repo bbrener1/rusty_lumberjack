@@ -2523,6 +2523,80 @@ class Forest:
 
         return tree
 
+    def maximum_sample_tree(self):
+
+        sample_scores = np.zeros((len(self.split_clusters),len(self.samples)))
+        sister_scores = np.zeros((len(self.split_clusters),len(self.samples)))
+
+        for i,split_cluster in enumerate(self.split_clusters):
+            sample_scores[i] = split_cluster.cell_counts()
+            sample_normalization = np.max(sample_scores[i])
+            sample_scores[i] *= (1./sample_normalization)
+            sister_scores[i] = split_cluster.absolute_sister_scores()
+            sister_normalization = np.max(sister_scores[i])
+            sister_scores[i] *= (1./sister_normalization)
+
+        print(sample_scores)
+        print(sister_scores)
+
+        distances = np.zeros((len(self.split_clusters),len(self.split_clusters)))
+
+        for i in range(len(self.split_clusters)):
+            print(i)
+            plt.figure()
+            plt.hist(np.abs(sister_scores[i]))
+            plt.show()
+            for j in range(len(self.split_clusters)):
+                # print("#####################################")
+                # print("#####################################")
+                # print("#####################################")
+                # print(j)
+                # print(list(np.abs(sister_scores[i] - sample_scores[j])))
+                # delta = np.sum(sister_scores[i] - sample_scores[j])
+                # delta = np.sum(np.abs(sister_scores[i] - sample_scores[j]))
+                delta = np.sum(np.sqrt(np.abs(sister_scores[i] - sample_scores[j])))
+                # delta = np.sum(np.power(np.abs(sister_scores[i]) - sample_scores[j],2))
+                # delta = np.sum(np.power(sister_scores[i],2) - np.power(sample_scores[j],2))
+                # delta = np.dot(np.abs(sister_scores[i]),sample_scores[j])
+                distances[i,j] = delta
+
+        for i in range(len(self.split_clusters)):
+            distances[i,i] = float('inf')
+
+        mst = np.array(scipy.sparse.csgraph.minimum_spanning_tree(distances).todense())
+
+        mst = np.maximum(mst,mst.T)
+
+        clusters = set(range(len(self.split_clusters)))
+
+        print("Max tree debug")
+        print(distances)
+        print(mst)
+
+        def finite_tree(cluster,available):
+            # print(cluster)
+            # print(mst[cluster])
+            children = []
+            try:
+                available.remove(cluster)
+            except:
+                pass
+            for child in np.arange(mst.shape[0])[mst[cluster] > 0]:
+                if child in available:
+                    available.remove(child)
+                    children.append(child)
+            return [cluster,[finite_tree(child,available) for child in children]]
+
+
+        tree = finite_tree(0,clusters)
+        rtree = Forest.reverse_tree(tree)
+
+        self.likely_tree = tree
+        self.reverse_likely_tree = rtree
+
+        return tree
+
+
     # def plot_tree_summary(self,n=3,type="ud",custom=None,labels=None,features=None,primary=True,cmap='viridis',secondary=False,figsize=(30,30)):
     #
     #     ## Helper methods:
