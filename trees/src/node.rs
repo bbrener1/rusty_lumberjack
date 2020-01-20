@@ -264,23 +264,13 @@ impl Node {
 
 
 
-        let left_indices:Vec<usize> =
-            braid.compound_values.iter()
-            .enumerate()
-            .flat_map(|(i,&v)| {
-                if v < 0. {Some(i)}
-                else {None}
-            })
-            .collect();
+        let left_indices = braid.left_indices();
 
-        let right_indices:Vec<usize> =
-            braid.compound_values.iter()
-            .enumerate()
-            .flat_map(|(i,&v)| {
-                if v > 0. {Some(i)}
-                else {None}
-            })
-            .collect();
+        let right_indices = braid.right_indices();
+
+        if left_indices.len() < 3 || right_indices.len() < 3 {
+            return None
+        }
 
         braid.compound_split = Some(0.);
 

@@ -1760,42 +1760,58 @@ class Forest:
 
         return labels
 
-    # def recursive_interpretation(self,nodes=None,mode='gain',metric='cosine',pca=False,distance='cosine',depth=3,level=0,**kwargs):
+    def external_split_labels(self,nodes,labels):
+
+        for node,label in zip(nodes,labels):
+            node.set_split_cluster(label)
+            # node.split_cluster = label
+
+
+        cluster_set = set(labels)
+        clusters = []
+        for cluster in cluster_set:
+            split_index = np.arange(len(labels))[labels == cluster]
+            clusters.append(NodeCluster(self,[nodes[i] for i in split_index],cluster))
+
+        # split_order = np.argsort(labels)
+        # split_order = dendrogram(linkage(reduction,metric='cos',method='average'),no_plot=True)['leaves']
+
+        self.split_clusters = clusters
+
+
+    # def ihmm_braid(self,override=False,mode='gain',metric='jaccard',distance='cosine',pca=False,depth=3,*args,**kwargs):
     #
-    #     print("Recursively interpreting splits")
-    #     print(f"Level:{level}")
+    #     from tree_braider import IHMM
     #
-    #     if nodes is None:
-    #         nodes = self.nodes()
+    #     nodes = np.array(self.nodes(root=True,depth=depth))
     #
-    #     children = []
-    #     for node in nodes:
-    #         children.extend(node.children)
+    #     stem_mask = np.array([n.level != 0 for n in nodes])
+    #     root_mask = np.logical_not(stem_mask)
     #
-    #     child_representation = self.node_representation(children,mode=mode,metric=metric,pca=pca)
+    #     labels = np.zeros(len(nodes)).astype(dtype=int)
     #
-    #     child_labels = self.sdg_cluster_representation(child_representation,**kwargs)
+    #     representation = self.node_representation(nodes,mode=mode,metric=None,pca=pca)
     #
-    #     for child,label in zip(children,child_labels):
-    #         child.set_split_cluster(label)
+    #     labels[stem_mask] = 1 + np.array(sdg.fit_predict(representation[stem_mask],metric=metric,*args,**kwargs))
     #
-    #     label_set = set(self.split_labels())
+    #     for node,label in zip(nodes,labels):
+    #         node.set_split_cluster(label)
+    #         # node.split_cluster = label
     #
-    #     cluster_set = set(child_labels)
+    #
+    #     cluster_set = set(labels)
     #     clusters = []
     #     for cluster in cluster_set:
     #         split_index = np.arange(len(labels))[labels == cluster]
     #         clusters.append(NodeCluster(self,[nodes[i] for i in split_index],cluster))
     #
-    #     if level <= depth:
-    #
-    #         for cluster in clusters:
-    #             clusters.extend(recursive_interpretation(nodes = cluster.nodes(), mode=mode,metric=metric,pca=pca,distacne=distance,depth=depth,level=level+1,*args,**kwargs))
+    #     # split_order = np.argsort(labels)
+    #     # split_order = dendrogram(linkage(reduction,metric='cos',method='average'),no_plot=True)['leaves']
     #
     #     self.split_clusters = clusters
     #
-    #     return clusters
-
+    #     return labels
+    #
     def recursive_interpretation(self,cluster,mode='additive',**kwargs):
 
         print(f"Subclustering {cluster.name()}")

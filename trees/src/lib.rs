@@ -249,6 +249,26 @@ impl Braid {
         self.compound_split = Some(value);
     }
 
+    fn left_indices(&self) -> Vec<usize> {
+        self.compound_values.iter()
+        .enumerate()
+        .flat_map(|(i,&v)| {
+            if v < 0. {Some(i)}
+            else {None}
+        })
+        .collect()
+    }
+
+    fn right_indices(&self) -> Vec<usize> {
+        self.compound_values.iter()
+        .enumerate()
+        .flat_map(|(i,&v)| {
+            if v > 0. {Some(i)}
+            else {None}
+        })
+        .collect()
+    }
+
 }
 
 
