@@ -1760,15 +1760,20 @@ class Forest:
 
         return labels
 
-    def external_split_labels(self,nodes,labels):
+    def external_split_labels(self,nodes,labels,roots=False):
+
+        cluster_set = set(labels)
+        clusters = []
 
         for node,label in zip(nodes,labels):
             node.set_split_cluster(label)
             # node.split_cluster = label
 
+        if not roots:
+            for node in self.roots():
+                node.set_split_cluster(0)
+            clusters.append(NodeCluster(self,self.roots(),0))
 
-        cluster_set = set(labels)
-        clusters = []
         for cluster in cluster_set:
             split_index = np.arange(len(labels))[labels == cluster]
             clusters.append(NodeCluster(self,[nodes[i] for i in split_index],cluster))
