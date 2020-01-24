@@ -1968,7 +1968,7 @@ class Forest:
 
         combined_coordinates[self.output.shape[0]:] = cluster_coordiantes
 
-        highlight = np.ones(combined_coordinates.shape[0]) * 3
+        highlight = np.ones(combined_coordinates.shape[0]) * 10
         highlight[len(self.sample_labels):] = [len(cluster.samples) for cluster in self.sample_clusters]
         # for i,cluster in enumerate(self.sample_clusters):
         #
