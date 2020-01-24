@@ -68,7 +68,7 @@ def save_trees(location,input_counts,output_counts=None,test_counts=None,ifh=Non
 
     print("Generating trees")
 
-    inner_fit(input_counts,output_counts,location,ifh=(location + "tmp.ifh"),ofh=(location+"tmp.ofh"),lrg_mem=lrg_mem,**kwargs)
+    return inner_fit(input_counts,output_counts,location,ifh=(location + "tmp.ifh"),ofh=(location+"tmp.ofh"),lrg_mem=lrg_mem,**kwargs)
 
 
 def fit(input_counts,output_counts=None,test_counts=None,ifh=None,ofh=None,header=None,backtrace=False,lrg_mem=None,location=None,**kwargs):
@@ -87,7 +87,7 @@ def fit(input_counts,output_counts=None,test_counts=None,ifh=None,ofh=None,heade
         tmp_dir = tmp.TemporaryDirectory()
         location = tmp_dir.name + "/"
 
-    save_trees(tmp_dir.name + "/",input_counts=input_counts,output_counts=output_counts,test_counts=test_counts,ifh=ifh,ofh=ofh,header=header,lrg_mem=lrg_mem,**kwargs)
+    arguments = save_trees(tmp_dir.name + "/",input_counts=input_counts,output_counts=output_counts,test_counts=test_counts,ifh=ifh,ofh=ofh,header=header,lrg_mem=lrg_mem,**kwargs)
 
     print("CHECK TRUTH")
     print(tmp_dir.name)
@@ -102,6 +102,8 @@ def fit(input_counts,output_counts=None,test_counts=None,ifh=None,ofh=None,heade
     print(os.listdir(tmp_dir.name))
 
     forest = tr.Forest.load(location,prefix="tmp",ifh="tmp.ifh",ofh="tmp.ofh",clusters="tmp.clusters",input="input.counts",output="output.counts",test="test.counts")
+
+    forest.arguments = arguments
 
     if tmp_dir is not None:
         tmp_dir.cleanup()
@@ -190,7 +192,7 @@ def inner_fit(input_counts,output_counts,location,backtrace=False,lrg_mem=None, 
             # print("Read line")
             print(output.strip())
 
-
+    return arg_list
     # while cp.poll() is None:
     #     sys.stdout.flush()
     #     sys.stdout.write("Constructing trees: %s" % str(len(glob.glob(location + "tmp.*.compact"))) + "\r")
