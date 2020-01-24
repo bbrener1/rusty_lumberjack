@@ -1992,7 +1992,7 @@ class Forest:
         else:
             f = plt.figure(figsize=(20,20))
             plt.title("Cell Coordinates")
-            plt.scatter(combined_coordinates[:len(self.samples),0],combined_coordinates[:len(self.samples),1],s=3,c=combined_labels[:len(self.samples)],cmap='rainbow')
+            plt.scatter(combined_coordinates[:len(self.samples),0],combined_coordinates[:len(self.samples),1],s=10,c=combined_labels[:len(self.samples)],cmap='rainbow')
             plt.savefig("./tmp.delete.png",dpi=300)
         return f
 
