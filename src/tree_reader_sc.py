@@ -1983,7 +1983,7 @@ class Forest:
         cluster_coordiantes = combined_coordinates[len(self.sample_labels):]
 
         if label:
-            f = plt.figure(figsize=(20,20))
+            f = plt.figure(figsize=(10,10))
             plt.title("Cell Coordinates")
             plt.scatter(combined_coordinates[:,0],combined_coordinates[:,1],s=highlight,c=combined_labels,cmap='rainbow')
             for cluster,coordinates in zip(cluster_names,cluster_coordiantes):
