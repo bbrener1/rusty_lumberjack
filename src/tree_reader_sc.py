@@ -1933,24 +1933,24 @@ class Forest:
 ########################################################################
 
 
-    def plot_counts(self,no_plot=False):
+    # def plot_counts(self,no_plot=False):
+    #
+    #     if not no_plot:
+    #         cell_sort = dendrogram(linkage(encoding,metric='cos',method='average'),no_plot=True)['leaves']
+    #         leaf_sort = dendrogram(linkage(encoding.T,metric='cos',method='average'),no_plot=True)['leaves']
+    #
+    #         plt.figure(figsize=(10,10))
+    #         plt.imshow(encoding[cell_sort].T[leaf_sort].T,cmap='binary')
+    #         plt.show()
+    #
+    #     return cell_sort,leaf_sort,self.ouput_counts
 
-        if not no_plot:
-            cell_sort = dendrogram(linkage(encoding,metric='cos',method='average'),no_plot=True)['leaves']
-            leaf_sort = dendrogram(linkage(encoding.T,metric='cos',method='average'),no_plot=True)['leaves']
-
-            plt.figure(figsize=(10,10))
-            plt.imshow(encoding[cell_sort].T[leaf_sort].T,cmap='binary')
-            plt.show()
-
-        return cell_sort,leaf_sort,self.ouput_counts
-
-    def plot_cell_clusters(self,colorize=True,label=True):
+    def plot_sample_clusters(self,colorize=True,label=True):
         # if not hasattr(self,'leaf_clusters'):
         #     print("Warning, leaf clusters not detected")
         #     return None
         if not hasattr(self,'sample_clusters'):
-            print("Warning, cell clusters not detected")
+            print("Warning, sample clusters not detected")
             return None
 
         coordinates = self.coordinates(no_plot=True)
@@ -1958,8 +1958,8 @@ class Forest:
         cluster_coordiantes = np.zeros((len(self.sample_clusters),2))
 
         for i,cluster in enumerate(self.sample_clusters):
-            cluster_cell_mask = self.sample_labels == cluster.id
-            mean_coordinates = np.mean(coordinates[cluster_cell_mask],axis=0)
+            cluster_sample_mask = self.sample_labels == cluster.id
+            mean_coordinates = np.mean(coordinates[cluster_sample_mask],axis=0)
             cluster_coordiantes[i] = mean_coordinates
 
         combined_coordinates = np.zeros((self.output.shape[0]+len(self.sample_clusters),2))
@@ -1984,14 +1984,14 @@ class Forest:
 
         if label:
             f = plt.figure(figsize=(10,10))
-            plt.title("Cell Coordinates")
+            plt.title("Sample Coordinates")
             plt.scatter(combined_coordinates[:,0],combined_coordinates[:,1],s=highlight,c=combined_labels,cmap='rainbow')
             for cluster,coordinates in zip(cluster_names,cluster_coordiantes):
                 plt.text(*coordinates,cluster,verticalalignment='center',horizontalalignment='center')
             plt.savefig("./tmp.delete.png",dpi=300)
         else:
             f = plt.figure(figsize=(20,20))
-            plt.title("Cell Coordinates")
+            plt.title("Sample Coordinates")
             plt.scatter(combined_coordinates[:len(self.samples),0],combined_coordinates[:len(self.samples),1],s=10,c=combined_labels[:len(self.samples)],cmap='rainbow')
             plt.savefig("./tmp.delete.png",dpi=300)
         return f
@@ -2025,7 +2025,7 @@ class Forest:
         cluster_coordiantes = combined_coordinates[-1 * len(self.split_clusters):]
 
         f = plt.figure(figsize=(5,5))
-        plt.title("TSNE-Transformed Cell Coordinates")
+        plt.title("TSNE-Transformed Sample Coordinates")
         plt.scatter(combined_coordinates[:,0],combined_coordinates[:,1],s=highlight,c=combined_labels,cmap='rainbow')
         for cluster,coordinates in zip(cluster_names,cluster_coordiantes):
             plt.text(*coordinates,cluster,verticalalignment='center',horizontalalignment='center')
@@ -2063,7 +2063,7 @@ class Forest:
 
         if not no_plot:
             plt.figure()
-            plt.title("TSNE-Transformed Cell Coordinates")
+            plt.title("TSNE-Transformed Sample Coordinates")
             plt.scatter(self.tsne_coordinates[:,0],self.tsne_coordinates[:,1],s=.1,**kwargs)
             plt.show()
 
@@ -2075,7 +2075,7 @@ class Forest:
 
         if not no_plot:
             plt.figure()
-            plt.title("TSNE-Transformed Cell Coordinates")
+            plt.title("TSNE-Transformed Sample Coordinates")
             plt.scatter(self.tsne_coordinates[:,0],self.tsne_coordinates[:,1],s=.1,**kwargs)
             plt.show()
 
@@ -2087,7 +2087,7 @@ class Forest:
 
         if not no_plot:
             plt.figure()
-            plt.title("PCA-Transformed Cell Coordinates")
+            plt.title("PCA-Transformed Sample Coordinates")
             plt.scatter(self.pca_coordinates[:,0],self.pca_coordinates[:,1],s=.1,**kwargs)
             plt.show()
 
@@ -2099,7 +2099,7 @@ class Forest:
 
         if not no_plot:
             plt.figure()
-            plt.title("UMAP-Transformed Cell Coordinates")
+            plt.title("UMAP-Transformed Sample Coordinates")
             plt.scatter(self.umap_coordinates[:,0],self.umap_coordinates[:,1],s=.1,**kwargs)
             plt.show()
 
@@ -2111,7 +2111,7 @@ class Forest:
 
         if not no_plot:
             plt.figure()
-            plt.title("UMAP-Transformed Cell Coordinates")
+            plt.title("UMAP-Transformed Sample Coordinates")
             plt.scatter(self.umap_coordinates[:,0],self.umap_coordinates[:,1],s=.1,**kwargs)
             plt.show()
 
@@ -2147,7 +2147,7 @@ class Forest:
 
     def plot_manifold(self,depth=3):
 
-        f = self.plot_cell_clusters()
+        f = self.plot_sample_clusters()
 
         def recursive_tree_plot(parent,children,figure,level=0):
             # print("Recursion debug")
@@ -2182,7 +2182,7 @@ class Forest:
 
     def plot_braid_vectors(self):
 
-        f = self.plot_cell_clusters(label=False)
+        f = self.plot_sample_clusters(label=False)
         ax = f.add_axes([0,0,1,1])
 
         for cluster in self.split_clusters:
@@ -2483,7 +2483,7 @@ class Forest:
         sister_scores = np.zeros((len(self.split_clusters),len(self.samples)))
 
         for i,split_cluster in enumerate(self.split_clusters):
-            sample_scores[i] = split_cluster.cell_counts()
+            sample_scores[i] = split_cluster.sample_counts()
             sample_normalization = np.max(sample_scores[i])
             sample_scores[i] *= (1./sample_normalization)
             sister_scores[i] = split_cluster.absolute_sister_scores()
@@ -2550,7 +2550,7 @@ class Forest:
         sister_scores = np.zeros((len(self.split_clusters),len(self.samples)))
 
         for i,split_cluster in enumerate(self.split_clusters):
-            sample_scores[i] = split_cluster.cell_counts()
+            sample_scores[i] = split_cluster.sample_counts()
             sample_normalization = np.max(sample_scores[i])
             sample_scores[i] *= (1./sample_normalization)
             sister_scores[i] = split_cluster.absolute_sister_scores()
@@ -2900,13 +2900,12 @@ class Forest:
 
                 # We have to place the current leaf at the average position of all leaves below
                 padding = (child_width - width) / 2
-                coordinates = [x + padding + (width * .1),y + (height * .1)]
+                coordinates = [x + padding + (width * .5),y + (height * .5)]
                 # print(f"coordinates:{coordinates}")
 
                 child_coordinates.append([int(tree[0]),coordinates])
-                return child_width
 
-                return child_coordinates
+                return child_width
 
             ## Here we actually call the recursive function
 
@@ -2962,8 +2961,8 @@ class Forest:
                             cp = self.split_clusters[ci].mean_population()
                         else:
                             cp = 1
-
-                        primary_connections.append([center_x,center_y,child_center_x,child_center_y,cp])
+                        primary_connections.append([x,y,cx,cy,cp])
+                        # primary_connections.append([center_x,center_y,child_center_x,child_center_y,cp])
 
                 primary_connection_json = jsn_dumps(primary_connections)
                 primary_connection_html = f'<script>let connections = {primary_connection_json};</script>'
@@ -3050,8 +3049,8 @@ class Forest:
             return self.sample_labels
 
         leaf_split_clusters = self.split_cluster_leaves()
-        leaf_split_cluster_cell_scores = np.array([c.cell_counts() for c in leaf_split_clusters])
-        sample_labels = np.array([np.argmax(leaf_split_cluster_cell_scores[:,i]) for i in range(len(self.samples))])
+        leaf_split_cluster_sample_scores = np.array([c.sample_counts() for c in leaf_split_clusters])
+        sample_labels = np.array([np.argmax(leaf_split_cluster_sample_scores[:,i]) for i in range(len(self.samples))])
 
         self.set_sample_labels(sample_labels)
 
@@ -3169,7 +3168,7 @@ class SampleCluster:
             leaf_cluster_counts.append(np.sum(leaf_counts[cluster_mask]))
         if plot:
             plt.figure()
-            plt.title(f"Distribution of Leaf Clusters in Cell Cluster {self.id}")
+            plt.title(f"Distribution of Leaf Clusters in Sample Cluster {self.id}")
             plt.bar(np.arange(len(leaf_clusters)),leaf_cluster_counts,)
             plt.ylabel("Frequency")
             plt.xlabel("Leaf Cluster")
@@ -3299,9 +3298,9 @@ class NodeCluster:
         if coordinates is None:
             coordinates = self.forest.coordinates(no_plot=True)
 
-        cell_scores = self.cell_scores()
-        cell_scores = np.power(cell_scores,2)
-        mean_coordinates = np.dot(cell_scores,coordinates) / np.sum(cell_scores)
+        sample_scores = self.sample_scores()
+        sample_scores = np.power(sample_scores,2)
+        mean_coordinates = np.dot(sample_scores,coordinates) / np.sum(sample_scores)
 
         return mean_coordinates
 
@@ -3331,11 +3330,11 @@ class NodeCluster:
     def mean_population(self):
         return np.mean([len(n.samples) for n in self.nodes])
 
-    def cell_scores(self):
+    def sample_scores(self):
         cluster_encoding = self.encoding()
         return np.sum(cluster_encoding,axis=1) / (cluster_encoding.shape[1] + 1)
 
-    def cell_counts(self):
+    def sample_counts(self):
         encoding = self.encoding()
         return np.sum(encoding,axis=1)
 
@@ -3439,6 +3438,7 @@ class NodeCluster:
         # This function puts the sister score image in the appropriate location (we discard its return string, not relevant here)
 
         self.html_sister_scores()
+        self.html_sample_scores()
 
         with open(location+"cluster_summary_template_js.html",'w') as html_file:
             json_string = js_wrap("attributes",self.json_cluster_summary(n=n))
@@ -3481,6 +3481,24 @@ class NodeCluster:
         plt.savefig(location+"sister_map.png")
 
         html = f'<img class="sister_score" src="{location + "sister_map.png"}" />'
+
+        return html
+
+    def html_sample_scores(self):
+
+        location = self.html_directory()
+
+        forest_coordinates = self.forest.coordinates()
+        sample_scores = self.sample_scores()
+        plt.figure()
+        plt.title("Frequency of Samples In This Cluster")
+        plt.scatter(forest_coordinates[:,0],forest_coordinates[:,1],c=sample_scores)
+        plt.colorbar()
+        plt.ylabel("tSNE Coordinates (AU)")
+        plt.xlabel("tSNE Coordinates (AU)")
+        plt.savefig(location+"score_map.png")
+
+        html = f'<img class="score_map" src="{location + "score_map.png"}" />'
 
         return html
 
@@ -3586,28 +3604,28 @@ class NodeCluster:
         return ax
 
 
-    def cell_cluster_frequency(self,plot=True):
-        cell_cluster_labels = self.forest.sample_labels
-        cell_counts = self.cell_counts()
-        cell_clusters = sorted(list(set(cell_cluster_labels)))
+    def sample_cluster_frequency(self,plot=True):
+        sample_cluster_labels = self.forest.sample_labels
+        sample_counts = self.sample_counts()
+        sample_clusters = sorted(list(set(sample_cluster_labels)))
         cluster_counts = []
-        for cluster in cell_clusters:
-            cluster_mask = cell_cluster_labels == cluster
-            cluster_counts.append(np.sum(cell_counts[cluster_mask]))
+        for cluster in sample_clusters:
+            cluster_mask = sample_cluster_labels == cluster
+            cluster_counts.append(np.sum(sample_counts[cluster_mask]))
 
         if plot:
             plt.figure()
-            plt.title("Frequency of cell clusters in leaf cluster")
-            plt.bar(np.arange(len(cell_clusters)),cluster_counts,tick_labels=cell_clusters)
+            plt.title("Frequency of sample clusters in leaf cluster")
+            plt.bar(np.arange(len(sample_clusters)),cluster_counts,tick_labels=sample_clusters)
             plt.ylabel("Frequency")
             plt.show()
 
-        return cell_clusters,cluster_counts
+        return sample_clusters,cluster_counts
 
 
 
-    def plot_cell_counts(self,**kwargs):
-        counts = self.cell_counts()
+    def plot_sample_counts(self,**kwargs):
+        counts = self.sample_counts()
         plt.figure(figsize=(15,10))
         plt.scatter(self.forest.coordinates(no_plot=True)[:,0],self.forest.coordinates(no_plot=True)[:,1],c=counts,**kwargs)
         plt.colorbar()
@@ -3718,7 +3736,7 @@ class NodeCluster:
 
     def score_panel(self,ax):
         coordinates = self.forest.coordinates(no_plot=True)
-        scores = self.cell_scores()
+        scores = self.sample_scores()
         ax.scatter(coordinates[:,0],coordinates[:,1],c=scores)
         ax.set_xticks([])
         ax.set_yticks([])
@@ -3743,7 +3761,7 @@ class NodeCluster:
         panel_array = np.zeros((1,custom.shape[1]))
 
         for i,cf in enumerate(custom.T):
-            cells = self.cell_scores()
+            cells = self.sample_scores()
             feature_mean = (np.sum(cells * cf)) / np.sum(cells)
             panel_array[0,i] = feature_mean
 
@@ -3793,7 +3811,7 @@ class NodeCluster:
 
         scatter_insert = ax.inset_axes([.6,.7,.4,.3])
         coordinates = self.forest.coordinates(no_plot=True)
-        scores = self.cell_scores()
+        scores = self.sample_scores()
         sub_mask = np.random.random(coordinates.shape[0]) < mask_fraction
         scatter_insert.scatter(coordinates[sub_mask][:,0],coordinates[sub_mask][:,1],c=scores[sub_mask])
         scatter_insert.set_xticks([])
