@@ -16,16 +16,13 @@
         overflow:auto;
         position:absolute;
         max-width:300px;
+        transform: translate(-50%,-50%);
 
       }
 
       .node_container:hover {
-        /* height:500px;
-        width:800px;
-        max-width:800px;
-        max-height:500px; */
 
-        transform: scale(2);
+        transform: translate(-50%,-50%) scale(2);
         z-index:2;
       }
 
@@ -51,6 +48,17 @@
         height:100%;
         max-width:84%;
       }
+      .score_map {
+        float:right;
+        margin:auto;
+        height:100%;
+        max-width:84%;
+      }
+      .decoration_type {
+        position:fixed;
+        right:0%;
+        width:10%;
+      }
     </style>
   <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.4.1/jquery.min.js"></script>
   <script>
@@ -58,7 +66,7 @@
       function() {
         insertNodes();
         insertConnections();
-        decorateNodes();
+        decorateNodesSister();
       });
 
     function insertNodes() {
@@ -70,39 +78,31 @@
       $("head").append(style_string);
       console.log([width,height,]);
       for (let [index,node] of treeCoordinates.slice(1)) {
-        let [top,left] = node.map(function (x) {return x*100});
-        console.log(`Node : ${[top,left]}`);
+        let [x,y] = node.map(function (x) {return x*100});
+        console.log(`Node : ${[x,y]}`);
         let style_spec =
           `
-            top:${top}%;
-            left:${left}%;
+            top:${x}%;
+            left:${y}%;
           `
-          // `
-          //   top:${top}%;
-          //   left:${left}%;
-          //   max-width:${width}%;
-          // `
-          // `
-          //   top:${top}%;
-          //   left:${left}%;
-          // `
-          // `
-          //   top:${top}%;
-          //   left:${left}%;
-          //   max-height:${height}%;
-          //   max-width:${width}%;
-          // `
-
         let node_html = `<div id="${index}" class="node_container" style="${style_spec}">${index}</div>`;
         $("#treeContainer").append(node_html);
       }
     }
 
-    function decorateNodes() {
+    function decorateNodesSister() {
       $(".node_container").each(function (index,node) {
         let header_element = `<h5 class="node_header">Cluster ${index}</h5>`;
         node.innerHTML = header_element;
-        node.innerHTML += `<img class="sister_map" src="./${index}/sister_map.png"/>`;
+        node.innerHTML += `<a href="./${index}/cluster_summary_template_js.html"><img class="sister_map" src="./${index}/sister_map.png"/></a>`;
+      });
+    }
+
+    function decorateNodesScore() {
+      $(".node_container").each(function (index,node) {
+        let header_element = `<h5 class="node_header">Cluster ${index}</h5>`;
+        node.innerHTML = header_element;
+        node.innerHTML += `<a href="./${index}/cluster_summary_template_js.html"><img class="score_map" src="./${index}/score_map.png"/></a>`;
       });
     }
 
@@ -140,5 +140,11 @@
     let summaries = {};
   </script>
   <div id="treeContainer">
+  </div>
+  <div class="decoration_type">
+      <h1> Switch Node Summary </h1>
+      <button class="score_switch" onclick="decorateNodesScore()"> Sample Frequency </button>
+      <button class="sister_switch" onclick="decorateNodesSister()"> Sister Scores </button>
+      <button class="feature_switch"> Changed Features </button>
   </div>
 </body>
