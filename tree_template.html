@@ -15,13 +15,26 @@
         background: white;
         opacity: 1;
         border: 1px solid gray;
+        box-sizing:border-box;
+        border-left:5px solid green;
+        box-shadow: 2px 2px 5px gray;
         overflow:auto;
         position:absolute;
         max-width:300px;
         transform: translate(-50%,-50%);
 
       }
-
+      .header {
+        font-size:2vw;
+        height:5vw;
+      }
+      .panel {
+        margin:1%;
+        padding:2%;
+        box-sizing:border-box;
+        border-left:5px solid green;
+        box-shadow: 2px 2px 5px gray;
+      }
       .node_container:hover {
         transform: translate(-50%,-50%) scale(2);
         z-index:2;
@@ -56,6 +69,18 @@
         height:100%;
         max-width:84%;
       }
+      .feature_header {
+        text-align:center;
+      }
+      .feature_table {
+        float:right;
+        margin:auto;
+        width:84%;
+        font-size:78%;
+      }
+      table {
+        font-size:inherit;
+      }
       .decoration_type {
         position:fixed;
         left:1%;
@@ -69,7 +94,7 @@
         font-size:1.1vw;
       }
       .summary_button {
-        font-size:1.3vw;
+        font-size:1.1vw;
         width:100%;
         margin:1%;
       }
@@ -87,8 +112,8 @@
     function insertNodes() {
       console.log(treeCoordinates);
       let [height,width] = treeCoordinates[0];
-      width *= 100;
-      height *= 100;
+      width *= 110;
+      height *= 95;
       let style_string = `<style>.node_container {width:${width}%;height:${height}%;}</style>`;
       $("head").append(style_string);
       console.log([width,height,]);
@@ -118,6 +143,19 @@
         let header_element = `<h5 class="node_header">Cluster ${index}</h5>`;
         node.innerHTML = header_element;
         node.innerHTML += `<a href="./${index}/cluster_summary_template_js.html"><img class="score_map" src="./${index}/score_map.png"/></a>`;
+      });
+    }
+
+    function decorateNodesFeatures() {
+      $(".node_container").each(function (index,node) {
+        let html = `<a href="./${index}/cluster_summary_template_js.html">`;
+        html += `<h5 class="node_header">Cluster ${index}</h5>`;
+        html += `<h3 class="feature_header">Upregulated</h3>`;
+        html += `<div class="feature_table">${summaries[`cluster_${index}`].upregulatedHtml}</div>`;
+        html += `<h3 class="feature_header">Downregulated</h3>`;
+        html += `<div class="feature_table">${summaries[`cluster_${index}`].downregulatedHtml}</div>`;
+        html += '</a>';
+        node.innerHTML = html;
       });
     }
 
@@ -154,12 +192,13 @@
   <script>
     let summaries = {};
   </script>
+  <h1 class="header panel"> Random Forest Consensus Tree</h1>
   <div id="treeContainer">
   </div>
   <div class="decoration_type">
-      <h1> Switch Node Summary </h1>
+      <h2> Switch Node Summary </h2>
       <button class="summary_button" onclick="decorateNodesSample()"> Sample<br> Frequency </button>
       <button class="summary_button" onclick="decorateNodesSister()"> Sister<br> Scores </button>
-      <button class="summary_button"> Changed<br> Features </button>
+      <button class="summary_button" onclick="decorateNodesFeatures()"> Changed<br> Features </button>
   </div>
 </body>

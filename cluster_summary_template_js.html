@@ -11,7 +11,7 @@
     body {
       font-family:Helvetica,sans-serif;
     }
-    .header, .feature_container,#sister_panel,#sample_panel,#switch_panel,.relatives {
+    .panel {
       margin:1%;
       padding:2%;
       box-sizing:border-box;
@@ -104,8 +104,8 @@
   </script>
 </head>
 <body>
-  <h1 id="clusterHeader" class="header" >Split Cluster </h1>
-  <div class="feature_container">
+  <h1 id="clusterHeader" class="header panel" >Split Cluster </h1>
+  <div class="feature_container panel">
     <div width="50%">
       <h2> Upregulated Features </h2>
       <div id="upregulatedFeatures" class="feature_frame"></div>
@@ -117,16 +117,16 @@
   </div>
 
 
-  <div id="sister_panel">
+  <div id="sister_panel" class="panel">
     <h2 style="text-align:center;" class="score_header"> Sister Scores </h2>
     <img id="sister_score" class="sister_score" src="sister_map.png" />
   </div>
-  <div id="sample_panel">
+  <div id="sample_panel" class="panel">
     <h2 style="text-align:center;" class="score_header"> Sample Scores </h2>
     <img id="sample_score" class="sample_score" src = "score_map.png"/>
   </div>
 
-  <div class="relatives">
+  <div class="relatives panel">
     <h2> Relatives </h2>
     <div>
       <h3> Parent </h3>
@@ -139,7 +139,7 @@
     </div>
   </div>
 
-  <div id="switch_panel">
+  <div id="switch_panel" class="panel">
     <h2> Switch Score Display </h2>
     <button class="summary_button" onclick="sampleScore()"> Sample Scores </button>
     <button class="summary_button" onclick="sisterScore()"> Sister Scores </button>
