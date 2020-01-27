@@ -3018,7 +3018,7 @@ class Forest:
             # Now we need to loop over available clusters to place the cluster decorations into the template
 
             for cluster in self.split_clusters:
-                cluster_summary_json = cluster.json_cluster_summary()
+                cluster_summary_json = cluster.json_cluster_summary(n=n)
                 cluster_summary_html = f'<script> summaries["cluster_{cluster.id}"] = {cluster_summary_json};</script>'
                 html_report.write(cluster_summary_html)
 
