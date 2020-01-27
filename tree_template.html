@@ -4,9 +4,11 @@
         height:2000px;
         width:2000px;
         position:absolute;
-        min-width:60%;
-        max-width:100%;
-        min-height:100%;
+        min-width:90%;
+        /* max-width:100%; */
+        /* min-height:95%; */
+        margin:.5%;
+        padding:.5%;
       }
       .node_container {
         z-index:1;
@@ -21,7 +23,6 @@
       }
 
       .node_container:hover {
-
         transform: translate(-50%,-50%) scale(2);
         z-index:2;
       }
@@ -35,6 +36,7 @@
         writing-mode:vertical-rl;
         margin:auto;
         text-align:center;
+        font-size:150%;
         transform:rotate(180deg);
       }
 
@@ -56,9 +58,22 @@
       }
       .decoration_type {
         position:fixed;
-        right:0%;
-        width:10%;
+        left:1%;
+        bottom:1%;
+        width:10vw;
+        margin:.5%;
+        padding:.5%;
+        border:1px solid gray;
+        z-index:3;
+        background-color:white;
+        font-size:1.1vw;
       }
+      .summary_button {
+        font-size:1.3vw;
+        width:100%;
+        margin:1%;
+      }
+
     </style>
   <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.4.1/jquery.min.js"></script>
   <script>
@@ -66,7 +81,7 @@
       function() {
         insertNodes();
         insertConnections();
-        decorateNodesSister();
+        decorateNodesSample();
       });
 
     function insertNodes() {
@@ -98,7 +113,7 @@
       });
     }
 
-    function decorateNodesScore() {
+    function decorateNodesSample() {
       $(".node_container").each(function (index,node) {
         let header_element = `<h5 class="node_header">Cluster ${index}</h5>`;
         node.innerHTML = header_element;
@@ -143,8 +158,8 @@
   </div>
   <div class="decoration_type">
       <h1> Switch Node Summary </h1>
-      <button class="score_switch" onclick="decorateNodesScore()"> Sample Frequency </button>
-      <button class="sister_switch" onclick="decorateNodesSister()"> Sister Scores </button>
-      <button class="feature_switch"> Changed Features </button>
+      <button class="summary_button" onclick="decorateNodesSample()"> Sample<br> Frequency </button>
+      <button class="summary_button" onclick="decorateNodesSister()"> Sister<br> Scores </button>
+      <button class="summary_button"> Changed<br> Features </button>
   </div>
 </body>

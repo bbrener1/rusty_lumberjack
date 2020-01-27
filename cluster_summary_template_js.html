@@ -11,7 +11,7 @@
     body {
       font-family:Helvetica,sans-serif;
     }
-    .header, .feature_container,.sister_panel,.relatives {
+    .header, .feature_container,#sister_panel,#sample_panel,#switch_panel,.relatives {
       margin:1%;
       padding:2%;
       box-sizing:border-box;
@@ -33,7 +33,13 @@
       width:100%;
       height:100%;
     }
-    .sister_panel {
+    #sister_panel {
+      display:block;
+      float:left;
+      width:73%;
+    }
+    #sample_panel {
+      display:none;
       float:left;
       width:73%;
     }
@@ -42,6 +48,21 @@
       width:80%;
       margin-left: auto;
       margin-right: auto;
+    }
+    .sample_score {
+      display:block;
+      width:80%;
+      margin-left: auto;
+      margin-right: auto;
+    }
+    #switch_panel {
+      float:left;
+      width:23%;
+    }
+    .summary_button {
+      font-size:1.3vw;
+      width:100%;
+      margin:1%;
     }
     .relatives {
       float:left;
@@ -54,6 +75,7 @@
       float:left;
       width:23%;
     }
+
   </style>
   <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.4.1/jquery.min.js"></script>
   <!-- <script src="jquery.min.js"></script> -->
@@ -71,6 +93,14 @@
     console.log(attributes);
 
   })
+  function sisterScore(){
+    document.getElementById("sister_panel").style.display = "block";
+    document.getElementById("sample_panel").style.display = "none";
+  }
+  function sampleScore(){
+    document.getElementById("sister_panel").style.display = "none";
+    document.getElementById("sample_panel").style.display = "block";
+  }
   </script>
 </head>
 <body>
@@ -87,9 +117,13 @@
   </div>
 
 
-  <div class="sister_panel">
-    <h2 style="text-align:center;"> Sister Scores </h2>
-    <img class="sister_score" src="sister_map.png" />
+  <div id="sister_panel">
+    <h2 style="text-align:center;" class="score_header"> Sister Scores </h2>
+    <img id="sister_score" class="sister_score" src="sister_map.png" />
+  </div>
+  <div id="sample_panel">
+    <h2 style="text-align:center;" class="score_header"> Sample Scores </h2>
+    <img id="sample_score" class="sample_score" src = "score_map.png"/>
   </div>
 
   <div class="relatives">
@@ -105,5 +139,10 @@
     </div>
   </div>
 
+  <div id="switch_panel">
+    <h2> Switch Score Display </h2>
+    <button class="summary_button" onclick="sampleScore()"> Sample Scores </button>
+    <button class="summary_button" onclick="sisterScore()"> Sister Scores </button>
+  </div>
 
 </body>
