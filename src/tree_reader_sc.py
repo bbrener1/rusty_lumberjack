@@ -2439,10 +2439,18 @@ class Forest:
 
         return tree
 
-    def maximum_spanning_tree(self,depth=3,transitions=None):
+    def maximum_spanning_tree(self,depth=3,mode="transition_matrix",transitions=None):
 
-        distances = self.split_cluster_transition_matrix(depth=depth)
-        distances[:,-1] = 0
+        if mode == "transition_matrix":
+            distances = self.split_cluster_transition_matrix(depth=depth)
+            distances[:,-1] = 0
+        elif mode == "means"
+            distances = squareform(pdist(self.split_cluster_feature_matrix(),metric="cosine"))
+        elif mode == "samples"
+            cluster_values = np.array([c.sample_scores() for c in self.split_clusters])
+            distances = squareform(pdist(cluster_values,metric="cosine"))
+        else:
+            raise Exception(f"Not a valid mode: {mode}")
 
         mst = np.array(scipy.sparse.csgraph.minimum_spanning_tree(distances*-1).todense())*-1
 
