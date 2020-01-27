@@ -4119,7 +4119,8 @@ def generate_feature_value_html(features,values,normalization=None,cmap=None):
         # normalization = SymLogNorm(linthresh=.05)
 
     html_elements = [
-        '<table width="100%">',
+        # '<table width="100%">',
+        '<table>',
         "<style>","th,td {padding:5px;border-bottom:1px solid #ddd;}","</style>",
         "<tr>",
         "<th>","Features","</th>",
