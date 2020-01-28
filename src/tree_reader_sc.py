@@ -2444,9 +2444,9 @@ class Forest:
         if mode == "transition_matrix":
             distances = self.split_cluster_transition_matrix(depth=depth)
             distances[:,-1] = 0
-        elif mode == "means"
+        elif mode == "means":
             distances = squareform(pdist(self.split_cluster_feature_matrix(),metric="cosine"))
-        elif mode == "samples"
+        elif mode == "samples":
             cluster_values = np.array([c.sample_scores() for c in self.split_clusters])
             distances = squareform(pdist(cluster_values,metric="cosine"))
         else:
