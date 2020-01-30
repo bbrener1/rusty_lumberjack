@@ -2849,7 +2849,7 @@ class Forest:
 
         return location
 
-    def html_tree_summary(self,n=3,mode="ud",custom=None,labels=None,features=None,primary=True,cmap='viridis',secondary=True,figsize=(30,30)):
+    def html_tree_summary(self,n=3,mode="ud",custom=None,labels=None,features=None,primary=True,cmap='viridis',secondary=True,figsize=(30,30),output=None):
 
         from shutil import copyfile,rmtree
         from os import makedirs
@@ -2857,9 +2857,12 @@ class Forest:
 
         # First we'd like to make sure we are operating from scratch in the html directory:
 
-        location = self.html_directory()
-        rmtree(location)
-        makedirs(location)
+        if output is None:
+            location = self.html_directory()
+            rmtree(location)
+            makedirs(location)
+        else:
+            location = output
 
         for split_cluster in self.split_clusters:
             print(f"Summarizing:{split_cluster.name()}")
