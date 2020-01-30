@@ -176,7 +176,7 @@ class Node:
             if hasattr(self,'mean_cache'):
                 return self.mean_cache
         matrix = self.node_counts()
-        means = np.median(matrix,axis=0)
+        means = np.mean(matrix,axis=0)
         if self.cache:
             self.mean_cache = means
         return means
