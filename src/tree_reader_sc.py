@@ -2871,7 +2871,7 @@ class Forest:
 
         for split_cluster in self.split_clusters:
             print(f"Summarizing:{split_cluster.name()}")
-            split_cluster.html_cluster_summary(n=n,plot=False)
+            split_cluster.html_cluster_summary(n=n,plot=False,output=output)
 
         copyfile(location + "/tree_template.html",html_location + "tree_template.html")
 
@@ -3464,8 +3464,8 @@ class NodeCluster:
 
         # This function puts the sister score image in the appropriate location (we discard its return string, not relevant here)
 
-        self.html_sister_scores()
-        self.html_sample_scores()
+        self.html_sister_scores(output=output)
+        self.html_sample_scores(output=output)
 
         with open(html_location+"cluster_summary_template_js.html",'w') as html_file:
             json_string = js_wrap("attributes",self.json_cluster_summary(n=n))
