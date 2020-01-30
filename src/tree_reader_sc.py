@@ -260,6 +260,28 @@ class Node:
             self.additive_cache = additive
         return additive
 
+    def additive_mean_gains(self):
+
+        ## What is the change in absolute values of medians of all features between parent node
+        ## and this node?
+
+        ## What the hell is this method? If you have a sample, and you have a number of nodes
+        ## FROM THE SAME TREE that this sample belongs to, then summing the additive gains of
+        ## all nodes produces a prediction for that sample.
+
+        if self.cache:
+            if hasattr(self,'additive_cache'):
+                return self.additive_mean_cache
+        if self.parent is not None:
+            parent_means = self.parent.means()
+        else:
+            parent_means = np.zeros(len(self.forest.output_features))
+        own_means = self.means()
+        additive = own_means - parent_means
+        if self.cache:
+            self.additive_mean_cache = additive
+        return additive
+
     def feature_additive(self,feature):
 
         # Additive gains for a single feature. See additive_gains for explanation of additive gains
@@ -996,6 +1018,9 @@ class Forest:
         elif mode == 'additive':
             print("Additive reduction")
             encoding = self.additive_matrix(nodes).T
+        elif mode == 'additive_mean':
+            print("Additive mean reduction")
+            encoding = self.mean_additive_matrix(nodes).T
         elif mode == 'sample':
             print("Sample reduction")
             encoding = self.node_sample_encoding(nodes).T
@@ -1070,6 +1095,12 @@ class Forest:
         gains = np.zeros((len(self.output_features),len(nodes)))
         for i,node in enumerate(nodes):
             gains[:,i] = node.additive_gains()
+        return gains
+
+    def mean_additive_matrix(self,nodes):
+        gains = np.zeros((len(self.output_features),len(nodes)))
+        for i,node in enumerate(nodes):
+            gains[:,i] = node.additive_mean_gains()
         return gains
 
     def node_matrix(self,nodes):
@@ -2484,6 +2515,7 @@ class Forest:
         self.reverse_likely_tree = rtree
 
         return tree
+
 
     def sample_score_tree(self):
 
