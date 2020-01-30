@@ -270,7 +270,7 @@ class Node:
         ## all nodes produces a prediction for that sample.
 
         if self.cache:
-            if hasattr(self,'additive_cache'):
+            if hasattr(self,'additive_mean_cache'):
                 return self.additive_mean_cache
         if self.parent is not None:
             parent_means = self.parent.means()
