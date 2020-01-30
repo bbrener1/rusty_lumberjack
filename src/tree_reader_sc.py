@@ -2849,6 +2849,9 @@ class Forest:
 
         return location
 
+    def location(self):
+        return str(Path(__file__).parent.parent.absolute())
+
     def html_tree_summary(self,n=3,mode="ud",custom=None,labels=None,features=None,primary=True,cmap='viridis',secondary=True,figsize=(30,30),output=None):
 
         from shutil import copyfile,rmtree
@@ -2858,19 +2861,21 @@ class Forest:
         # First we'd like to make sure we are operating from scratch in the html directory:
 
         if output is None:
-            location = self.html_directory()
-            rmtree(location)
-            makedirs(location)
+            location = self.location()
+            html_location = location + "/html/"
+            rmtree(html_location)
+            makedirs(html_location)
         else:
-            location = output
+            location = self.location()
+            html_location = output
 
         for split_cluster in self.split_clusters:
             print(f"Summarizing:{split_cluster.name()}")
             split_cluster.html_cluster_summary(n=n,plot=False)
 
-        copyfile("../tree_template.html",location + "tree_template.html")
+        copyfile(location + "/tree_template.html",html_location + "tree_template.html")
 
-        with open(location + "tree_template.html",'a') as html_report:
+        with open(html_location + "tree_template.html",'a') as html_report:
 
 
 
@@ -3042,7 +3047,7 @@ class Forest:
 
 
         from subprocess import run
-        run(["open",location + "tree_template.html"])
+        run(["open",html_location + "tree_template.html"])
 
 
     def split_cluster_leaves(self):
@@ -3443,12 +3448,17 @@ class NodeCluster:
 
         return jsn_dumps(attributes)
 
-    def html_cluster_summary(self,n=20,plot=True):
+    def html_cluster_summary(self,n=20,plot=True,output=None):
 
-        location = self.html_directory()
+
+        location = self.forest.location()
+        if output is None:
+            html_location = self.html_directory()
+        else:
+            html_location = output
 
         # First we read in the template (TO DO improve safety)
-        html_string = open("../cluster_summary_template_js.html",'r').read()
+        html_string = open(location+"/cluster_summary_template_js.html",'r').read()
 
         # Reading the file in allows us to both write a summary file somewhere appropriate and return an html string in case we want to do something else
 
@@ -3457,7 +3467,7 @@ class NodeCluster:
         self.html_sister_scores()
         self.html_sample_scores()
 
-        with open(location+"cluster_summary_template_js.html",'w') as html_file:
+        with open(html_location+"cluster_summary_template_js.html",'w') as html_file:
             json_string = js_wrap("attributes",self.json_cluster_summary(n=n))
             html_string = html_string + json_string
             html_file.write(html_string)
@@ -3465,7 +3475,7 @@ class NodeCluster:
         if plot:
             # We ask the OS to open the html file.
             from subprocess import run
-            run(["open",location + "cluster_summary_template_js.html"])
+            run(["open",html_location + "cluster_summary_template_js.html"])
 
         # Finally we return the HTML string
         # CAUTION, this contains the whole template file, so it has a bunch of javascript in it.
@@ -3481,11 +3491,14 @@ class NodeCluster:
         html = generate_feature_value_html(features,feature_values)
         return html
 
-    def html_sister_scores(self):
+    def html_sister_scores(self,output=None):
 
         from matplotlib.colors import DivergingNorm
 
-        location = self.html_directory()
+        if output is None:
+            location = self.html_directory()
+        else:
+            location = output
 
         forest_coordinates = self.forest.coordinates()
         sister_scores = self.sister_scores()
@@ -3501,9 +3514,12 @@ class NodeCluster:
 
         return html
 
-    def html_sample_scores(self):
+    def html_sample_scores(self,output=None):
 
-        location = self.html_directory()
+        if output is None:
+            location = self.html_directory()
+        else:
+            location = output
 
         forest_coordinates = self.forest.coordinates()
         sample_scores = self.sample_scores()
