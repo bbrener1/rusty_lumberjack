@@ -2842,6 +2842,13 @@ class Forest:
     #     #   recursive_axes(self.likely_tree,n=n)
     #     #   return fig
 
+    def html_directory(self):
+
+        location = Path(__file__).parent.parent.absolute()
+        location = str(location) + "/html/"
+
+        return location
+
     def html_tree_summary(self,n=3,mode="ud",custom=None,labels=None,features=None,primary=True,cmap='viridis',secondary=True,figsize=(30,30)):
 
         from shutil import copyfile,rmtree
@@ -2850,10 +2857,9 @@ class Forest:
 
         # First we'd like to make sure we are operating from scratch in the html directory:
 
-        location = "../"
-        rmtree(location + "/html")
-        makedirs(location + "/html/")
-        location = "../html/"
+        location = self.html_directory()
+        rmtree(location)
+        makedirs(location)
 
         for split_cluster in self.split_clusters:
             print(f"Summarizing:{split_cluster.name()}")
@@ -3400,7 +3406,7 @@ class NodeCluster:
         return sorted_features,sorted_gains
 
     def html_directory(self):
-        location = "../html/" + str(self.id) + "/"
+        location = self.forest.html_directory() + str(self.id) + "/"
         if not os.path.exists(location):
             os.makedirs(location)
         return location
