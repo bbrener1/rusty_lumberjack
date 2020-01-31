@@ -2075,12 +2075,14 @@ class Forest:
         return coordinates
 
     def split_cluster_feature_matrix(self,features=None):
-        if features is None:
-            return np.array([np.mean(self.mean_additive_matrix(c.nodes),axis=0) for c in self.split_clusters])
         coordinates = np.zeros((len(self.split_clusters),len(features)))
-        for i,split_cluster in enumerate(self.split_clusters):
-            for j,feature in enumerate(features):
-                coordinates[i,j] = split_cluster.feature_mean(feature)
+        if features is None:
+            for i,split_cluster in enumerate(self.split_clusters):
+                coordinates[i] = np.mean(self.mean_additive_matrix(split_cluster.nodes),axis=1)
+        else:
+            for i,split_cluster in enumerate(self.split_clusters):
+                for j,feature in enumerate(features):
+                    coordinates[i,j] = split_cluster.feature_mean(feature)
         return coordinates
 
 
