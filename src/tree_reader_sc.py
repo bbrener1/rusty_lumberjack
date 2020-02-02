@@ -2019,7 +2019,7 @@ class Forest:
             plt.scatter(combined_coordinates[:,0],combined_coordinates[:,1],s=highlight,c=combined_labels,cmap='rainbow')
             for cluster,coordinates in zip(cluster_names,cluster_coordiantes):
                 plt.text(*coordinates,cluster,verticalalignment='center',horizontalalignment='center')
-            plt.savefig("./tmp.delete.png",dpi=300)
+            # plt.savefig("./tmp.delete.png",dpi=300)
         else:
             f = plt.figure(figsize=(20,20))
             plt.title("Sample Coordinates")
