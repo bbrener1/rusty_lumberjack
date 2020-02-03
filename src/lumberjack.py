@@ -59,12 +59,12 @@ def save_trees(location,input_counts,output_counts=None,test_counts=None,ifh=Non
     if ifh is None:
         np.savetxt(location + "tmp.ifh", np.arange(input_counts.shape[1],dtype=int),fmt='%u')
     else:
-        np.savetxt(location + "tmp.ifh", header,fmt="%s")
+        np.savetxt(location + "tmp.ifh", ifh,fmt="%s")
 
     if ofh is None:
         np.savetxt(location + "tmp.ofh", np.arange(output_counts.shape[1],dtype=int),fmt='%u')
     else:
-        np.savetxt(location + "tmp.ofh", header,fmt="%s")
+        np.savetxt(location + "tmp.ofh", ofh,fmt="%s")
 
     print("Generating trees")
 
