@@ -194,8 +194,6 @@ impl Node {
 
         let braid = Braid::from_splits(features, samples, &rvs, &splits);
 
-        // eprintln!("Braid split:{:?}",braid);
-
         self.derive_complete_by_braid(braid)
     }
 
@@ -262,13 +260,11 @@ impl Node {
         // let dispersions = self.output_table.order_dispersions(&draw_order,&drop_set,&self.feature_weights)?;
         // let (split_index,minimum_dispersion) = argmin(&dispersions[1..])?;
 
-
-
         let left_indices = braid.left_indices();
 
         let right_indices = braid.right_indices();
 
-        if left_indices.len() < 3 || right_indices.len() < 3 {
+        if left_indices.len() < 2 || right_indices.len() < 2 {
             return None
         }
 
@@ -339,6 +335,8 @@ impl Node {
 
         let mut new_input_table = self.input_table.derive_specified(&input_features,samples);
         let mut new_output_table = self.output_table.derive_specified(&output_features,samples);
+
+        eprintln!("spec_derivation debug, tables done");
 
         let new_input_features = input_features.iter().map(|i| self.input_features[*i].clone()).collect();
         let new_output_features = output_features.iter().map(|i| self.output_features[*i].clone()).collect();
@@ -1245,8 +1243,8 @@ mod node_testing {
     fn simple_node() -> Node {
         let input_counts = &vec![vec![10.,-3.,0.,5.,-2.,-1.,15.,20.]];
         let output_counts = &vec![vec![10.,-3.,0.,5.,-2.,-1.,15.,20.]];
-        let input_features = &vec![Feature::q(&1)][..];
-        let output_features = &vec![Feature::q(&2)][..];
+        let input_features = &vec![Feature::q(&0)][..];
+        let output_features = &vec![Feature::q(&0)][..];
         let samples = &Sample::vec(vec![0,1,2,3,4,5,6,7])[..];
         let parameters = blank_parameter();
         let feature_weight_option = None;
@@ -1322,21 +1320,25 @@ mod node_testing {
 
         let mut root = simple_node();
 
-        root.split_node();
+        println!("Created node");
+        // root.split_node();
+        let children = root.braid_split_node(8,1,1);
+        root.children = children.unwrap();
 
-        println!("sample_order:{:?}",root.children[0].output_table.full_values());
+        eprintln!("{:?}",root.braids[0]);
 
-        // assert_eq!(&root.children[0].sample_names(),&vec!["1".to_string(),"3".to_string(),"4".to_string(),"5".to_string()]);
-        // assert_eq!(&root.children[1].sample_names(),&vec!["0".to_string(),"6".to_string(),"7".to_string()]);
+        assert_eq!(&root.children[0].sample_names(),&vec!["1".to_string(),"3".to_string(),"4".to_string(),"5".to_string()]);
+        assert_eq!(&root.children[1].sample_names(),&vec!["0".to_string(),"6".to_string(),"7".to_string()]);
 
         // assert_eq!(root.children[0].samples(),&vec!["1".to_string(),"4".to_string(),"5".to_string()]);
         // assert_eq!(root.children[1].samples(),&vec!["0".to_string(),"3".to_string(),"6".to_string(),"7".to_string()]);
 
-        assert_eq!(&root.children[0].sample_names(),&vec!["1".to_string(),"2".to_string(),"3".to_string(),"4".to_string(),"5".to_string()]);
-        assert_eq!(&root.children[1].sample_names(),&vec!["0".to_string(),"2".to_string(),"6".to_string(),"7".to_string()]);
 
-        assert_eq!(&root.children[0].output_table.full_values(),&vec![vec![-3.,0.,5.,-2.,-1.]]);
-        assert_eq!(&root.children[1].output_table.full_values(),&vec![vec![10.,0.,15.,20.]]);
+        // assert_eq!(&root.children[0].sample_names(),&vec!["1".to_string(),"2".to_string(),"3".to_string(),"4".to_string(),"5".to_string()]);
+        // assert_eq!(&root.children[1].sample_names(),&vec!["0".to_string(),"2".to_string(),"6".to_string(),"7".to_string()]);
+        //
+        // assert_eq!(&root.children[0].output_table.full_values(),&vec![vec![-3.,0.,5.,-2.,-1.]]);
+        // assert_eq!(&root.children[1].output_table.full_values(),&vec![vec![10.,0.,15.,20.]]);
 
     }
 

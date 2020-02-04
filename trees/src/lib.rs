@@ -19,7 +19,7 @@ extern crate ndarray;
 extern crate num_traits;
 
 mod rank_vector;
-mod segment_vector;
+// mod segment_vector;
 mod rank_table;
 pub mod io;
 pub mod node;
