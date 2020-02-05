@@ -159,6 +159,7 @@ pub struct Braid {
     feature_splits: Option<Vec<Split>>,
     split_flips: Option<Vec<bool>>,
     compound_split: Option<f64>,
+    orientation:Option<bool>,
 }
 
 impl Braid {
@@ -230,12 +231,9 @@ impl Braid {
             feature_splits: Some(splits.iter().cloned().collect()),
             split_flips: Some(flip),
             compound_split: None,
+            orientation: None,
         }
     }
-
-    // fn braid_sample(&self,sample:HashMap<Feature,f64>) {
-    //     let sf = self.features.iter().flat_map(|f| sample.get(f))
-    // }
 
     // fn draw_order(&self) -> (&[usize],&HashSet<usize>) {
     //     (&self.draw_order,&self.drop_set)

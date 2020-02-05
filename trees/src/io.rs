@@ -252,7 +252,7 @@ impl Parameters {
             input_features: 1,
             output_features: 1,
 
-            braid_thickness: 4,
+            braid_thickness: 3,
 
             prediction_mode: PredictionMode::Abort,
             averaging_mode: AveragingMode::Arithmetic,
@@ -406,6 +406,10 @@ impl Parameters {
                 "-ss" | "-sample_sub" | "-sample_subsample" | "-sample_subsamples" => {
                     arg_struct.sample_subsample = args.next().expect("Error processing sample subsample arg").parse::<usize>().expect("Error sample subsample arg");
                 },
+                "-braid" | "-braids" | "-braid_thickness" => {
+                    arg_struct.braid_thickness = args.next().expect("Error reading braid thickness").parse::<usize>().expect("-braid not a number");
+                },
+
                 "-e" | "-epochs" => {
                     arg_struct.epochs = args.next().expect("Error reading number of epochs").parse::<usize>().expect("-e not a number");
                 },

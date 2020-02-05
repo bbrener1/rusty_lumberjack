@@ -40,7 +40,7 @@ use std::env;
 use rayon::prelude::*;
 
 // Prefer braid thickness to to be odd to make consensus braids work well
-const BRAID_THICKNESS: usize = 3;
+// const BRAID_THICKNESS: usize = 3;
 
 #[derive(Clone,Serialize,Deserialize,Debug)]
 pub struct Node {
@@ -64,6 +64,7 @@ pub struct Node {
 
     prerequisites: Vec<Prerequisite>,
     braids: Vec<Braid>,
+    braid_thickness: usize,
 
     pub medians: Vec<f64>,
     pub additive: Vec<f64>,
@@ -108,6 +109,7 @@ impl Node {
 
             prerequisites: vec![],
             braids: vec![],
+            braid_thickness: parameters.braid_thickness,
 
             medians: medians,
             additive: additive,
@@ -144,7 +146,7 @@ impl Node {
 
         if !self.prototype { panic!("Attempted to take a braid off an incomplete node") };
 
-        let thickness = BRAID_THICKNESS;
+        let thickness = self.braid_thickness;
 
         // Here we can either resample the compute node multiple times or simply take the top 4 features. I am leaning towards the latter as the approach
 
@@ -288,8 +290,48 @@ impl Node {
         left_child.prototype = true;
         right_child.prototype = true;
 
+        left_child.braids.last_mut().unwrap().orientation = Some(false);
+        right_child.braids.last_mut().unwrap().orientation = Some(true);
+
         Some(vec![left_child,right_child])
     }
+
+    //
+    // pub fn subsample_by_braids(&mut self,mut braids:&[Braid]) -> Option<Vec<Node>> {
+    //     // let (draw_order,drop_set) = braid.draw_order();
+    //     // let dispersions = self.output_table.order_dispersions(&draw_order,&drop_set,&self.feature_weights)?;
+    //     // let (split_index,minimum_dispersion) = argmin(&dispersions[1..])?;
+    //
+    //     let left_indices = braid.left_indices();
+    //
+    //     let right_indices = braid.right_indices();
+    //
+    //     if left_indices.len() < 2 || right_indices.len() < 2 {
+    //         return None
+    //     }
+    //
+    //     braid.compound_split = Some(0.);
+    //
+    //     self.braids.push(braid.clone());
+    //
+    //     let mut left_child_id = self.id.clone();
+    //     let mut right_child_id = self.id.clone();
+    //     left_child_id.push_str(&format!("!F{:?}:L",braid.features));
+    //     right_child_id.push_str(&format!("!F{:?}:R",braid.features));
+    //
+    //     let input_features: Vec<usize> = (0..self.input_features().len()).collect();
+    //     let output_features: Vec<usize> = (0..self.output_features().len()).collect();
+    //
+    //     let mut new_braids = self.braids.clone();
+    //
+    //     let mut left_child = self.derive_specified(&left_indices, &input_features, &output_features, None, Some(new_braids.clone()), &left_child_id);
+    //     let mut right_child = self.derive_specified(&right_indices, &input_features, &output_features, None, Some(new_braids), &right_child_id);
+    //
+    //     left_child.prototype = true;
+    //     right_child.prototype = true;
+    //
+    //     Some(vec![left_child,right_child])
+    // }
 
     pub fn derive_complete_by_split(&self,split:&Split,prototype:Option<&Node>) -> Vec<Node> {
 
@@ -336,7 +378,7 @@ impl Node {
         let mut new_input_table = self.input_table.derive_specified(&input_features,samples);
         let mut new_output_table = self.output_table.derive_specified(&output_features,samples);
 
-        eprintln!("spec_derivation debug, tables done");
+        // eprintln!("spec_derivation debug, tables done");
 
         let new_input_features = input_features.iter().map(|i| self.input_features[*i].clone()).collect();
         let new_output_features = output_features.iter().map(|i| self.output_features[*i].clone()).collect();
@@ -380,6 +422,7 @@ impl Node {
 
             prerequisites: new_prerequisites,
             braids: new_braids,
+            braid_thickness: self.braid_thickness,
 
             medians: medians,
             additive: additive,
