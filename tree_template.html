@@ -109,6 +109,10 @@
     function insertNodes() {
       console.log(treeCoordinates);
       let [height,width] = treeCoordinates[0];
+      x_total = 300 * (1/width)
+      y_total = 200 * (1/height)
+      document.getElementById('treeContainer').style.width = `${x_total}px`
+      document.getElementById('treeContainer').style.height = `${y_total}px`
       width *= 110;
       height *= 95;
       let style_string = `<style>.node_container {width:${width}%;height:${height}%;}</style>`;
