@@ -23,3 +23,7 @@ https://www.nature.com/articles/nmeth.4380.pdf?origin=ppub
 Cao, Junyue, Jonathan S. Packer, Vijay Ramani, Darren A. Cusanovich, Chau Huynh, Riza Daza, Xiaojie Qiu et al. "Comprehensive single-cell transcriptional profiling of a multicellular organism." Science 357, no. 6352 (2017): 661-667.
 https://science.sciencemag.org/content/357/6352/661.abstract
 
+Additionally:
+
+https://github.com/willtownes/glmpca-py/blob/master/glmpca/glmpca.py 
+GLMPCA for normalization
