@@ -1770,11 +1770,27 @@ class Forest:
         labels = np.zeros(len(nodes)).astype(dtype=int)
 
         if mode == "xordist":
-            representation = self.node_representation(nodes,mode="sample").astype(dtype=int)
-            l_and = np.dot(representation,representation.T)
-            l_not = np.power(representaiton - 1,2)
-            l_nor = np.dot(l_not,l_not.T)
-            l_xor = (np.ones((representation.shape[0],representation.shape[0]))*representaiton.shape[1]) - l_and - l_nor
+            print("Estimating XOR distance")
+            def shifted_and_sum(x,i,out):
+                if i%500 == 0:
+                    print(i)
+                n,s = x.shape
+                out[i,i:] = np.sum(np.logical_and(x[i:],x[:(n-i)]),axis=1)
+                out[i,:i] = np.sum(np.logical_and(x[:i],x[(n-i):]),axis=1)
+
+            def shifted_xor_sum(x,i,out):
+                if i%500 == 0:
+                    print(i)
+                n,s = x.shape
+                out[i,i:] = np.sum(np.logical_xor(x[i:],x[:(n-i)]),axis=1)
+                out[i,:i] = np.sum(np.logical_xor(x[:i],x[(n-i):]),axis=1)
+
+            representation = self.node_representation(nodes,mode="sample")
+            n,s = representation.shape
+            l_and = np.zeros((n,n))
+            l_xor = np.zeros((n,n))
+            [shifted_and_sum(representation,i,l_and) for i in range(n)]
+            [shifted_xor_sum(representation,i,l_xor) for i in range(n)]
             dist = (l_xor+1)/(l_and + 1)
             labels[stem_mask] = 1 + np.array(sdg.fit_predict(dist,metric="precomputed",**kwargs))
         else:
