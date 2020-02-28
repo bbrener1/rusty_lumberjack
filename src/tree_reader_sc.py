@@ -1769,8 +1769,6 @@ class Forest:
 
         labels = np.zeros(len(nodes)).astype(dtype=int)
 
-        representation = self.node_representation(nodes,mode=mode,metric=None,pca=pca)
-
         if mode == "xordist":
             representation = self.node_representation(nodes,mode="sample").astype(dtype=int)
             l_and = np.dot(representation,representation.T)
@@ -1780,6 +1778,7 @@ class Forest:
             dist = (l_xor+1)/(l_and + 1)
             labels[stem_mask] = 1 + np.array(sdg.fit_predict(dist,metric="precomputed",**kwargs))
         else:
+            representation = self.node_representation(nodes,mode=mode,metric=None,pca=pca)
             labels[stem_mask] = 1 + np.array(sdg.fit_predict(representation[stem_mask],metric=metric,**kwargs))
 
         for node,label in zip(nodes,labels):
