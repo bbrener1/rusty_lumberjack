@@ -1569,12 +1569,16 @@ class Forest:
         return self.sample_labels
 
 
-    def cluster_samples_encoding(self,override=False,pca=False,*args,**kwargs):
+    def cluster_samples_encoding(self,override=False,pca=False,depth_limit=None,*args,**kwargs):
 
         if hasattr(self,'sample_labels') and override:
             self.reset_sample_clusters()
 
         leaves = self.leaves()
+
+        if depth_limit is not None
+            leaves = [n for n in self.nodes() if n.level == depth_limit]
+
         encoding = self.node_sample_encoding(leaves)
 
         if pca is not False:
