@@ -1758,7 +1758,7 @@ class Forest:
     def sdg_cluster_representation(representation,**kwargs):
         return np.array(sdg.fit_predict(representation,**kwargs))
 
-    def interpret_splits(self,override=False,mode='gain',metric='jaccard',distance='cosine',pca=False,depth=3,*args,**kwargs):
+    def interpret_splits(self,override=False,mode='additive',metric='cosine',pca=False,depth=3,**kwargs):
 
         from sklearn.manifold import MDS
 
@@ -1771,7 +1771,16 @@ class Forest:
 
         representation = self.node_representation(nodes,mode=mode,metric=None,pca=pca)
 
-        labels[stem_mask] = 1 + np.array(sdg.fit_predict(representation[stem_mask],metric=metric,*args,**kwargs))
+        if mode == "xordist":
+            representation = self.node_representation(nodes,mode="sample").astype(dtype=int)
+            and = np.dot(representation,representation.T)
+            inv = np.power(representaiton - 1,2)
+            nor = np.dot(inv,inv.T)
+            xor = (np.ones((representation.shape[0],representation.shape[0]))*representaiton.shape[1]) - and - nor
+            dist = (xor+1)/(and + 1)
+            labels[stem_mask] = 1 + np.array(sdg.fit_predict(dist,metric="precomputed",**kwargs))
+        else:
+            labels[stem_mask] = 1 + np.array(sdg.fit_predict(representation[stem_mask],metric=metric,**kwargs))
 
         for node,label in zip(nodes,labels):
             node.set_split_cluster(label)
@@ -2088,10 +2097,10 @@ class Forest:
 
 
 
-    def tsne(self,no_plot=False,pca=True,override=False,**kwargs):
+    def tsne(self,no_plot=False,pca=False,override=False,**kwargs):
         if not hasattr(self,'tsne_coordinates') or override:
             if pca:
-                self.tsne_coordinates = TSNE().fit_transform(PCA(n_components=10).fit_transform(self.output))
+                self.tsne_coordinates = TSNE().fit_transform(PCA(n_components=pca).fit_transform(self.output))
             else:
                 self.tsne_coordinates = TSNE().fit_transform(self.output)
 
