@@ -1773,11 +1773,11 @@ class Forest:
 
         if mode == "xordist":
             representation = self.node_representation(nodes,mode="sample").astype(dtype=int)
-            and = np.dot(representation,representation.T)
-            inv = np.power(representaiton - 1,2)
-            nor = np.dot(inv,inv.T)
-            xor = (np.ones((representation.shape[0],representation.shape[0]))*representaiton.shape[1]) - and - nor
-            dist = (xor+1)/(and + 1)
+            l_and = np.dot(representation,representation.T)
+            l_not = np.power(representaiton - 1,2)
+            l_nor = np.dot(l_not,l_not.T)
+            l_xor = (np.ones((representation.shape[0],representation.shape[0]))*representaiton.shape[1]) - l_and - l_nor
+            dist = (l_xor+1)/(l_and + 1)
             labels[stem_mask] = 1 + np.array(sdg.fit_predict(dist,metric="precomputed",**kwargs))
         else:
             labels[stem_mask] = 1 + np.array(sdg.fit_predict(representation[stem_mask],metric=metric,**kwargs))
