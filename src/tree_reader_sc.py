@@ -1796,7 +1796,7 @@ class Forest:
             [shifted_and_sum(representation,i,l_and) for i in range(n)]
             [shifted_xor_sum(representation,i,l_xor) for i in range(n)]
             dist = (l_xor+1)/(l_and + 1)
-            labels[stem_mask] = 1 + np.array(sdg.fit_predict(dist,metric="precomputed",**kwargs))
+            labels[stem_mask] = 1 + np.array(sdg.fit_predict(dist,precomputed=dist,**kwargs))
         else:
             representation = self.node_representation(nodes,mode=mode,metric=None,pca=pca)
             labels[stem_mask] = 1 + np.array(sdg.fit_predict(representation[stem_mask],metric=metric,**kwargs))
