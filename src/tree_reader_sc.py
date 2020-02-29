@@ -1576,7 +1576,7 @@ class Forest:
 
         leaves = self.leaves()
 
-        if depth_limit is not None
+        if depth_limit is not None:
             leaves = [n for n in self.nodes() if n.level == depth_limit]
 
         encoding = self.node_sample_encoding(leaves)
