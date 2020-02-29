@@ -1789,7 +1789,7 @@ class Forest:
                 out[i,i:] = np.sum(np.logical_xor(x[i:],x[:(n-i)]),axis=1)
                 out[i,:i] = np.sum(np.logical_xor(x[:i],x[(n-i):]),axis=1)
 
-            representation = self.node_representation(nodes,mode="sample")
+            representation = self.node_representation(nodes[stem_mask],mode="sample")
             n,s = representation.shape
             l_and = np.zeros((n,n))
             l_xor = np.zeros((n,n))
