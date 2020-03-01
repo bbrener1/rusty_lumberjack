@@ -1786,8 +1786,7 @@ class Forest:
             # parent_distance = squareform(pdist(parent_representation,metric=metric))
             geo_mean = np.sqrt(own_distance * sister_distance)
             # geo_mean = np.exp((np.log(own_distance) + np.log(sister_distance) + np.log(parent_distance)) / 3.)
-            gd = geo_mean.diag()
-            gd[:] = 1
+            np.diag(geo_mean) = 0
             labels[stem_mask] = 1 + np.array(sdg.fit_predict(geo_mean,precomputed=geo_mean,**kwargs))
         else:
             representation = self.node_representation(nodes,mode=mode,metric=None,pca=pca)
