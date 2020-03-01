@@ -1780,15 +1780,14 @@ class Forest:
             # parent_representation = self.node_representation([n.parent for n in nodes[stem_mask]],mode=mode)
             if pca:
                 own_representation = PCA(n_components=pca).fit_transform(own_representation)
-                sister_representation = PCA(n_components=pca).fit_transform(own_representation)
+                sister_representation = PCA(n_components=pca).fit_transform(sister_representation)
             own_distance = squareform(pdist(own_representation,metric=metric))
             sister_distance = squareform(pdist(sister_representation,metric=metric))
             # parent_distance = squareform(pdist(parent_representation,metric=metric))
-            geo_mean = np.sqrt(own_distance * sister_distance)
-            # geo_mean = np.exp((np.log(own_distance) + np.log(sister_distance) + np.log(parent_distance)) / 3.)
-            gd = np.diag(geo_mean)
-            gd = 1
-            labels[stem_mask] = 1 + np.array(sdg.fit_predict(geo_mean,precomputed=geo_mean,**kwargs))
+            aggregate = np.sqrt(own_distance * sister_distance)
+            # aggregate = (own_distance + sister_distance) / 2
+            # aggregate = np.exp((np.log(own_distance) + np.log(sister_distance) + np.log(parent_distance)) / 3.)
+            labels[stem_mask] = 1 + np.array(sdg.fit_predict(aggregate,precomputed=aggregate,**kwargs))
         else:
             representation = self.node_representation(nodes,mode=mode,metric=None,pca=pca)
             labels[stem_mask] = 1 + np.array(sdg.fit_predict(representation[stem_mask],metric=metric,**kwargs))
