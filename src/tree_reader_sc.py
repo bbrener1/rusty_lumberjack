@@ -1762,7 +1762,7 @@ class Forest:
     def sdg_cluster_representation(representation,**kwargs):
         return np.array(sdg.fit_predict(representation,**kwargs))
 
-    def interpret_splits(self,override=False,mode='additive',metric='cosine',pca=False,depth=3,**kwargs):
+    def interpret_splits(self,override=False,mode='additive',metric='cosine',pca=False,relatives=False,depth=3,**kwargs):
 
         from sklearn.manifold import MDS
 
@@ -1773,30 +1773,20 @@ class Forest:
 
         labels = np.zeros(len(nodes)).astype(dtype=int)
 
-        if mode == "xordist":
-            print("Estimating XOR distance")
-            def shifted_and_sum(x,i,out):
-                if i%500 == 0:
-                    print(i)
-                n,s = x.shape
-                out[i,i:] = np.sum(np.logical_and(x[i:],x[:(n-i)]),axis=1)
-                out[i,:i] = np.sum(np.logical_and(x[:i],x[(n-i):]),axis=1)
-
-            def shifted_xor_sum(x,i,out):
-                if i%500 == 0:
-                    print(i)
-                n,s = x.shape
-                out[i,i:] = np.sum(np.logical_xor(x[i:],x[:(n-i)]),axis=1)
-                out[i,:i] = np.sum(np.logical_xor(x[:i],x[(n-i):]),axis=1)
-
-            representation = self.node_representation(nodes[stem_mask],mode="sample")
-            n,s = representation.shape
-            l_and = np.zeros((n,n))
-            l_xor = np.zeros((n,n))
-            [shifted_and_sum(representation,i,l_and) for i in range(n)]
-            [shifted_xor_sum(representation,i,l_xor) for i in range(n)]
-            dist = (l_xor+1)/(l_and + 1)
-            labels[stem_mask] = 1 + np.array(sdg.fit_predict(dist,precomputed=dist,**kwargs))
+        if relatives:
+            print("Relativistic distance (heh)")
+            own_representation = self.node_representation(nodes[stem_mask],mode=mode)
+            sister_representation = self.node_representation([n.sister() for n in nodes[stem_mask]],mode=mode)
+            # parent_representation = self.node_representation([n.parent for n in nodes[stem_mask]],mode=mode)
+            if pca:
+                own_representation = PCA(n_components=pca).fit_transform(own_representation)
+                sister_representation = PCA(n_components=pca).fit_transform(own_representation)
+            own_distance = squareform(pdist(own_representation,metric=metric))
+            sister_distance = squareform(pdist(sister_representation,metric=metric))
+            # parent_distance = squareform(pdist(parent_representation,metric=metric))
+            geo_mean = np.sqrt(own_distance * sister_distance)
+            # geo_mean = np.exp((np.log(own_distance) + np.log(sister_distance) + np.log(parent_distance)) / 3.)
+            labels[stem_mask] = 1 + np.array(sdg.fit_predict(geo_mean,precomputed=geo_mean,**kwargs))
         else:
             representation = self.node_representation(nodes,mode=mode,metric=None,pca=pca)
             labels[stem_mask] = 1 + np.array(sdg.fit_predict(representation[stem_mask],metric=metric,**kwargs))
