@@ -2131,9 +2131,12 @@ class Forest:
 
         return self.tsne_coordinates
 
-    def tsne_encoding(self,no_plot=False,override=False,**kwargs):
+    def tsne_encoding(self,no_plot=False,override=False,pca=False,**kwargs):
         if not hasattr(self,'tsne_coordinates') or override:
-            self.tsne_coordinates = TSNE().fit_transform(self.node_sample_encoding(self.leaves()))
+            if pca:
+                self.tsne_coordinates = TSNE().fit_transform(PCA(n_components=pca).fit_transform(self.node_sample_encoding(self.leaves())))
+            else:
+                self.tsne_coordinates = TSNE().fit_transform(self.node_sample_encoding(self.leaves()))
 
         if not no_plot:
             plt.figure()
